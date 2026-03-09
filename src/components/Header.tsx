@@ -16,6 +16,7 @@ interface HeaderProps {
   onImageConverterOpen: () => void;
   onImageEditorOpen: () => void;
   onImageMatcherOpen: () => void;
+  onSvgaExOpen: () => void;
   onLoginClick: () => void;
   onProfileClick: () => void;
   currentTab: string;
@@ -35,6 +36,7 @@ export const Header: React.FC<HeaderProps> = ({
   onImageConverterOpen,
   onImageEditorOpen,
   onImageMatcherOpen,
+  onSvgaExOpen,
   onLoginClick,
   onProfileClick,
   currentTab
@@ -62,6 +64,13 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={onLogoClick} 
             icon={<Layers className="w-4 h-4" />}
             label="SVGA Editor"
+          />
+          <NavButton 
+            active={currentTab === 'svga-ex'} 
+            onClick={onSvgaExOpen} 
+            icon={<Layers className="w-4 h-4" />}
+            label="SVGA Editor EX"
+            variant="red"
           />
           <NavButton 
             active={currentTab === 'converter'} 
@@ -156,15 +165,16 @@ interface NavButtonProps {
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
+  variant?: 'default' | 'red';
 }
 
-const NavButton: React.FC<NavButtonProps> = ({ active, onClick, icon, label }) => (
+const NavButton: React.FC<NavButtonProps> = ({ active, onClick, icon, label, variant = 'default' }) => (
   <button
     onClick={onClick}
     className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
       active 
-        ? 'bg-indigo-500/10 text-indigo-400 ring-1 ring-indigo-500/20' 
-        : 'text-slate-400 hover:text-white hover:bg-white/5'
+        ? (variant === 'red' ? 'bg-red-500/10 text-red-400 ring-1 ring-red-500/20' : 'bg-indigo-500/10 text-indigo-400 ring-1 ring-indigo-500/20')
+        : (variant === 'red' ? 'text-red-400/70 hover:text-red-400 hover:bg-red-500/5' : 'text-slate-400 hover:text-white hover:bg-white/5')
     }`}
   >
     {icon}

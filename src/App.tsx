@@ -280,6 +280,7 @@ const App: React.FC = () => {
         onImageConverterOpen={() => handleFeatureAccess(AppState.IMAGE_CONVERTER, 'Image Converter')}
         onImageEditorOpen={() => handleFeatureAccess(AppState.IMAGE_EDITOR, 'Image Editor')}
         onImageMatcherOpen={() => handleFeatureAccess(AppState.IMAGE_MATCHER, 'Image Matcher')}
+        onSvgaExOpen={() => setState(AppState.SVGA_EDITOR_EX)}
         onLoginClick={() => setShowAuthModal(true)}
         onProfileClick={() => setShowProfileModal(true)}
         currentTab={
@@ -289,6 +290,7 @@ const App: React.FC = () => {
           state === AppState.IMAGE_CONVERTER ? 'image-converter' :
           state === AppState.IMAGE_EDITOR ? 'image-editor' :
           state === AppState.IMAGE_MATCHER ? 'image-matcher' :
+          state === AppState.SVGA_EDITOR_EX ? 'svga-ex' :
           'svga'
         }
       />
@@ -307,9 +309,9 @@ const App: React.FC = () => {
                 />
               </div>
             )}
-            {state === AppState.PROCESSING && fileMetadata && (
+            {(state === AppState.PROCESSING || state === AppState.SVGA_EDITOR_EX) && fileMetadata && (
               <Workspace 
-                key={fileMetadata.fileUrl}
+                key={`${fileMetadata.fileUrl}-${state}`}
                 metadata={fileMetadata} 
                 onCancel={handleReset} 
                 settings={settings} 
@@ -318,7 +320,20 @@ const App: React.FC = () => {
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}
                 globalQuality={globalQuality}
                 onFileReplace={(meta) => setFileMetadata(meta)}
+                mode={state === AppState.SVGA_EDITOR_EX ? 'ex' : 'standard'}
               />
+            )}
+            {state === AppState.SVGA_EDITOR_EX && !fileMetadata && (
+               <div className="py-10 sm:py-20 animate-in fade-in zoom-in duration-700">
+                 <Uploader 
+                   onUpload={handleFileUpload} 
+                   isUploading={false} 
+                   onConverterOpen={() => handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter')}
+                   globalQuality={globalQuality}
+                   setGlobalQuality={setGlobalQuality}
+                   title="SVGA Editor EX (Customizable)"
+                 />
+               </div>
             )}
             {state === AppState.BATCH_COMPRESSOR && (
               <BatchCompressor 

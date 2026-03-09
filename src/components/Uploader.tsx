@@ -7,9 +7,10 @@ interface UploaderProps {
   onConverterOpen?: () => void;
   globalQuality?: 'low' | 'medium' | 'high';
   setGlobalQuality?: (q: 'low' | 'medium' | 'high') => void;
+  title?: string;
 }
 
-export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onConverterOpen, globalQuality = 'high', setGlobalQuality }) => {
+export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onConverterOpen, globalQuality = 'high', setGlobalQuality, title }) => {
   const [isDragOver, setIsDragOver] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -66,7 +67,7 @@ export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onCon
       </div>
       
       <div className="text-center relative z-10">
-        <h3 className="text-4xl font-black text-white mb-3 tracking-tighter uppercase">Quantum SVGA Processor</h3>
+        <h3 className="text-4xl font-black text-white mb-3 tracking-tighter uppercase">{title || 'Quantum SVGA Processor'}</h3>
         <p className="text-slate-500 font-black uppercase tracking-[0.4em] text-[10px]">اضغط أو اسحب الملف للدخول إلى مساحة العمل</p>
       </div>
 
