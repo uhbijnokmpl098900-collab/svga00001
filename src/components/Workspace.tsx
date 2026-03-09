@@ -80,24 +80,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [searchQuery, setSearchQuery] = useState('');
   const [assetsLoading, setAssetsLoading] = useState(true);
   const [scale, setScale] = useState(1);
-  const [activeSideTab, setActiveSideTab] = useState<'layers' | 'transforms' | 'bg' | 'optimize' | 'settings'>('transforms');
-  const [hiddenFormats, setHiddenFormats] = useState<string[]>(() => {
-      const saved = localStorage.getItem('quantum_hidden_formats');
-      return saved ? JSON.parse(saved) : [];
-  });
-
-  useEffect(() => {
-      localStorage.setItem('quantum_hidden_formats', JSON.stringify(hiddenFormats));
-  }, [hiddenFormats]);
-
-  useEffect(() => {
-      const handleStorage = () => {
-          const saved = localStorage.getItem('quantum_hidden_formats');
-          if (saved) setHiddenFormats(JSON.parse(saved));
-      };
-      window.addEventListener('storage', handleStorage);
-      return () => window.removeEventListener('storage', handleStorage);
-  }, []);
+  const [activeSideTab, setActiveSideTab] = useState<'layers' | 'transforms' | 'bg' | 'optimize'>('transforms');
 
   const [presetBgs, setPresetBgs] = useState<PresetBackground[]>([]);
   const [previewBg, setPreviewBg] = useState<string | null>(null);
@@ -4045,8 +4028,8 @@ if (!this.JSON) { this.JSON = {}; }
   const availableFormats = ['AE Project', 'SVGA 2.0', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP (MP4)', 'VAP 1.0.5'];
   
   const displayedFormats = useMemo(() => {
-      return availableFormats.filter(f => !hiddenFormats.includes(f));
-  }, [availableFormats, hiddenFormats]);
+      return availableFormats;
+  }, [availableFormats]);
 
   useEffect(() => {
       if (!displayedFormats.includes(selectedFormat) && displayedFormats.length > 0) {
@@ -5259,9 +5242,6 @@ if (!this.JSON) { this.JSON = {}; }
               <button onClick={() => setActiveSideTab('transforms')} className={`flex-1 py-3 rounded-2xl text-[9px] font-black uppercase transition-all ${activeSideTab === 'transforms' ? 'bg-sky-500 text-white shadow-glow-sky' : 'text-slate-500'}`}>التحويلات</button>
               <button onClick={() => setActiveSideTab('bg')} className={`flex-1 py-3 rounded-2xl text-[9px] font-black uppercase transition-all ${activeSideTab === 'bg' ? 'bg-sky-500 text-white shadow-glow-sky' : 'text-slate-500'}`}>الخلفية</button>
               <button onClick={() => setActiveSideTab('optimize')} className={`flex-1 py-3 rounded-2xl text-[9px] font-black uppercase transition-all ${activeSideTab === 'optimize' ? 'bg-emerald-500 text-white shadow-glow-emerald' : 'text-slate-500'}`}>ضغط الحجم</button>
-              {currentUser?.role === 'admin' && (
-                <button onClick={() => setActiveSideTab('settings')} className={`flex-1 py-3 rounded-2xl text-[9px] font-black uppercase transition-all ${activeSideTab === 'settings' ? 'bg-purple-500 text-white shadow-glow-purple' : 'text-slate-500'}`}>الإعدادات</button>
-              )}
           </div>
 
           <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-950/80 rounded-[3rem] p-6 border border-white/5 shadow-3xl">
@@ -5360,45 +5340,6 @@ if (!this.JSON) { this.JSON = {}; }
                                 <span className="mt-2 text-[8px] text-slate-500 font-black block text-center uppercase truncate">{key}</span>
                             </div>
                         ))}
-                    </div>
-                </div>
-              )}
-
-              {activeSideTab === 'settings' && currentUser?.role === 'admin' && (
-                <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
-                    <div className="space-y-6">
-                        <h4 className="text-white font-black text-xs uppercase tracking-widest text-purple-400">إدارة صيغ التصدير (Control Panel)</h4>
-                        <p className="text-[10px] text-slate-400 font-bold leading-relaxed">
-                            تحكم في الصيغ التي تظهر للمستخدم في قائمة التصدير. الصيغ المحددة هنا سيتم إخفاؤها.
-                        </p>
-                        
-                        <div className="grid grid-cols-1 gap-3">
-                            {availableFormats.map(format => (
-                                <div 
-                                    key={format} 
-                                    onClick={() => {
-                                        setHiddenFormats(prev => 
-                                            prev.includes(format) 
-                                                ? prev.filter(f => f !== format) 
-                                                : [...prev, format]
-                                        );
-                                    }}
-                                    className={`flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer ${hiddenFormats.includes(format) ? 'bg-red-500/10 border-red-500/30' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all ${hiddenFormats.includes(format) ? 'border-red-500 bg-red-500' : 'border-slate-600'}`}>
-                                            {hiddenFormats.includes(format) && (
-                                                <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" /></svg>
-                                            )}
-                                        </div>
-                                        <span className={`text-xs font-black uppercase ${hiddenFormats.includes(format) ? 'text-red-400' : 'text-white'}`}>{format}</span>
-                                    </div>
-                                    <span className={`text-[9px] font-bold uppercase ${hiddenFormats.includes(format) ? 'text-red-500/70' : 'text-slate-500'}`}>
-                                        {hiddenFormats.includes(format) ? 'مخفي' : 'ظاهر'}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
                     </div>
                 </div>
               )}
