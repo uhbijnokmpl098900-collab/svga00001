@@ -1,0 +1,35 @@
+{
+  "name": "copy-of-svg666a-enius-processor",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
+    "@fingerprintjs/fingerprintjs": "^5.0.1",
+    "@types/pako": "^2.0.4",
+    "clsx": "^2.1.1",
+    "firebase": "^12.10.0",
+    "lucide-react": "^0.575.0",
+    "motion": "^12.34.3",
+    "mp4-muxer": "^5.2.2",
+    "pako": "^2.1.0",
+    "protobufjs": "^8.0.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "tailwind-merge": "^3.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.1",
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}
