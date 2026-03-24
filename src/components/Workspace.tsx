@@ -2643,6 +2643,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     setIsExporting(true);
     setExportPhase('جاري إنشاء ملف GIF شفاف...');
 
+    let workerUrl = '/gif.worker.js';
+    try {
+      const resp = await fetch('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');
+      const blob = await resp.blob();
+      workerUrl = URL.createObjectURL(blob);
+    } catch (e) { console.error("Failed to fetch GIF worker", e); }
+
     try {
         svgaInstance.pauseAnimation();
         const originalFrame = currentFrame;
@@ -2661,8 +2668,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             quality: gifQuality,
             width: canvas.width,
             height: canvas.height,
-            workerScript: '/gif.worker.js',
-            transparent: 0x00FF00
+            transparent: 0x00FF00,
+            workerScript: workerUrl
         });
 
         const tempCanvas = document.createElement('canvas');
@@ -2718,6 +2725,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             setIsExporting(false);
             svgaInstance.stepToFrame(originalFrame, true);
             if (isPlaying) svgaInstance.startAnimation();
+            if (workerUrl.startsWith('blob:')) URL.revokeObjectURL(workerUrl);
         });
 
         gif.render();
@@ -2726,6 +2734,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         console.error(e);
         alert("فشل تصدير GIF");
         setIsExporting(false);
+        if (workerUrl && workerUrl.startsWith('blob:')) URL.revokeObjectURL(workerUrl);
     }
   };
 
