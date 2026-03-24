@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { motion } from 'motion/react';
 import { 
   Play, 
   Pause, 
@@ -41,63 +40,6 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({ file, onClear, originalF
   const [exportStatus, setExportStatus] = useState('');
   const [hiddenAssets, setHiddenAssets] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
-  const [showBatchMenu, setShowBatchMenu] = useState(false);
-  const [rangeStart, setRangeStart] = useState('');
-  const [rangeEnd, setRangeEnd] = useState('');
-
-  const setBatchVisibility = (ids: string[], visible: boolean) => {
-    const newHidden = new Set(hiddenAssets);
-    const transparentPixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
-    
-    ids.forEach(id => {
-      if (visible) {
-        newHidden.delete(id);
-        if (playerRef.current && videoItemRef.current) {
-          playerRef.current.setImage(videoItemRef.current.images[id], id);
-        }
-      } else {
-        newHidden.add(id);
-        if (playerRef.current) {
-          playerRef.current.setImage(transparentPixel, id);
-        }
-      }
-    });
-    setHiddenAssets(newHidden);
-  };
-
-  const handleRangeAction = (hide: boolean) => {
-    if (!rangeStart || !rangeEnd) return;
-    
-    const startMatch = rangeStart.match(/^(.*?)(\d+)$/);
-    const endMatch = rangeEnd.match(/^(.*?)(\d+)$/);
-    
-    const idsToUpdate: string[] = [];
-    
-    if (startMatch && endMatch && startMatch[1] === endMatch[1]) {
-      const prefix = startMatch[1];
-      const sNum = parseInt(startMatch[2]);
-      const eNum = parseInt(endMatch[2]);
-      
-      assets.forEach(asset => {
-        const m = asset.id.match(/^(.*?)(\d+)$/);
-        if (m && m[1] === prefix) {
-          const n = parseInt(m[2]);
-          if (n >= sNum && n <= eNum) {
-            idsToUpdate.push(asset.id);
-          }
-        }
-      });
-    } else {
-      assets.forEach(asset => {
-        if (asset.id >= rangeStart && asset.id <= rangeEnd) {
-          idsToUpdate.push(asset.id);
-        }
-      });
-    }
-    
-    setBatchVisibility(idsToUpdate, !hide);
-    setShowBatchMenu(false);
-  };
   const [videoSize, setVideoSize] = useState<{width: number, height: number} | null>(null);
   const [audioFiles, setAudioFiles] = useState<{id: string, name: string, data: string, type: 'builtin' | 'custom'}[]>([]);
   const [isAudioModified, setIsAudioModified] = useState(false);
@@ -783,7 +725,7 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({ file, onClear, originalF
     }
   }, [status, currentFrame]);
 
-  const filteredAssets = assets.filter(a => (a.id || '').toLowerCase().includes((searchQuery || '').toLowerCase()));
+  const filteredAssets = assets.filter(a => a.id.toLowerCase().includes(searchQuery.toLowerCase()));
 
   const fps = videoItemRef.current?.FPS || 0;
   const duration = fps > 0 ? (totalFrames / fps).toFixed(2) : '0.00';
@@ -908,73 +850,13 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({ file, onClear, originalF
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
                 Add Watermark
               </button>
-              <button 
-                onClick={() => setShowBatchMenu(!showBatchMenu)}
-                className={`flex-1 bg-[#1a1a1a] border border-[#333] rounded px-1.5 py-1 text-[10px] flex items-center justify-center gap-1 transition-colors ${showBatchMenu ? 'border-blue-500 text-blue-400 bg-blue-500/10' : 'text-[#a3a3a3] hover:bg-[#262626]'}`}
-              >
-                <Layers size={10} /> Batch Actions
+              <button className="flex-1 bg-[#1a1a1a] border border-[#333] rounded px-1.5 py-1 text-[10px] text-[#a3a3a3] flex items-center justify-center gap-1 hover:bg-[#262626] transition-colors">
+                <Layers size={10} /> Batch
               </button>
               <button className="flex-1 bg-[#1a1a1a] border border-[#333] rounded px-1.5 py-1 text-[10px] text-[#a3a3a3] flex items-center justify-center gap-1 hover:bg-[#262626] transition-colors">
                 <Download size={10} /> Download
               </button>
             </div>
-
-            {showBatchMenu && (
-              <motion.div 
-                initial={{ opacity: 0, height: 0 }} 
-                animate={{ opacity: 1, height: 'auto' }} 
-                className="mb-4 p-3 bg-[#111] border border-[#333] rounded-lg space-y-3 overflow-hidden"
-              >
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => setBatchVisibility(assets.map(a => a.id), true)}
-                    className="flex-1 py-1 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded text-[9px] font-bold uppercase hover:bg-blue-500/30"
-                  >
-                    Show All
-                  </button>
-                  <button 
-                    onClick={() => setBatchVisibility(assets.map(a => a.id), false)}
-                    className="flex-1 py-1 bg-red-500/20 text-red-400 border border-red-500/30 rounded text-[9px] font-bold uppercase hover:bg-red-500/30"
-                  >
-                    Hide All
-                  </button>
-                </div>
-                
-                <div className="space-y-2 border-t border-[#222] pt-2">
-                  <span className="text-[8px] text-[#555] font-bold uppercase">Range Selection (Sequential)</span>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input 
-                      type="text" 
-                      placeholder="Start ID" 
-                      value={rangeStart}
-                      onChange={(e) => setRangeStart(e.target.value)}
-                      className="bg-black border border-[#333] rounded px-2 py-1 text-[10px] text-white outline-none focus:border-blue-500"
-                    />
-                    <input 
-                      type="text" 
-                      placeholder="End ID" 
-                      value={rangeEnd}
-                      onChange={(e) => setRangeEnd(e.target.value)}
-                      className="bg-black border border-[#333] rounded px-2 py-1 text-[10px] text-white outline-none focus:border-blue-500"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={() => handleRangeAction(false)}
-                      className="flex-1 py-1 bg-blue-500 text-white rounded text-[9px] font-bold uppercase"
-                    >
-                      Show Range
-                    </button>
-                    <button 
-                      onClick={() => handleRangeAction(true)}
-                      className="flex-1 py-1 bg-red-500 text-white rounded text-[9px] font-bold uppercase"
-                    >
-                      Hide Range
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
             <div className="relative mb-4">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#555]" />
               <input 
