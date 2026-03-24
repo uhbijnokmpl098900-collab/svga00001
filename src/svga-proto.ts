@@ -13,6 +13,7 @@ message SpriteEntity {
     string imageKey = 1;
     repeated FrameEntity frames = 2;
     string matteKey = 3;
+    string name = 4;
 }
 
 message AudioEntity {

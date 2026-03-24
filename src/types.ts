@@ -13,16 +13,22 @@ export enum AppState {
   EXPORTING = 'EXPORTING',
   ADMIN_PANEL = 'ADMIN_PANEL',
   BATCH_COMPRESSOR = 'BATCH_COMPRESSOR',
+  BATCH_CROPPER = 'BATCH_CROPPER',
+  BATCH_IMAGE_PROCESSOR = 'BATCH_IMAGE_PROCESSOR',
   STORE = 'STORE',
   VIDEO_CONVERTER = 'VIDEO_CONVERTER',
   IMAGE_CONVERTER = 'IMAGE_CONVERTER',
   IMAGE_EDITOR = 'IMAGE_EDITOR',
   IMAGE_MATCHER = 'IMAGE_MATCHER',
   SVGA_EDITOR_EX = 'SVGA_EDITOR_EX',
+  IMAGE_PROCESSOR = 'IMAGE_PROCESSOR',
+  MULTI_SVGA_VIEWER = 'MULTI_SVGA_VIEWER',
   HOME = 'HOME'
 }
 
 export type SubscriptionType = 'day' | 'week' | 'month' | 'year' | 'none';
+
+export const PRODUCT_CATEGORIES = ['القسم الرئيسي', 'إطارات', 'دخوليات', 'هدايا', 'VIP', 'إيموشنات'];
 
 export interface StoreCategory {
   id: string;
@@ -75,7 +81,10 @@ export interface UserRecord {
   freeAttempts: number;
   createdAt: any;
   lastLogin: any;
+  lastIp?: string;
+  deviceId?: string;
   allowedExportFormat?: string | string[]; // Restrict user to specific format(s)
+  hasSvgaExAccess?: boolean; // Per-user access to SVGA 2.0 EX
 }
 
 export interface PresetBackground {
@@ -104,6 +113,7 @@ export interface AppSettings {
   whatsappNumber: string;
   isRegistrationOpen: boolean;
   defaultFreeAttempts: number;
+  isSvgaExEnabled: boolean; // Global toggle for SVGA 2.0 EX
   costs: {
     svgaProcess: number;
     batchCompress: number;

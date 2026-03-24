@@ -3,8 +3,12 @@ import { Header } from './components/Header';
 import { Uploader } from './components/Uploader';
 import { Workspace } from './components/Workspace';
 import { BatchCompressor } from './components/BatchCompressor';
+import { BatchCropper } from './components/BatchCropper';
 import { VideoConverter } from './components/VideoConverter';
+import { MultiSvgaViewer } from './components/MultiSvgaViewer';
 import { ImageToSvga } from './components/ImageToSvga';
+import { ImageProcessor } from './components/ImageProcessor';
+import { BatchImageProcessor } from './components/BatchImageProcessor';
 import { ImageEditor } from './components/ImageEditor';
 import { ImageMatcher } from './components/ImageMatcher';
 import { Store } from './components/Store';
@@ -26,18 +30,23 @@ declare var SVGA: any;
 import { OnboardingModal } from './components/OnboardingModal';
 import { HelpCircle } from 'lucide-react';
 
+const videoWidth = 1334;
+const videoHeight = 750;
+
 const App: React.FC = () => {
   const { currentUser, loading, logout } = useAuth();
   const { checkAccess } = useAccessControl();
   const [state, setState] = useState<AppState>(AppState.IDLE);
   const [fileMetadata, setFileMetadata] = useState<FileMetadata | null>(null);
-  const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [isLoginView, setIsLoginView] = useState(true);
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
-  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [batchFiles, setBatchFiles] = useState<File[]>([]);
+  const [settings, setSettings] = useState<AppSettings | null>(() => {
+    const cached = localStorage.getItem('appSettings');
+    return cached ? JSON.parse(cached) : null;
+  });
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>('high');
+  const [initialLottieFile, setInitialLottieFile] = useState<File | null>(null);
 
   useEffect(() => {
     // Check if user has seen onboarding
@@ -53,48 +62,106 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    // Load Global Settings
+    // Load Global Settings - Use cache immediately on failure
     const loadSettings = async () => {
       try {
-        if (db) {
-          const docRef = doc(db, 'settings', 'global');
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            setSettings(docSnap.data() as AppSettings);
-          }
+        const docRef = doc(db, 'settings', 'global');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data() as AppSettings;
+          setSettings(data);
+          localStorage.setItem('appSettings', JSON.stringify(data));
         }
-      } catch (e) { console.error(e); }
+      } catch (e: any) { 
+        if (e.code === 'resource-exhausted') {
+          setIsQuotaExceeded(true);
+          console.warn("Firestore Quota Exceeded. Using cached settings.");
+        }
+      }
     };
     loadSettings();
   }, []);
 
   const handleFeatureAccess = async (targetState: AppState, featureName: string) => {
-    // Allow access to the tool, but the tool itself will handle export restrictions
+    // All features are now accessible
     setState(targetState);
   };
 
-  const handleFileUpload = useCallback(async (file: File) => {
-    // Allow upload without login
+  const handleImageConverterOpen = (file?: File) => {
+    if (file) setInitialLottieFile(file);
+    handleFeatureAccess(AppState.IMAGE_CONVERTER, 'Image Converter');
+  };
+
+  const handleFileUpload = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+
+    if (files.length > 1) {
+      const svgaFiles = files.filter(f => (f?.name || '').toLowerCase().endsWith('.svga'));
+      if (svgaFiles.length > 0) {
+        // Multiple SVGA files uploaded - we'll just process the first one for now
+        // since Batch SVGA Converter was removed.
+        const file = svgaFiles[0];
+        const fileUrl = URL.createObjectURL(file);
+        
+        if (currentUser) {
+          logActivity(currentUser, 'upload', `Uploaded file: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
+        }
+
+        const parser = new SVGA.Parser();
+        parser.load(fileUrl, (videoItem: any) => {
+          let extractedFps = videoItem.FPS || videoItem.fps || 30;
+          if (typeof extractedFps === 'string') extractedFps = parseFloat(extractedFps);
+          if (!extractedFps || extractedFps <= 0) extractedFps = 30;
+
+          const meta: FileMetadata = {
+            name: file.name, size: file.size, type: 'SVGA',
+            dimensions: { width: videoItem.videoSize?.width || 0, height: videoItem.videoSize?.height || 0 },
+            fps: extractedFps, frames: videoItem.frames || 0, assets: [], videoItem,
+            fileUrl: fileUrl,
+            originalFile: file
+          };
+          
+          setFileMetadata(meta);
+          setState(AppState.PROCESSING);
+        }, (err: any) => {
+          console.error("SVGA Load Error:", err);
+          alert("فشل في قراءة ملف SVGA.");
+          URL.revokeObjectURL(fileUrl);
+        });
+        return;
+      }
+    }
+
+    const file = files[0];
     const fileUrl = URL.createObjectURL(file);
+
+    // Check for Lottie JSON
+    if ((file?.name || '').toLowerCase().endsWith('.json') || file?.type === 'application/json') {
+        try {
+            const text = await file.text();
+            const json = JSON.parse(text);
+            if (json.v && json.layers && json.fr) {
+                // It's a Lottie file - redirect to Image Converter
+                setInitialLottieFile(file);
+                setState(AppState.IMAGE_CONVERTER);
+                return;
+            }
+        } catch (e) {
+            console.error("Not a valid Lottie JSON", e);
+        }
+    }
 
     // Log the upload activity if user exists
     if (currentUser) {
       logActivity(currentUser, 'upload', `Uploaded file: ${file.name} (${(file.size / 1024).toFixed(2)} KB)`);
     }
 
-    // Block WebP and GIF files as per request
-    if (file.name.toLowerCase().endsWith('.gif') || file.name.toLowerCase().endsWith('.webp') || file.type === 'image/gif' || file.type === 'image/webp') {
-        alert("عذراً، تم إيقاف دعم ملفات WebP و GIF مؤقتاً لضمان استقرار الموقع.");
-        URL.revokeObjectURL(fileUrl);
-        return;
-    }
-
-    const isVideo = file.type.startsWith('video/') || file.name.toLowerCase().endsWith('.mp4') || file.name.toLowerCase().endsWith('.webm') || file.name.toLowerCase().endsWith('.mov');
+    const isVideo = file?.type?.startsWith('video/') || (file?.name || '').toLowerCase().endsWith('.mp4') || (file?.name || '').toLowerCase().endsWith('.webm') || (file?.name || '').toLowerCase().endsWith('.mov');
     const isImage = false; // Disabled image support
 
     if (isVideo || isImage) {
         // For simple MP4/WebM, try to extract frames immediately
-        if (file.name.toLowerCase().endsWith('.mp4') || file.name.toLowerCase().endsWith('.webm')) {
+        if ((file?.name || '').toLowerCase().endsWith('.mp4') || (file?.name || '').toLowerCase().endsWith('.webm')) {
             try {
                const video = document.createElement('video');
                video.src = fileUrl;
@@ -146,7 +213,7 @@ const App: React.FC = () => {
                        for (let f = 0; f < totalFrames; f++) {
                            frames.push({
                                alpha: f === i ? 1.0 : 0.0,
-                               layout: { x: 0, y: 0, width: canvas.width, height: canvas.height },
+                               layout: { x: (videoWidth - canvas.width) / 2, y: (videoHeight - canvas.height) / 2, width: canvas.width, height: canvas.height },
                                transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
                            });
                        }
@@ -161,11 +228,11 @@ const App: React.FC = () => {
 
                const meta: FileMetadata = {
                    name: file.name, size: file.size, type: 'MP4',
-                   dimensions: { width: canvas.width, height: canvas.height },
+                   dimensions: { width: videoWidth, height: videoHeight },
                    fps: fps, frames: totalFrames, assets: [], 
                    videoItem: {
                        version: "2.0",
-                       videoSize: { width: canvas.width, height: canvas.height },
+                       videoSize: { width: videoWidth, height: videoHeight },
                        FPS: fps,
                        frames: totalFrames,
                        images: newLayerImages,
@@ -211,7 +278,7 @@ const App: React.FC = () => {
         return;
     }
 
-    if (!file || !file.name.toLowerCase().endsWith('.svga')) return;
+    if (!file || !(file?.name || '').toLowerCase().endsWith('.svga')) return;
     
     try {
       const parser = new SVGA.Parser();
@@ -247,25 +314,34 @@ const App: React.FC = () => {
     }
     setState(AppState.IDLE);
     setFileMetadata(null);
+    setBatchFiles([]);
+    setInitialLottieFile(null);
   }, [fileMetadata]);
 
   if (loading) {
     return <Loading />;
   }
 
-  // Removed blocking auth check to allow public access
-  
-  const dynamicBgStyle: React.CSSProperties = settings?.backgroundUrl ? {
-    backgroundImage: `linear-gradient(rgba(2, 6, 23, 0.4), rgba(2, 6, 23, 0.4)), url(${settings.backgroundUrl})`,
+  const defaultBgUrl = 'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?q=80&w=2070&auto=format&fit=crop';
+  const bgUrl = settings?.backgroundUrl || defaultBgUrl;
+
+  const dynamicBgStyle: React.CSSProperties = {
+    backgroundImage: `linear-gradient(rgba(2, 6, 23, 0.8), rgba(2, 6, 23, 0.9)), url(${bgUrl})`,
     backgroundSize: 'cover',
     backgroundPosition: 'center',
     backgroundAttachment: 'fixed'
-  } : {};
+  };
 
   return (
     <div className="min-h-screen text-slate-200 overflow-x-hidden relative" style={dynamicBgStyle}>
-      {!settings?.backgroundUrl && <div className="fixed inset-0 bg-[#020617] -z-10" />}
+      <div className="fixed inset-0 bg-[#020617]/30 backdrop-blur-[4px] -z-10 pointer-events-none" />
       
+      {isQuotaExceeded && (
+        <div className="fixed top-0 left-0 right-0 bg-amber-500/90 backdrop-blur-sm text-black py-1 px-4 text-center text-[10px] font-bold z-[300] flex items-center justify-center gap-2">
+          <span>⚠️ تم تجاوز حصة الاستخدام اليومية للسيرفر. الموقع يعمل الآن بالوضع الاحتياطي (Offline Mode).</span>
+        </div>
+      )}
+
       <Header 
         onLogoClick={handleReset} 
         isAdmin={currentUser?.role === 'admin'} 
@@ -275,22 +351,30 @@ const App: React.FC = () => {
         onLogout={logout}
         isAdminOpen={state === AppState.ADMIN_PANEL}
         onBatchOpen={() => handleFeatureAccess(AppState.BATCH_COMPRESSOR, 'Batch Compressor')}
-        onStoreOpen={() => setState(AppState.STORE)} // Store is always accessible
+        onStoreOpen={() => setState(AppState.STORE)}
         onConverterOpen={() => handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter')}
-        onImageConverterOpen={() => handleFeatureAccess(AppState.IMAGE_CONVERTER, 'Image Converter')}
+        onImageConverterOpen={() => handleImageConverterOpen()}
         onImageEditorOpen={() => handleFeatureAccess(AppState.IMAGE_EDITOR, 'Image Editor')}
         onImageMatcherOpen={() => handleFeatureAccess(AppState.IMAGE_MATCHER, 'Image Matcher')}
-        onSvgaExOpen={() => setState(AppState.SVGA_EDITOR_EX)}
-        onLoginClick={() => setShowAuthModal(true)}
-        onProfileClick={() => setShowProfileModal(true)}
+        onCropperOpen={() => handleFeatureAccess(AppState.BATCH_CROPPER, 'Batch Cropper')}
+        onSvgaExOpen={() => handleFeatureAccess(AppState.SVGA_EDITOR_EX, 'SVGA Editor EX')}
+        onMultiSvgaOpen={() => handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview')}
+        onImageProcessorOpen={() => handleFeatureAccess(AppState.IMAGE_PROCESSOR, 'Image Processor')}
+        onBatchImageProcessorOpen={() => handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor')}
+        onLoginClick={() => {}}
+        onProfileClick={() => {}}
         currentTab={
           state === AppState.BATCH_COMPRESSOR ? 'batch' : 
           state === AppState.STORE ? 'store' : 
           state === AppState.VIDEO_CONVERTER ? 'converter' : 
           state === AppState.IMAGE_CONVERTER ? 'image-converter' :
+          state === AppState.IMAGE_PROCESSOR ? 'image-processor' :
+          state === AppState.BATCH_IMAGE_PROCESSOR ? 'batch-image-processor' :
           state === AppState.IMAGE_EDITOR ? 'image-editor' :
           state === AppState.IMAGE_MATCHER ? 'image-matcher' :
+          state === AppState.BATCH_CROPPER ? 'cropper' :
           state === AppState.SVGA_EDITOR_EX ? 'svga-ex' :
+          state === AppState.MULTI_SVGA_VIEWER ? 'multi-svga' :
           'svga'
         }
       />
@@ -304,6 +388,7 @@ const App: React.FC = () => {
                   onUpload={handleFileUpload} 
                   isUploading={false} 
                   onConverterOpen={() => handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter')}
+                  onMultiSvgaOpen={() => handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview')}
                   globalQuality={globalQuality}
                   setGlobalQuality={setGlobalQuality}
                 />
@@ -311,47 +396,36 @@ const App: React.FC = () => {
             )}
             {(state === AppState.PROCESSING || state === AppState.SVGA_EDITOR_EX) && fileMetadata && (
               <Workspace 
-                key={`${fileMetadata.fileUrl}-${state}`}
+                key={fileMetadata.fileUrl}
                 metadata={fileMetadata} 
                 onCancel={handleReset} 
                 settings={settings} 
                 currentUser={currentUser} 
-                onLoginRequired={() => setShowAuthModal(true)}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => {}}
                 globalQuality={globalQuality}
                 onFileReplace={(meta) => setFileMetadata(meta)}
-                mode={state === AppState.SVGA_EDITOR_EX ? 'ex' : 'standard'}
+                mode={state === AppState.SVGA_EDITOR_EX ? 'ex' : 'normal'}
+                onImageConverterOpen={handleImageConverterOpen}
               />
-            )}
-            {state === AppState.SVGA_EDITOR_EX && !fileMetadata && (
-               <div className="py-10 sm:py-20 animate-in fade-in zoom-in duration-700">
-                 <Uploader 
-                   onUpload={handleFileUpload} 
-                   isUploading={false} 
-                   onConverterOpen={() => handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter')}
-                   globalQuality={globalQuality}
-                   setGlobalQuality={setGlobalQuality}
-                   title="SVGA Editor EX (Customizable)"
-                 />
-               </div>
             )}
             {state === AppState.BATCH_COMPRESSOR && (
               <BatchCompressor 
                 onCancel={handleReset} 
                 currentUser={currentUser} 
-                onLoginRequired={() => setShowAuthModal(true)}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => {}}
               />
             )}
             {state === AppState.STORE && (
-              <Store currentUser={currentUser} onLoginRequired={() => setShowAuthModal(true)} />
+              <Store currentUser={currentUser} onLoginRequired={() => {}} />
             )}
             {state === AppState.VIDEO_CONVERTER && (
               <VideoConverter 
                 currentUser={currentUser} 
                 onCancel={handleReset} 
-                onLoginRequired={() => setShowAuthModal(true)}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => {}}
                 globalQuality={globalQuality}
               />
             )}
@@ -359,25 +433,48 @@ const App: React.FC = () => {
               <ImageToSvga 
                 currentUser={currentUser} 
                 onCancel={handleReset} 
-                onLoginRequired={() => setShowAuthModal(true)}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => {}}
                 globalQuality={globalQuality}
+                initialFile={initialLottieFile}
               />
+            )}
+            {state === AppState.IMAGE_PROCESSOR && (
+              <ImageProcessor 
+                currentUser={currentUser} 
+                onCancel={handleReset} 
+              />
+            )}
+            {state === AppState.BATCH_IMAGE_PROCESSOR && (
+              <BatchImageProcessor onCancel={handleReset} />
             )}
             {state === AppState.IMAGE_EDITOR && (
               <ImageEditor 
                 currentUser={currentUser} 
                 onCancel={handleReset} 
-                onLoginRequired={() => setShowAuthModal(true)}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => {}}
               />
             )}
             {state === AppState.IMAGE_MATCHER && (
               <ImageMatcher 
                 currentUser={currentUser} 
                 onCancel={handleReset} 
-                onLoginRequired={() => setShowAuthModal(true)}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => {}}
+              />
+            )}
+            {state === AppState.BATCH_CROPPER && (
+              <BatchCropper 
+                currentUser={currentUser} 
+                onCancel={handleReset} 
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => {}}
+              />
+            )}
+            {state === AppState.MULTI_SVGA_VIEWER && (
+              <MultiSvgaViewer 
+                onCancel={handleReset} 
               />
             )}
             {state === AppState.ADMIN_PANEL && currentUser?.role === 'admin' && (
@@ -386,30 +483,6 @@ const App: React.FC = () => {
           </div>
         </main>
       </div>
-
-      {/* User Profile Modal */}
-      {showProfileModal && currentUser && (
-        <UserProfileModal currentUser={currentUser} onClose={() => setShowProfileModal(false)} />
-      )}
-
-      {/* Auth Modal */}
-      {showAuthModal && !currentUser && (
-        <div className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
-          <div className="w-full max-w-md relative">
-            <button 
-              onClick={() => setShowAuthModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white z-50"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
-            {isLoginView ? (
-              <Login onToggle={() => setIsLoginView(false)} />
-            ) : (
-              <Signup onToggle={() => setIsLoginView(true)} />
-            )}
-          </div>
-        </div>
-      )}
 
       {/* WhatsApp Floating Button */}
       {settings?.whatsappNumber && (
@@ -439,13 +512,6 @@ const App: React.FC = () => {
       <OnboardingModal 
         isOpen={showOnboarding} 
         onClose={handleCloseOnboarding} 
-      />
-
-      {/* Subscription Required Modal */}
-      <SubscriptionModal 
-        isOpen={showSubscriptionModal} 
-        onClose={() => setShowSubscriptionModal(false)} 
-        settings={settings}
       />
     </div>
   );
