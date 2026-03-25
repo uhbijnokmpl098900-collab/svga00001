@@ -5441,9 +5441,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
               <button onClick={() => setActiveSideTab('transforms')} className={`flex-shrink-0 px-4 py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[9px] font-black uppercase transition-all ${activeSideTab === 'transforms' ? 'bg-sky-500 text-white shadow-glow-sky' : 'text-slate-500'}`}>التحويلات</button>
               <button onClick={() => setActiveSideTab('bg')} className={`flex-shrink-0 px-4 py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[9px] font-black uppercase transition-all ${activeSideTab === 'bg' ? 'bg-sky-500 text-white shadow-glow-sky' : 'text-slate-500'}`}>الخلفية</button>
               <button onClick={() => setActiveSideTab('optimize')} className={`flex-shrink-0 px-4 py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[9px] font-black uppercase transition-all ${activeSideTab === 'optimize' ? 'bg-emerald-500 text-white shadow-glow-emerald' : 'text-slate-500'}`}>ضغط الحجم</button>
-              {currentUser?.role === 'admin' && (
+              {/* {currentUser?.role === 'admin' && (
                 <button onClick={() => setActiveSideTab('settings')} className={`flex-shrink-0 px-4 py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[9px] font-black uppercase transition-all ${activeSideTab === 'settings' ? 'bg-purple-500 text-white shadow-glow-purple' : 'text-slate-500'}`}>الإعدادات</button>
-              )}
+              )} */}
           </div>
 
           <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-950/80 rounded-2xl sm:rounded-[3rem] p-4 sm:p-6 border border-white/5 shadow-3xl">

@@ -133,7 +133,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right Side: Admin Panel Button */}
       <div className="flex items-center gap-1 sm:gap-3">
-        {isAdmin && (
+        {/* {isAdmin && (
           <button
             onClick={onAdminToggle}
             className={`p-2 rounded-lg transition-colors ${
@@ -143,7 +143,7 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Settings className="w-5 h-5" />
           </button>
-        )}
+        )} */}
       </div>
     </header>
 
