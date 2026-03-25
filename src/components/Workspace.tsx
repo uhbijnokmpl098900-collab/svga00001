@@ -1576,6 +1576,101 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       setSelectedKeys(new Set([newKey]));
   };
 
+  const handleCloneAndIsolate = (key: string) => {
+      if (!confirm("سيتم حذف جميع اللييرات الأخرى، هل تريد المتابعة؟")) return;
+
+      if (!metadata.videoItem) return;
+
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+      const spriteToClone = newVideoItem.sprites.find((s: any) => s.imageKey === key);
+
+      if (!spriteToClone) return;
+
+      const newKey = `${key}_isolated_${Date.now()}`;
+      
+      // Clone the sprite
+      const newSprite = JSON.parse(JSON.stringify(spriteToClone));
+      newSprite.imageKey = newKey;
+
+      // Reset sprites to only contain this new sprite
+      newVideoItem.sprites = [newSprite];
+
+      // Update images
+      if (newVideoItem.images && newVideoItem.images[key]) {
+          newVideoItem.images = { [newKey]: newVideoItem.images[key] };
+      }
+
+      // Update layerImages state
+      if (layerImages[key]) {
+          setLayerImages({ [newKey]: layerImages[key] });
+      }
+      
+      // Update assetColors if exists
+      if (assetColors[key]) {
+          setAssetColors({ [newKey]: assetColors[key] });
+      }
+
+      setMetadata({
+          ...metadata,
+          videoItem: newVideoItem
+      });
+
+      // Select the new layer
+      setSelectedKeys(new Set([newKey]));
+      
+      // Clear deleted keys as we are starting fresh
+      setDeletedKeys(new Set());
+  };
+
+  const handleIsolateSelected = () => {
+      if (selectedKeys.size === 0) return;
+      if (!confirm("سيتم حذف جميع اللييرات غير المحددة، هل تريد المتابعة؟")) return;
+
+      if (!metadata.videoItem) return;
+
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+      
+      // Keep only selected sprites
+      newVideoItem.sprites = newVideoItem.sprites.filter((s: any) => selectedKeys.has(s.imageKey));
+
+      // Keep only selected images
+      if (newVideoItem.images) {
+          const newImages: any = {};
+          selectedKeys.forEach(key => {
+              if (newVideoItem.images[key]) {
+                  newImages[key] = newVideoItem.images[key];
+              }
+          });
+          newVideoItem.images = newImages;
+      }
+
+      // Update layerImages state
+      const newLayerImages: any = {};
+      selectedKeys.forEach(key => {
+          if (layerImages[key]) {
+              newLayerImages[key] = layerImages[key];
+          }
+      });
+      setLayerImages(newLayerImages);
+      
+      // Update assetColors if exists
+      const newAssetColors: any = {};
+      selectedKeys.forEach(key => {
+          if (assetColors[key]) {
+              newAssetColors[key] = assetColors[key];
+          }
+      });
+      setAssetColors(newAssetColors);
+
+      setMetadata({
+          ...metadata,
+          videoItem: newVideoItem
+      });
+
+      // Clear deleted keys as we are starting fresh
+      setDeletedKeys(new Set());
+  };
+
   const handleSwitchLayer = (currentKey: string) => {
       if (!metadata.videoItem) return;
 
@@ -5598,28 +5693,32 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                                    </div>
                                    <div className="absolute inset-0 bg-slate-950/90 opacity-0 group-hover:opacity-100 transition-all flex flex-col items-center justify-center gap-2 backdrop-blur-md px-2">
                                       {!deletedKeys.has(key) && (
-                                          <div className="flex flex-col gap-2 w-full">
-                                            <div className="flex gap-2 justify-center">
-                                                <button onClick={() => handleDownloadLayer(key)} className="w-8 h-8 bg-emerald-500 text-white rounded-lg flex items-center justify-center" title="تحميل الصورة">⬇️</button>
-                                                <div className={`relative w-8 h-8 rounded-lg overflow-hidden border-2 ${assetColorModes[key] === 'fill' ? 'border-pink-500' : 'border-white/20'}`} title={assetColorModes[key] === 'fill' ? "تلوين كامل (Fill)" : "تلوين دمج (Multiply - يحافظ على التفاصيل)"}>
+                                          <div className="flex flex-col gap-1 w-full">
+                                            <button onClick={(e) => { e.stopPropagation(); handleCloneAndIsolate(key); }} className="w-full py-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-md text-[8px] font-black uppercase transition-all shadow-sm">Clone & Isolate</button>
+                                            {selectedKeys.size > 1 && (
+                                                <button onClick={(e) => { e.stopPropagation(); handleIsolateSelected(); }} className="w-full py-1 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-md text-[8px] font-black uppercase transition-all shadow-sm">Isolate Selected</button>
+                                            )}
+                                            <div className="grid grid-cols-3 gap-1">
+                                                <button onClick={() => handleDownloadLayer(key)} className="h-7 bg-emerald-500 text-white rounded-md flex items-center justify-center" title="تحميل الصورة">⬇️</button>
+                                                <div className={`relative h-7 rounded-md overflow-hidden border ${assetColorModes[key] === 'fill' ? 'border-pink-500' : 'border-white/20'}`} title={assetColorModes[key] === 'fill' ? "تلوين كامل (Fill)" : "تلوين دمج (Multiply - يحافظ على التفاصيل)"}>
                                                   <input type="color" value={assetColors[key] || "#ffffff"} onChange={(e) => handleColorChange(key, e.target.value)} className="absolute inset-[-50%] w-[200%] h-[200%] cursor-pointer bg-transparent border-none" />
                                                 </div>
                                                 <button 
                                                     onClick={() => handleToggleColorMode(key)} 
-                                                    className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] border transition-all ${assetColorModes[key] === 'fill' ? 'bg-pink-500/20 border-pink-500 text-pink-400' : 'bg-blue-500/20 border-blue-500 text-blue-400'}`}
+                                                    className={`h-7 rounded-md flex items-center justify-center text-[10px] border transition-all ${assetColorModes[key] === 'fill' ? 'bg-pink-500/20 border-pink-500 text-pink-400' : 'bg-blue-500/20 border-blue-500 text-blue-400'}`}
                                                     title={assetColorModes[key] === 'fill' ? "وضع التعبئة (تغيير كامل)" : "وضع التلوين (Multiply - يحافظ على التفاصيل)"}
                                                 >
                                                     {assetColorModes[key] === 'fill' ? '🎨' : '💧'}
                                                 </button>
                                             </div>
-                                            <div className="flex gap-1 justify-between w-full">
-                                                <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'down'); }} className="flex-1 py-1.5 bg-white/5 rounded-lg text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬇️ خلف</button>
-                                                <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'up'); }} className="flex-1 py-1.5 bg-white/5 rounded-lg text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬆️ أمام</button>
+                                            <div className="grid grid-cols-2 gap-1 w-full">
+                                                <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'down'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬇️ خلف</button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'up'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬆️ أمام</button>
                                             </div>
                                              <button onClick={() => {
                                                  setReplacingAssetKey(key);
                                                  fileInputRef.current?.click();
-                                             }} className="w-full py-1.5 bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-sky-500/30">تغيير الصورة</button>
+                                             }} className="w-full py-1 bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-md text-[8px] font-black uppercase hover:bg-sky-500/30">تغيير الصورة</button>
 
                                             <button onClick={() => handleOpenFadeModal(key)} className="w-full py-1.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-purple-500/30">تلاشي الحواف (Fade)</button>
                                           </div>
