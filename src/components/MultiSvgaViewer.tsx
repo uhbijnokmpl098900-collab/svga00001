@@ -79,6 +79,7 @@ const DEVICE_PRESETS: DevicePreset[] = [
   { id: 'pc1280', name: '1280*800', width: 1280, height: 800, category: 'PC' },
   { id: 'pc1920', name: '1920*1080', width: 1920, height: 1080, category: 'PC' },
   { id: 'pc27', name: '27寸', width: 2560, height: 1440, category: 'PC' },
+  { id: 'custom750x240', name: '750 × 240', width: 750, height: 240, category: 'Standard' },
 ];
 
 export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, currentUser }) => {
@@ -653,6 +654,15 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 </button>
                 <button 
                   onClick={() => {
+                    setSelectedPresetId('custom750x240');
+                    setItems(prev => prev.map(i => ({ ...i, presetId: 'custom750x240' })));
+                  }}
+                  className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${selectedPresetId === 'custom750x240' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:text-white'}`}
+                >
+                  750 × 240
+                </button>
+                <button 
+                  onClick={() => {
                     setSelectedPresetId('auto');
                     setItems(prev => prev.map(i => ({ ...i, presetId: 'auto' })));
                   }}
@@ -818,7 +828,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             multiple 
             accept=".svga" 
             className="hidden" 
-            onChange={(e) => e.target.files && handleFiles(e.target.files)}
+            onChange={(e) => {
+              if (e.target.files) {
+                handleFiles(e.target.files);
+                e.target.value = '';
+              }
+            }}
           />
         </div>
       </div>
