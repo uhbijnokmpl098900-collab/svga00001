@@ -94,6 +94,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [exportDuration, setExportDuration] = useState(10);
   const [gridCols, setGridCols] = useState(3);
   const [forceMobileSize, setForceMobileSize] = useState(false);
+  const [exportResolution, setExportResolution] = useState<'natural' | '720p' | '1080p'>('natural');
   const [selectedPresetId, setSelectedPresetId] = useState<string>('auto');
   const [showPresetMenu, setShowPresetMenu] = useState(false);
   
@@ -249,8 +250,22 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       }
       
       const safe = calculateSafeDimensions(canvasWidth, canvasHeight, 9437184);
-      const finalWidth = safe.width;
-      const finalHeight = safe.height;
+      let finalWidth = safe.width;
+      let finalHeight = safe.height;
+
+      if (exportResolution === '720p') {
+        const ratio = Math.min(1280 / finalWidth, 720 / finalHeight);
+        finalWidth = Math.round(finalWidth * ratio);
+        finalHeight = Math.round(finalHeight * ratio);
+      } else if (exportResolution === '1080p') {
+        const ratio = Math.min(1920 / finalWidth, 1080 / finalHeight);
+        finalWidth = Math.round(finalWidth * ratio);
+        finalHeight = Math.round(finalHeight * ratio);
+      }
+      
+      // Ensure even dimensions for H264
+      finalWidth = Math.floor(finalWidth / 2) * 2;
+      finalHeight = Math.floor(finalHeight / 2) * 2;
       
       const canvas = document.createElement('canvas');
       canvas.width = finalWidth;
@@ -347,10 +362,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
       for (let frame = 0; frame < totalFrames; frame++) {
         if (bgImg) {
-          ctx.drawImage(bgImg, 0, 0, canvasWidth, canvasHeight);
+          ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
         } else {
           ctx.fillStyle = '#0f172a';
-          ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
 
         offscreenPlayers.forEach(({ player, item, cardW, cardH, internalCanvas }, index) => {
@@ -362,12 +377,17 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           } else {
             const col = index % cols;
             const row = Math.floor(index / cols);
-            x = padding + col * (cardW + padding);
-            y = padding + row * (cardH + padding);
+            // Scale x, y, cardW, cardH
+            const scaleX = canvas.width / canvasWidth;
+            const scaleY = canvas.height / canvasHeight;
+            x = (padding + col * (cardW + padding)) * scaleX;
+            y = (padding + row * (cardH + padding)) * scaleY;
+            const scaledCardW = cardW * scaleX;
+            const scaledCardH = cardH * scaleY;
 
             ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
             ctx.beginPath();
-            ctx.roundRect(x, y, cardW, cardH, 40);
+            ctx.roundRect(x, y, scaledCardW, scaledCardH, 40 * Math.min(scaleX, scaleY));
             ctx.fill();
           }
 
@@ -384,31 +404,35 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             const scale = preset ? Math.max(cardW / sw, cardH / sh) : 1;
             const finalW = sw * scale;
             const finalH = sh * scale;
-            const dx = x + (cardW - finalW) / 2;
-            const dy = y + (cardH - finalH) / 2;
+            
+            // Scale to canvas
+            const scaleX = canvas.width / canvasWidth;
+            const scaleY = canvas.height / canvasHeight;
+            const dx = (x + (cardW * scaleX - finalW * scaleX) / 2);
+            const dy = (y + (cardH * scaleY - finalH * scaleY) / 2);
 
             ctx.save();
             ctx.beginPath();
             if (items.length > 1) {
-              ctx.roundRect(x, y, cardW, cardH, 40);
+              ctx.roundRect(x, y, cardW * scaleX, cardH * scaleY, 40 * Math.min(scaleX, scaleY));
             } else {
-              ctx.rect(x, y, cardW, cardH);
+              ctx.rect(x, y, canvas.width, canvas.height);
             }
             ctx.clip();
-            ctx.drawImage(internalCanvas, dx, dy, finalW, finalH);
+            ctx.drawImage(internalCanvas, dx, dy, finalW * scaleX, finalH * scaleY);
             ctx.restore();
           }
         });
 
         if (wmImg) {
-          const wmSize = Math.min(canvasWidth, canvasHeight) * (wmSettings.size / 100);
+          const wmSize = Math.min(canvas.width, canvas.height) * (wmSettings.size / 100);
           let wx = 0, wy = 0;
           switch(wmSettings.position) {
             case 'top-left': wx = 40; wy = 40; break;
-            case 'top-right': wx = canvasWidth - wmSize - 40; wy = 40; break;
-            case 'bottom-left': wx = 40; wy = canvasHeight - wmSize - 40; break;
-            case 'bottom-right': wx = canvasWidth - wmSize - 40; wy = canvasHeight - wmSize - 40; break;
-            case 'center': wx = (canvasWidth - wmSize) / 2; wy = (canvasHeight - wmSize) / 2; break;
+            case 'top-right': wx = canvas.width - wmSize - 40; wy = 40; break;
+            case 'bottom-left': wx = 40; wy = canvas.height - wmSize - 40; break;
+            case 'bottom-right': wx = canvas.width - wmSize - 40; wy = canvas.height - wmSize - 40; break;
+            case 'center': wx = (canvas.width - wmSize) / 2; wy = (canvas.height - wmSize) / 2; break;
           }
           ctx.globalAlpha = wmSettings.opacity;
           ctx.drawImage(wmImg, wx, wy, wmSize, wmSize);
@@ -434,8 +458,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         }
       }
 
-      await videoEncoder.flush();
-      videoEncoder.close();
+      if (videoEncoder.state !== 'closed') {
+        await videoEncoder.flush();
+        videoEncoder.close();
+      }
       muxer.finalize();
       const { buffer } = muxer.target as ArrayBufferTarget;
       const blob = new Blob([buffer], { type: 'video/mp4' });
@@ -723,6 +749,18 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   />
                   <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">تصدير لمقاس جوال (9:16)</span>
                 </label>
+              </div>
+              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2">
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">الدقة:</span>
+                <select 
+                  value={exportResolution}
+                  onChange={(e) => setExportResolution(e.target.value as 'natural' | '720p' | '1080p')}
+                  className="bg-transparent text-white font-black text-xs focus:outline-none"
+                >
+                  <option value="natural">طبيعي</option>
+                  <option value="720p">720p</option>
+                  <option value="1080p">1080p</option>
+                </select>
               </div>
               <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2">
                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">مدة الفيديو (ثواني):</span>
