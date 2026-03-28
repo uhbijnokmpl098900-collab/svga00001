@@ -74,7 +74,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentFrame, setCurrentFrame] = useState(0);
   const [selectedFormat, setSelectedFormat] = useState('AE Project');
-  const [formatQualities, setFormatQualities] = useState<Record<string, number>>({});
+  const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>(initialGlobalQuality);
   const [isExporting, setIsExporting] = useState(false);
   const [lottiePreviewData, setLottiePreviewData] = useState<any>(null);
   const [progress, setProgress] = useState(0);
@@ -2753,9 +2753,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         const canvas = playerRef.current.querySelector('canvas');
         if (!canvas) throw new Error("Canvas not found");
 
-        const q = formatQualities[selectedFormat] ?? 100;
-        // Map q (1-100) to gifQuality (1-20, lower is better)
-        const gifQuality = Math.max(1, Math.floor(20 - (q / 100) * 19));
+        let gifQuality = 10;
+        if (globalQuality === 'high') gifQuality = 1;
+        if (globalQuality === 'medium') gifQuality = 10;
+        if (globalQuality === 'low') gifQuality = 20;
 
         const gif = new GIF({
             workers: 2,
@@ -2927,9 +2928,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
         setExportPhase('جاري إنشاء WebP متحرك (WebM Container)...');
 
-        const q = formatQualities[selectedFormat] ?? 100;
-        // Map q (1-100) to bitrate (1M - 4M)
-        let bitrate = 1000000 + (q / 100) * 3000000;
+        let bitrate = 2500000;
+        if (globalQuality === 'high') bitrate = 4000000;
+        if (globalQuality === 'low') bitrate = 1000000;
 
         // Configure video encoder right before the loop to avoid inactivity reclamation
         videoEncoder.configure({
@@ -3141,8 +3142,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
             applyTransparencyEffects(cCtx, safeWidth, safeHeight);
 
-            const q = formatQualities[selectedFormat] ?? 100;
-            const webpQuality = Math.max(0.1, q / 100);
+            let webpQuality = 0.8;
+            if (globalQuality === 'high') webpQuality = 0.95;
+            if (globalQuality === 'low') webpQuality = 0.6;
 
             const base64 = compCanvas.toDataURL('image/webp', webpQuality);
             const binary = atob(base64.split(',')[1]);
@@ -3299,9 +3301,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         setExportPhase('جاري ضغط APNG...');
         
         // UPNG.encode(imgs, w, h, cnum, dels)
-        const q = formatQualities[selectedFormat] ?? 100;
-        // Map q (1-100) to cnum (128 - 256)
-        let cnum = 128 + Math.floor((q / 100) * 128);
+        let cnum = 0;
+        if (globalQuality === 'medium') cnum = 256;
+        if (globalQuality === 'low') cnum = 128;
 
         const apngBuffer = UPNG.encode(framesData, canvas.width, canvas.height, cnum, delays);
         
@@ -3618,9 +3620,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             await audioEncoder.flush();
         }
 
-        const q = formatQualities[selectedFormat] ?? 100;
-        // Map q (1-100) to bitrate (4M - 15M)
-        let bitrate = 4000000 + (q / 100) * 11000000;
+        let bitrate = 8000000;
+        if (globalQuality === 'high') bitrate = 15000000;
+        if (globalQuality === 'low') bitrate = 4000000;
 
         const videoCodec = recordingFormat === 'mp4' 
             ? ((safeWidth * safeHeight) > 2228224 ? 'avc1.4d0033' : 'avc1.4d002a')
@@ -3956,9 +3958,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         // Hex 33 = Decimal 51 (Level 5.1)
         const codec = totalPixels > 2228224 ? 'avc1.4d0033' : 'avc1.4d002a';
 
-        const q = formatQualities[selectedFormat] ?? 100;
-        // Map q (1-100) to bitrate (2M - 12M)
-        let bitrate = 2000000 + (q / 100) * 10000000;
+        let bitrate = 8000000;
+        if (globalQuality === 'low') bitrate = 2000000;
+        if (globalQuality === 'medium') bitrate = 5000000;
+        if (globalQuality === 'high') bitrate = 12000000;
 
         videoEncoder.configure({
             codec: codec,
@@ -4213,7 +4216,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             layerImages, assetColors, assetColorModes, assetBlurs, deletedKeys, layerDisplayNames, customLayers, watermark,
             wmScale, wmPos, audioUrl, audioFile, originalAudioUrl, fadeConfig,
             applyTransparencyEffects, setProgress, setExportPhase, setIsExporting,
-            protobuf, globalQuality: (formatQualities[selectedFormat] ?? 100)
+            protobuf, globalQuality
         });
     }
     else if (currentFormat === 'Image Sequence') await handleExportImageSequence();
@@ -4419,12 +4422,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             // VAP Export Optimization
             // 1. Bitrate: Increased significantly to prevent frame dropping/macroblocking at low settings.
             //    VAP is double-width, so it needs roughly 2x the bitrate of a normal video.
-            // VAP Export Optimization
-            // 1. Bitrate: Increased significantly to prevent frame dropping/macroblocking at low settings.
-            //    VAP is double-width, so it needs roughly 2x the bitrate of a normal video.
-            const q = formatQualities[selectedFormat] ?? 100;
-            // Map q (1-100) to bitrate (5M - 12M)
-            let bitrate = 5000000 + (q / 100) * 7000000;
+            let bitrate = 12000000; // 12 Mbps (High)
+            if (globalQuality === 'medium') bitrate = 8000000; // 8 Mbps
+            if (globalQuality === 'low') bitrate = 5000000; // 5 Mbps (Minimum safe for smooth playback)
 
             // 2. Codec Config: Use H.264 (AVC) with specific profile for mobile compatibility
             // Use High Profile Level 5.1 (avc1.640033) for better resolution support (up to 4K)
@@ -6608,19 +6608,20 @@ class _MyAppState extends State<MyApp> {
                 </div>
               )}
                     <div className="space-y-4 pt-4 border-t border-white/5">
-                        <h4 className="text-white font-black text-xs uppercase tracking-widest text-emerald-400 mb-2">جودة التصدير ({selectedFormat})</h4>
-                        <input 
-                            type="range"
-                            min="0"
-                            max="100"
-                            value={formatQualities[selectedFormat] ?? 100}
-                            onChange={(e) => setFormatQualities(prev => ({ ...prev, [selectedFormat]: parseInt(e.target.value) }))}
-                            className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-emerald-500 [&::-webkit-slider-thumb]:shadow-[0_0_10px_rgba(16,185,129,0.5)]"
-                        />
-                        <div className="flex justify-between items-center text-white text-[10px] font-mono mt-1">
-                            <span>0%</span>
-                            <span className="text-emerald-400 font-bold text-xs">{formatQualities[selectedFormat] ?? 100}%</span>
-                            <span>100%</span>
+                        <h4 className="text-white font-black text-xs uppercase tracking-widest text-emerald-400 mb-2">جودة التصدير (حجم الملف)</h4>
+                        <div className="flex gap-1">
+                            <button onClick={() => setGlobalQuality('low')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase border transition-all ${globalQuality === 'low' ? 'bg-emerald-500 text-white border-emerald-500 shadow-glow-emerald' : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'}`}>
+                                منخفضة
+                                <span className="block text-[8px] opacity-70 font-normal mt-1">حجم صغير</span>
+                            </button>
+                            <button onClick={() => setGlobalQuality('medium')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase border transition-all ${globalQuality === 'medium' ? 'bg-emerald-500 text-white border-emerald-500 shadow-glow-emerald' : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'}`}>
+                                متوسطة
+                                <span className="block text-[8px] opacity-70 font-normal mt-1">متوازن</span>
+                            </button>
+                            <button onClick={() => setGlobalQuality('high')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase border transition-all ${globalQuality === 'high' ? 'bg-emerald-500 text-white border-emerald-500 shadow-glow-emerald' : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'}`}>
+                                عالية
+                                <span className="block text-[8px] opacity-70 font-normal mt-1">أفضل دقة</span>
+                            </button>
                         </div>
                     </div>
 
