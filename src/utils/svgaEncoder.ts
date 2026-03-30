@@ -17,7 +17,14 @@ export const parseSVGA = async (file: File): Promise<any> => {
         throw new Error("SVGA 1.0 (ZIP) is not supported in this editor. Please use SVGA 2.0.");
     }
 
-    const inflated = pako.inflate(uint8Array);
+    let inflated;
+    try {
+        inflated = pako.inflate(uint8Array);
+    } catch (e) {
+        console.warn("Failed to inflate SVGA, trying uncompressed:", e);
+        inflated = uint8Array;
+    }
+    
     const message = MovieEntity.decode(inflated);
     return MovieEntity.toObject(message, {
         keepCase: true,

@@ -2163,7 +2163,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                   }
               }
           } else {
-              const inflated = pako.inflate(uint8Array);
+              let inflated;
+              try {
+                  inflated = pako.inflate(uint8Array);
+              } catch (e) {
+                  console.warn("Failed to inflate SVGA, trying uncompressed:", e);
+                  inflated = uint8Array;
+              }
               message = MovieEntity.decode(inflated);
           }
 
@@ -4678,7 +4684,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                         }
                     }
                 } else {
-                    const inflated = pako.inflate(uint8Array);
+                    let inflated;
+                    try {
+                        inflated = pako.inflate(uint8Array);
+                    } catch (e) {
+                        console.warn("Failed to inflate SVGA, trying uncompressed:", e);
+                        inflated = uint8Array;
+                    }
                     message = MovieEntity.decode(inflated);
                 }
 
@@ -5388,6 +5400,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             <h2 className="text-lg sm:text-xl lg:text-3xl font-black text-white tracking-tight mb-1 truncate">{metadata.name}</h2>
             <div className="flex flex-wrap justify-center sm:justify-start items-center gap-2 sm:gap-4">
                <span className="px-2 py-0.5 sm:px-3 sm:py-1 bg-sky-500/10 text-sky-400 text-[8px] sm:text-[10px] font-black rounded-lg border border-sky-500/20 uppercase tracking-[0.1em] sm:tracking-[0.2em]">{videoWidth}X{videoHeight}</span>
+               {metadata.name.toLowerCase().endsWith('.svga') && (
+                   <span className="px-2 py-0.5 sm:px-3 sm:py-1 bg-amber-500/10 text-amber-400 text-[8px] sm:text-[10px] font-black rounded-lg border border-amber-500/20 uppercase tracking-[0.1em] sm:tracking-[0.2em]">
+                       {(metadata.size / 1024).toFixed(2)} KB
+                   </span>
+               )}
                <span className="text-[8px] sm:text-[10px] lg:text-[12px] text-slate-500 font-bold uppercase tracking-[0.1em] sm:tracking-[0.3em]">{metadata.frames} إطارات</span>
             </div>
           </div>

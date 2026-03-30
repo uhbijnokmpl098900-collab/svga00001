@@ -116,7 +116,13 @@ export const handleSvgaExExport = async (params: {
                     }
                 }
             } else {
-                const inflated = pako.inflate(uint8Array);
+                let inflated;
+                try {
+                    inflated = pako.inflate(uint8Array);
+                } catch (e) {
+                    console.warn("Failed to inflate SVGA, trying uncompressed:", e);
+                    inflated = uint8Array;
+                }
                 message = MovieEntity.decode(inflated);
             }
         } else {

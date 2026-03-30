@@ -129,7 +129,8 @@ export const SvgaCompressor: React.FC<{ onCancel: () => void, currentUser: UserR
           try {
              inflatedData = pako.inflate(new Uint8Array(arrayBuffer));
           } catch (e) {
-             throw new Error("Invalid SVGA file format. Not a valid Zip archive or SVGA binary.");
+             console.warn("Failed to inflate SVGA, trying uncompressed:", e);
+             inflatedData = new Uint8Array(arrayBuffer);
           }
 
           const parsed = parse(svgaSchema);

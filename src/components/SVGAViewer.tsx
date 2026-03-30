@@ -573,7 +573,13 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({ file, onClear, originalF
       } else {
         // SVGA 2.0 (zlib + protobuf)
         setExportStatus('Decompressing file...');
-        const inflated = pako.inflate(uint8Array);
+        let inflated;
+        try {
+            inflated = pako.inflate(uint8Array);
+        } catch (e) {
+            console.warn("Failed to inflate SVGA, trying uncompressed:", e);
+            inflated = uint8Array;
+        }
         
         setExportProgress(50);
         setExportStatus('Parsing data...');
