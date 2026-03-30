@@ -4,7 +4,7 @@ import { FileCode, Search, Clock, Layers } from 'lucide-react';
 export const AeScriptGenerator: React.FC<{ onCancel: () => void }> = ({ onCancel }) => {
   const [layersInput, setLayersInput] = useState('');
   const [targetDuration, setTargetDuration] = useState('5.0');
-  const [useCompDuration, setUseCompDuration] = useState(false);
+  const [useOriginalDuration, setUseOriginalDuration] = useState(false);
   const [generatedScript, setGeneratedScript] = useState('');
 
   const generateScript = () => {
@@ -25,7 +25,8 @@ export const AeScriptGenerator: React.FC<{ onCancel: () => void }> = ({ onCancel
 
   app.beginUndoGroup("Sync Layer Durations");
 
-  var targetDuration = ${useCompDuration ? "comp.duration" : "parseFloat('" + targetDuration + "')"};
+  var useOriginal = ${useOriginalDuration};
+  var targetDuration = parseFloat('${targetDuration}');
   var layerNames = ${JSON.stringify(layerNames)};
   var notFound = [];
 
@@ -38,7 +39,9 @@ export const AeScriptGenerator: React.FC<{ onCancel: () => void }> = ({ onCancel
       var layer = comp.layers[i];
       if (layer.name === name && (!isHidden || !layer.enabled)) {
         var newLayer = layer.duplicate();
-        newLayer.outPoint = targetDuration;
+        if (!useOriginal) {
+          newLayer.outPoint = newLayer.inPoint + targetDuration;
+        }
         found = true;
       }
     }
@@ -86,20 +89,20 @@ export const AeScriptGenerator: React.FC<{ onCancel: () => void }> = ({ onCancel
               className="w-full bg-slate-800 text-white p-3 rounded-xl border border-slate-700 disabled:opacity-50"
               value={targetDuration}
               onChange={(e) => setTargetDuration(e.target.value)}
-              disabled={useCompDuration}
+              disabled={useOriginalDuration}
             />
           </div>
           
           <div className="flex items-center gap-3 bg-slate-800 p-4 rounded-xl">
             <input
               type="checkbox"
-              id="syncComp"
+              id="useOriginal"
               className="w-5 h-5 accent-indigo-500"
-              checked={useCompDuration}
-              onChange={(e) => setUseCompDuration(e.target.checked)}
+              checked={useOriginalDuration}
+              onChange={(e) => setUseOriginalDuration(e.target.checked)}
             />
-            <label htmlFor="syncComp" className="text-white font-bold cursor-pointer">
-              مزامنة تلقائية مع مدة المشروع
+            <label htmlFor="useOriginal" className="text-white font-bold cursor-pointer">
+              استخدام المدة الأصلية للطبقة
             </label>
           </div>
         </div>
