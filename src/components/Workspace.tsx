@@ -1253,6 +1253,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     }
   };
 
+  const ensureInteractionAccess = async (feature: string = 'Interaction') => {
+    if (currentUser?.role === 'admin' || currentUser?.role === 'moderator') return true;
+    const { allowed } = await checkAccess(feature, { decrement: false, subscriptionOnly: true });
+    if (!allowed) {
+      onSubscriptionRequired();
+      return false;
+    }
+    return true;
+  };
+
   const handlePlayToggle = () => {
     if (!svgaInstance) return;
     if (isPlaying) {
@@ -1280,36 +1290,40 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleReplaceImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-        const reader = new FileReader();
-        reader.onload = async (ev) => {
-            const base64 = ev.target?.result as string;
-            if (replacingAssetKey) {
-                setLayerImages(p => ({ ...p, [replacingAssetKey]: base64 }));
-                
-                // Update Metadata to persist changes
-                if (metadata.videoItem) {
-                    const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
-                    if (!newVideoItem.images) newVideoItem.images = {};
-                    newVideoItem.images[replacingAssetKey] = base64;
+        ensureInteractionAccess('Replace Image').then(allowed => {
+            if (!allowed) return;
+            const reader = new FileReader();
+            reader.onload = async (ev) => {
+                const base64 = ev.target?.result as string;
+                if (replacingAssetKey) {
+                    setLayerImages(p => ({ ...p, [replacingAssetKey]: base64 }));
                     
-                    setMetadata({
-                        ...metadata,
-                        videoItem: newVideoItem
-                    });
-                }
+                    // Update Metadata to persist changes
+                    if (metadata.videoItem) {
+                        const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+                        if (!newVideoItem.images) newVideoItem.images = {};
+                        newVideoItem.images[replacingAssetKey] = base64;
+                        
+                        setMetadata({
+                            ...metadata,
+                            videoItem: newVideoItem
+                        });
+                    }
 
-                const color = assetColors[replacingAssetKey];
-                const finalImage = color ? await tintImage(base64, color) : base64;
-                // We still call setImage for immediate feedback, though the metadata update will eventually trigger a re-render
-                svgaInstance?.setImage(finalImage, replacingAssetKey);
-                setReplacingAssetKey(null);
-            }
-        };
-        reader.readAsDataURL(file);
+                    const color = assetColors[replacingAssetKey];
+                    const finalImage = color ? await tintImage(base64, color) : base64;
+                    // We still call setImage for immediate feedback, though the metadata update will eventually trigger a re-render
+                    svgaInstance?.setImage(finalImage, replacingAssetKey);
+                    setReplacingAssetKey(null);
+                }
+            };
+            reader.readAsDataURL(file);
+        });
     }
   };
 
   const handleColorChange = async (keys: string | string[] | Set<string>, color: string) => {
+    if (!(await ensureInteractionAccess('Color Change'))) return;
     const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
     
     setAssetColors(p => {
@@ -1330,6 +1344,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   };
 
   const handleToggleColorMode = async (keys: string | string[] | Set<string>) => {
+    if (!(await ensureInteractionAccess('Color Mode Toggle'))) return;
     const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
     
     const newModes: Record<string, 'tint' | 'fill'> = {};
@@ -1357,6 +1372,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   };
 
   const handleSetColorMode = async (keys: string | string[] | Set<string>, mode: 'tint' | 'fill') => {
+    if (!(await ensureInteractionAccess('Color Mode Set'))) return;
     const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
     
     setAssetColorModes(p => {
@@ -1379,6 +1395,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   };
 
   const handleDownloadLayer = async (key: string) => {
+    if (!(await ensureInteractionAccess('Download Layer'))) return;
     const base64 = await getProcessedAsset(key);
     if (base64) {
       const link = document.createElement("a");
@@ -1388,7 +1405,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     }
   };
 
-  const handleDeleteAsset = (key: string) => {
+  const handleDeleteAsset = async (key: string) => {
+    if (!(await ensureInteractionAccess('Delete Asset'))) return;
     if (deletedKeys.has(key)) {
         setDeletedKeys(p => { const next = new Set(p); next.delete(key); return next; });
         if (svgaInstance) {
@@ -1438,56 +1456,59 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleAddLayer = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = async (ev) => {
-        const url = ev.target?.result as string;
-        const size = await getImageSize(url);
-        
-        // Generate unique key
-        const newKey = `layer_${Date.now()}`;
-        
-        // 1. Add to layerImages (and metadata images)
-        const newLayerImages = { ...layerImages, [newKey]: url };
-        setLayerImages(newLayerImages);
-        
-        // 2. Create new Sprite
-        // Center it
-        const x = (videoWidth - size.w) / 2;
-        const y = (videoHeight - size.h) / 2;
-        
-        const newSprite = {
-            imageKey: newKey,
-            frames: Array(metadata.frames || 1).fill({
-                alpha: 1.0,
-                layout: { x, y, width: size.w, height: size.h },
-                transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
-            }),
-            matteKey: ""
-        };
+      ensureInteractionAccess('Add Layer').then(allowed => {
+        if (!allowed) return;
+        const reader = new FileReader();
+        reader.onload = async (ev) => {
+          const url = ev.target?.result as string;
+          const size = await getImageSize(url);
+          
+          // Generate unique key
+          const newKey = `layer_${Date.now()}`;
+          
+          // 1. Add to layerImages (and metadata images)
+          const newLayerImages = { ...layerImages, [newKey]: url };
+          setLayerImages(newLayerImages);
+          
+          // 2. Create new Sprite
+          // Center it
+          const x = (videoWidth - size.w) / 2;
+          const y = (videoHeight - size.h) / 2;
+          
+          const newSprite = {
+              imageKey: newKey,
+              frames: Array(metadata.frames || 1).fill({
+                  alpha: 1.0,
+                  layout: { x, y, width: size.w, height: size.h },
+                  transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
+              }),
+              matteKey: ""
+          };
 
-        // 3. Update Metadata
-        // We need to update both the `images` map and `sprites` list in videoItem
-        const newMetadata = {
-            ...metadata,
-            videoItem: {
-                ...metadata.videoItem,
-                images: {
-                    ...metadata.videoItem.images,
-                    [newKey]: url // Store as base64/url temporarily, export handles conversion
-                },
-                sprites: [...(metadata.videoItem.sprites || []), newSprite]
-            }
+          // 3. Update Metadata
+          // We need to update both the `images` map and `sprites` list in videoItem
+          const newMetadata = {
+              ...metadata,
+              videoItem: {
+                  ...metadata.videoItem,
+                  images: {
+                      ...metadata.videoItem.images,
+                      [newKey]: url // Store as base64/url temporarily, export handles conversion
+                  },
+                  sprites: [...(metadata.videoItem.sprites || []), newSprite]
+              }
+          };
+          
+          setMetadata(newMetadata);
+          
+          // Select the new layer
+          setSelectedKeys(new Set([newKey]));
+          
+          // Reset input
+          if (layerInputRef.current) layerInputRef.current.value = '';
         };
-        
-        setMetadata(newMetadata);
-        
-        // Select the new layer
-        setSelectedKeys(new Set([newKey]));
-        
-        // Reset input
-        if (layerInputRef.current) layerInputRef.current.value = '';
-      };
-      reader.readAsDataURL(file);
+        reader.readAsDataURL(file);
+      });
     }
   };
 
@@ -2096,14 +2117,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       });
   };
 
-  const handleRemoveLayer = (id: string) => {
+  const handleRemoveLayer = async (id: string) => {
+    if (!(await ensureInteractionAccess('Remove Layer'))) return;
     if (confirm("حذف هذه الطبقة؟")) {
         setCustomLayers(prev => prev.filter(l => l.id !== id));
         if (selectedLayerId === id) setSelectedLayerId(null);
     }
   };
 
-  const handleMoveLayer = (id: string, direction: 'up' | 'down') => {
+  const handleMoveLayer = async (id: string, direction: 'up' | 'down') => {
+    if (!(await ensureInteractionAccess('Move Layer'))) return;
     setCustomLayers(prev => {
       const index = prev.findIndex(l => l.id === id);
       if (index === -1) return prev;
@@ -2117,7 +2140,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     });
   };
 
-  const handleUpdateLayer = (id: string, updates: Partial<CustomLayer>) => {
+  const handleUpdateLayer = async (id: string, updates: Partial<CustomLayer>) => {
+    if (!(await ensureInteractionAccess('Update Layer'))) return;
     setCustomLayers(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l));
   };
 
@@ -2540,8 +2564,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       return { message, imagesData, originalWidth: origW, originalHeight: origH };
   };
 
-  const handleExportAEProject = async () => {
+  const handleExportAEProject = async (options: { decrement?: boolean } = {}) => {
+    const { decrement = true } = options;
     if (!svgaInstance) return;
+
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    const { allowed } = await checkAccess('AE Project Export', { decrement, subscriptionOnly: true });
+    if (!allowed) {
+      onSubscriptionRequired();
+      return;
+    }
 
     setIsExporting(true);
     setExportPhase('تحليل مصفوفة الطبقات Quantum v5.6...');
@@ -2573,6 +2609,17 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleExportLottie = async () => {
     if (!metadata.videoItem) {
       alert("لا توجد بيانات SVGA للتصدير.");
+      return;
+    }
+
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    const { allowed } = await checkAccess('Lottie Export');
+    if (!allowed) {
+      onSubscriptionRequired();
       return;
     }
 
@@ -2613,9 +2660,21 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     }
   };
 
-  const handleExportLottieSequence = async () => {
+  const handleExportLottieSequence = async (options: { decrement?: boolean } = {}) => {
+    const { decrement = true } = options;
     if (!svgaInstance || !playerRef.current || !metadata.videoItem) {
       alert("لا توجد بيانات SVGA للتصدير.");
+      return;
+    }
+
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    const { allowed } = await checkAccess('Lottie Sequence Export', { decrement, subscriptionOnly: true });
+    if (!allowed) {
+      onSubscriptionRequired();
       return;
     }
 
@@ -2681,8 +2740,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     }
   };
 
-  const handleExportImageSequence = async () => {
+  const handleExportImageSequence = async (options: { decrement?: boolean } = {}) => {
+    const { decrement = true } = options;
     if (!svgaInstance || !playerRef.current) return;
+
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    const { allowed } = await checkAccess('Image Sequence Export', { decrement, subscriptionOnly: true });
+    if (!allowed) {
+      onSubscriptionRequired();
+      return;
+    }
 
     setIsExporting(true);
     setExportPhase('جاري تصدير تسلسل الصور...');
@@ -2739,8 +2810,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     }
   };
 
-  const handleExportGIF = async () => {
+  const handleExportGIF = async (options: { decrement?: boolean } = {}) => {
+    const { decrement = true } = options;
     if (!svgaInstance || !playerRef.current) return;
+
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    const { allowed } = await checkAccess('GIF Export', { decrement, subscriptionOnly: true });
+    if (!allowed) {
+      onSubscriptionRequired();
+      return;
+    }
 
     setIsExporting(true);
     setExportPhase('جاري إنشاء ملف GIF شفاف...');
@@ -2840,8 +2923,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     }
   };
 
-  const handleExportWebM = async () => {
+  const handleExportWebM = async (options: { decrement?: boolean } = {}) => {
+    const { decrement = true } = options;
     if (!svgaInstance || !playerRef.current) return;
+
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    const { allowed } = await checkAccess('WebM Export', { decrement, subscriptionOnly: true });
+    if (!allowed) {
+      onSubscriptionRequired();
+      return;
+    }
 
     setIsExporting(true);
     setExportPhase('جاري تحضير الأصول...');
@@ -3055,8 +3150,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     }
   };
 
-  const handleExportWebP = async () => {
+  const handleExportWebP = async (options: { decrement?: boolean } = {}) => {
+    const { decrement = true } = options;
     if (!svgaInstance || !playerRef.current) return;
+
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    const { allowed } = await checkAccess('WebP Export', { decrement, subscriptionOnly: true });
+    if (!allowed) {
+      onSubscriptionRequired();
+      return;
+    }
 
     setIsExporting(true);
     setExportPhase('جاري إنشاء WebP المتحرك...');
@@ -3265,8 +3372,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   };
 
 
-  const handleExportAPNG = async () => {
+  const handleExportAPNG = async (options: { decrement?: boolean } = {}) => {
+    const { decrement = true } = options;
     if (!svgaInstance || !playerRef.current) return;
+
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    const { allowed } = await checkAccess('APNG Export', { decrement, subscriptionOnly: true });
+    if (!allowed) {
+      onSubscriptionRequired();
+      return;
+    }
 
     setIsExporting(true);
     setExportPhase('جاري إنشاء ملف APNG (Animation)...');
@@ -3431,15 +3550,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
 
 
-  const handleExportStandardVideo = async () => {
+  const handleExportStandardVideo = async (options: { decrement?: boolean } = {}) => {
+    const { decrement = true } = options;
     if (!currentUser) {
       onLoginRequired();
       return;
     }
 
-    const { allowed, reason } = await checkAccess('Standard Video Export');
+    const { allowed, reason } = await checkAccess('Standard Video Export', { decrement, subscriptionOnly: true });
     if (!allowed) {
-      if (reason === 'trial_ended') onSubscriptionRequired();
+      onSubscriptionRequired();
       return;
     }
 
@@ -3817,8 +3937,19 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   };
 
-  const handleVAP105Export = async (fromMain = false) => {
+  const handleVAP105Export = async (options: { decrement?: boolean } = {}) => {
     if (!metadata.videoItem) return;
+
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    const { allowed } = await checkAccess('VAP Export', { ...options, subscriptionOnly: true });
+    if (!allowed) {
+      onSubscriptionRequired();
+      return;
+    }
 
     setIsExporting(true);
     setExportPhase('جاري تحضير VAP 1.0.5...');
@@ -4183,13 +4314,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     }
   }, [currentUser, selectedFormat]);
 
-  const availableFormats = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Lottie (JSON)', 'Lottie (Sequence)', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP (MP4)', 'VAP 1.0.5'];
+  const availableFormats = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Lottie (Sequence)', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP (MP4)', 'VAP 1.0.5'];
   
   const displayedFormats = useMemo(() => {
       // If we are in EX mode, only show SVGA 2.0 EX
       if (mode === 'ex') {
           const exFormats = ['SVGA 2.0 EX'];
-          if (currentUser?.role === 'admin' || (Array.isArray(currentUser?.allowedExportFormat) && currentUser.allowedExportFormat.includes('WebP (Animated)'))) {
+          if (currentUser?.role === 'admin' || currentUser?.role === 'moderator' || (Array.isArray(currentUser?.allowedExportFormat) && currentUser.allowedExportFormat.includes('WebP (Animated)'))) {
               exFormats.push('WebP (Animated)');
           }
           return exFormats.filter(f => !hiddenFormats.includes(f));
@@ -4211,17 +4342,28 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   }, [displayedFormats, selectedFormat]);
 
   const handleMainExport = async (formatOverride?: string | any) => {
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    // Force subscription for all exports as per user request
+    const { allowed } = await checkAccess('Export', { decrement: false, subscriptionOnly: true });
+    if (!allowed) {
+      onSubscriptionRequired();
+      return;
+    }
+
     const currentFormat = (typeof formatOverride === 'string' && formatOverride) ? formatOverride : selectedFormat;
 
     // Special handling for VAP 1.0.5
     if (currentFormat === 'VAP 1.0.5') {
-        await handleVAP105Export(false);
+        await handleVAP105Export({ decrement: false });
         return;
     }
 
-    if (currentFormat === 'AE Project') await handleExportAEProject();
-    else if (currentFormat === 'Lottie (JSON)') await handleExportLottie();
-    else if (currentFormat === 'Lottie (Sequence)') await handleExportLottieSequence();
+    if (currentFormat === 'AE Project') await handleExportAEProject({ decrement: false });
+    else if (currentFormat === 'Lottie (Sequence)') await handleExportLottieSequence({ decrement: false });
     else if (currentFormat === 'SVGA 2.0 EX') {
         await handleSvgaExExport({
             metadata, videoWidth, videoHeight, exportScale, svgaScale, svgaPos,
@@ -4231,10 +4373,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             protobuf, globalQuality
         });
     }
-    else if (currentFormat === 'Image Sequence') await handleExportImageSequence();
-    else if (currentFormat === 'GIF (Animation)') await handleExportGIF();
-    else if (currentFormat === 'APNG (Animation)') await handleExportAPNG();
-    else if (currentFormat === 'WebM (Video)') await handleExportWebM();
+    else if (currentFormat === 'Image Sequence') await handleExportImageSequence({ decrement: false });
+    else if (currentFormat === 'GIF (Animation)') await handleExportGIF({ decrement: false });
+    else if (currentFormat === 'APNG (Animation)') await handleExportAPNG({ decrement: false });
+    else if (currentFormat === 'WebM (Video)') await handleExportWebM({ decrement: false });
+    else if (currentFormat === 'WebP (Animated)') await handleExportWebP({ decrement: false });
+    else if (currentFormat === 'MP4 (Standard)') await handleExportStandardVideo({ decrement: false });
     else if (currentFormat === 'VAP (MP4)') {
         setIsExporting(true);
         setExportPhase('جاري إنشاء فيديو VAP (Alpha+RGB)...');
@@ -4636,9 +4780,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 await audioContext.close();
             }
         }
-    }
-    else if (currentFormat === 'WebP (Animated)') {
-        await handleExportWebP();
     }
     else if (currentFormat === 'SVGA 2.0' && typeof protobuf !== 'undefined') {
         const isEdgeFadeActive = fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0;
@@ -5763,7 +5904,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 </div>
               )}
 
-              {activeSideTab === 'settings' && currentUser?.role === 'admin' && (
+              {activeSideTab === 'settings' && (currentUser?.role === 'admin' || currentUser?.role === 'moderator') && (
                 <div className="space-y-8 animate-in slide-in-from-right-4 duration-300">
                     <div className="space-y-6">
                         <h4 className="text-white font-black text-xs uppercase tracking-widest text-purple-400">إدارة صيغ التصدير (Control Panel)</h4>
@@ -6683,7 +6824,7 @@ class _MyAppState extends State<MyApp> {
               {/* VAP 1.0.5 Special Button - Only visible if allowed */}
               {displayedFormats.includes('VAP 1.0.5') && (
                   <button 
-                    onClick={() => handleVAP105Export(false)}
+                    onClick={() => handleVAP105Export()}
                     className="w-full py-4 mb-4 text-[11px] font-black rounded-xl shadow-glow-purple active:scale-95 flex items-center justify-center gap-2 transition-all hover:scale-[1.02] bg-purple-600 hover:bg-purple-500 text-white"
                  >
                     🚀 تصدير VAP 1.0.5 (خاص)
@@ -6727,14 +6868,6 @@ class _MyAppState extends State<MyApp> {
                    title="تصدير مشروع After Effects"
                  >
                    🎬 After Effects
-                 </button>
-
-                 <button 
-                   onClick={onImageConverterOpen}
-                   className="flex-1 py-4 bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-black rounded-xl shadow-glow-orange active:scale-95 transition-all flex items-center justify-center gap-2"
-                   title="تصدير ملف Lottie (JSON)"
-                 >
-                   ✨ Lottie (JSON)
                  </button>
                  
                  <button 

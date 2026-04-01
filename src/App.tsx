@@ -47,6 +47,8 @@ const App: React.FC = () => {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>('high');
   const [initialLottieFile, setInitialLottieFile] = useState<File | null>(null);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
 
   useEffect(() => {
     // Check if user has seen onboarding
@@ -66,6 +68,7 @@ const App: React.FC = () => {
     const loadSettings = async () => {
       try {
         const docRef = doc(db, 'settings', 'global');
+        // Use getDoc instead of getDocFromServer to allow cached data if offline
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           const data = docSnap.data() as AppSettings;
@@ -73,9 +76,19 @@ const App: React.FC = () => {
           localStorage.setItem('appSettings', JSON.stringify(data));
         }
       } catch (e: any) { 
-        if (e.code === 'resource-exhausted') {
-          setIsQuotaExceeded(true);
-          console.warn("Firestore Quota Exceeded. Using cached settings.");
+        console.warn("Settings Load Notice:", e.message);
+        if (e.message && e.message.includes('offline')) {
+          console.error("Firestore is unreachable. Please ensure Firestore is enabled in your Firebase Console.");
+        }
+        
+        // Try to load from cache if Firestore fails
+        const cached = localStorage.getItem('appSettings');
+        if (cached) {
+          try {
+            setSettings(JSON.parse(cached));
+          } catch (parseError) {
+            console.error("Failed to parse cached settings");
+          }
         }
       }
     };
@@ -83,8 +96,12 @@ const App: React.FC = () => {
   }, []);
 
   const handleFeatureAccess = async (targetState: AppState, featureName: string) => {
-    // All features are now accessible
-    setState(targetState);
+    const { allowed } = await checkAccess(featureName, { decrement: false });
+    if (allowed) {
+      setState(targetState);
+    } else {
+      setShowSubscriptionModal(true);
+    }
   };
 
   const handleImageConverterOpen = (file?: File) => {
@@ -322,6 +339,24 @@ const App: React.FC = () => {
     return <Loading />;
   }
 
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-[#020617] flex items-center justify-center p-4 relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0">
+          <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-500/10 blur-[120px] rounded-full"></div>
+          <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-600/10 blur-[120px] rounded-full"></div>
+        </div>
+        <div className="relative z-10 w-full max-w-md">
+          {authMode === 'login' ? (
+            <Login onToggle={() => setAuthMode('signup')} />
+          ) : (
+            <Signup onToggle={() => setAuthMode('login')} />
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const defaultBgUrl = 'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?q=80&w=2070&auto=format&fit=crop';
   const bgUrl = settings?.backgroundUrl || defaultBgUrl;
 
@@ -344,7 +379,7 @@ const App: React.FC = () => {
 
       <Header 
         onLogoClick={handleReset} 
-        isAdmin={currentUser?.role === 'admin'} 
+        isAdmin={currentUser?.role === 'admin' || currentUser?.role === 'moderator'} 
         currentUser={currentUser}
         settings={settings}
         onAdminToggle={() => setState(AppState.ADMIN_PANEL)}
@@ -402,7 +437,7 @@ const App: React.FC = () => {
                 settings={settings} 
                 currentUser={currentUser} 
                 onLoginRequired={() => {}}
-                onSubscriptionRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
                 globalQuality={globalQuality}
                 onFileReplace={(meta) => setFileMetadata(meta)}
                 mode={state === AppState.SVGA_EDITOR_EX ? 'ex' : 'normal'}
@@ -414,7 +449,7 @@ const App: React.FC = () => {
                 onCancel={handleReset} 
                 currentUser={currentUser} 
                 onLoginRequired={() => {}}
-                onSubscriptionRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
               />
             )}
             {state === AppState.STORE && (
@@ -425,7 +460,7 @@ const App: React.FC = () => {
                 currentUser={currentUser} 
                 onCancel={handleReset} 
                 onLoginRequired={() => {}}
-                onSubscriptionRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
                 globalQuality={globalQuality}
               />
             )}
@@ -434,7 +469,7 @@ const App: React.FC = () => {
                 currentUser={currentUser} 
                 onCancel={handleReset} 
                 onLoginRequired={() => {}}
-                onSubscriptionRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
                 globalQuality={globalQuality}
                 initialFile={initialLottieFile}
               />
@@ -443,17 +478,21 @@ const App: React.FC = () => {
               <ImageProcessor 
                 currentUser={currentUser} 
                 onCancel={handleReset} 
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
               />
             )}
             {state === AppState.BATCH_IMAGE_PROCESSOR && (
-              <BatchImageProcessor onCancel={handleReset} />
+              <BatchImageProcessor 
+                onCancel={handleReset} 
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
             )}
             {state === AppState.IMAGE_EDITOR && (
               <ImageEditor 
                 currentUser={currentUser} 
                 onCancel={handleReset} 
                 onLoginRequired={() => {}}
-                onSubscriptionRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
               />
             )}
             {state === AppState.IMAGE_MATCHER && (
@@ -461,7 +500,7 @@ const App: React.FC = () => {
                 currentUser={currentUser} 
                 onCancel={handleReset} 
                 onLoginRequired={() => {}}
-                onSubscriptionRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
               />
             )}
             {state === AppState.BATCH_CROPPER && (
@@ -469,15 +508,17 @@ const App: React.FC = () => {
                 currentUser={currentUser} 
                 onCancel={handleReset} 
                 onLoginRequired={() => {}}
-                onSubscriptionRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
               />
             )}
             {state === AppState.MULTI_SVGA_VIEWER && (
               <MultiSvgaViewer 
                 onCancel={handleReset} 
+                currentUser={currentUser}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
               />
             )}
-            {state === AppState.ADMIN_PANEL && currentUser?.role === 'admin' && (
+            {state === AppState.ADMIN_PANEL && (currentUser?.role === 'admin' || currentUser?.role === 'moderator') && (
               <AdminPanel currentUser={currentUser} onCancel={handleReset} />
             )}
           </div>
@@ -512,6 +553,13 @@ const App: React.FC = () => {
       <OnboardingModal 
         isOpen={showOnboarding} 
         onClose={handleCloseOnboarding} 
+      />
+
+      {/* Subscription Modal */}
+      <SubscriptionModal 
+        isOpen={showSubscriptionModal}
+        onClose={() => setShowSubscriptionModal(false)}
+        settings={settings}
       />
     </div>
   );

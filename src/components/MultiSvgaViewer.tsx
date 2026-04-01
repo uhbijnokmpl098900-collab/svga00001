@@ -26,6 +26,7 @@ interface MultiSvgaItem {
 interface MultiSvgaViewerProps {
   onCancel: () => void;
   currentUser: UserRecord | null;
+  onSubscriptionRequired?: () => void;
 }
 
 interface DevicePreset {
@@ -82,7 +83,10 @@ const DEVICE_PRESETS: DevicePreset[] = [
   { id: 'custom750x240', name: '750 × 240', width: 750, height: 240, category: 'Standard' },
 ];
 
-export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, currentUser }) => {
+import { useAccessControl } from '../hooks/useAccessControl';
+
+export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, currentUser, onSubscriptionRequired }) => {
+  const { checkAccess } = useAccessControl();
   const [items, setItems] = useState<MultiSvgaItem[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [previewBg, setPreviewBg] = useState<string | null>(null);
@@ -192,6 +196,13 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
   const handleExportGrid = async () => {
     if (items.length === 0) return;
+
+    const { allowed } = await checkAccess('Multi SVGA Export');
+    if (!allowed) {
+      if (onSubscriptionRequired) onSubscriptionRequired();
+      return;
+    }
+
     setIsExporting(true);
     setExportProgress(0);
 
@@ -559,6 +570,13 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
   const handleDownloadAllImages = async () => {
     if (items.length === 0) return;
+
+    const { allowed } = await checkAccess('Multi SVGA ZIP Export');
+    if (!allowed) {
+      if (onSubscriptionRequired) onSubscriptionRequired();
+      return;
+    }
+
     setIsZipping(true);
     setExportProgress(0);
     

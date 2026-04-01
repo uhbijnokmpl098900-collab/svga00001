@@ -195,7 +195,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ currentUser, onCancel,
 
     const { allowed, reason } = await checkAccess('Image Editor Export');
     if (!allowed) {
-      if (reason === 'trial_ended') onSubscriptionRequired();
+      onSubscriptionRequired();
       return;
     }
 

@@ -133,7 +133,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right Side: Admin Panel Button */}
       <div className="flex items-center gap-1 sm:gap-3">
-        {/* {isAdmin && (
+        {isAdmin && (
           <button
             onClick={onAdminToggle}
             className={`p-2 rounded-lg transition-colors ${
@@ -143,7 +143,14 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Settings className="w-5 h-5" />
           </button>
-        )} */}
+        )}
+        <button
+          onClick={onLogout}
+          className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+          title="تسجيل الخروج"
+        >
+          <LogOut className="w-5 h-5" />
+        </button>
       </div>
     </header>
 
@@ -258,6 +265,22 @@ export const Header: React.FC<HeaderProps> = ({
                       <BadgeCheck className="w-6 h-6 text-amber-500" />
                     </button>
                   )}
+
+                  {/* Logout Button */}
+                  <button
+                    onClick={() => {
+                      onLogout();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="flex items-center gap-5 p-6 rounded-[2rem] text-xl font-black transition-all active:scale-95 shadow-xl bg-red-500/10 text-red-400 border border-red-500/20"
+                  >
+                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-red-500/20">
+                      <LogOut className="w-7 h-7" />
+                    </div>
+                    <div className="flex-1 text-right">
+                      <span>تسجيل الخروج</span>
+                    </div>
+                  </button>
                 </div>
               </div>
             </div>

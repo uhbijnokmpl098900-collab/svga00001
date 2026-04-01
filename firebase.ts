@@ -3,12 +3,12 @@ import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-    apiKey: "AIzaSyA89cCavaGvK0R6TFiV8x3cP6lGEqsko8A",
-    authDomain: "svga-7ad3e.firebaseapp.com",
-    projectId: "svga-7ad3e",
-    storageBucket: "svga-7ad3e.firebasestorage.app",
-    messagingSenderId: "604602241409",
-    appId: "1:604602241409:web:25442407e9e036f82a5880"
+    apiKey: "AIzaSyArDAeCOj-yAiiUljGaYA5FWbcKZIFmzWQ",
+    authDomain: "svga1-757ac.firebaseapp.com",
+    projectId: "svga1-757ac",
+    storageBucket: "svga1-757ac.firebasestorage.app",
+    messagingSenderId: "824207473831",
+    appId: "1:824207473831:web:7246fb461328793effef82"
 };
 
 const app = initializeApp(firebaseConfig);

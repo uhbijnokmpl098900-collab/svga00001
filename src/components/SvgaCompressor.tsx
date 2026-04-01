@@ -3,6 +3,7 @@ import { UserRecord } from '../types';
 import { parse } from 'protobufjs';
 import pako from 'pako';
 import { svgaSchema } from '../svga-proto';
+import { useAccessControl } from '../hooks/useAccessControl';
 
 declare var JSZip: any;
 
@@ -16,9 +17,10 @@ interface SvgaFile {
   downloadUrl?: string;
 }
 
-export const SvgaCompressor: React.FC<{ onCancel: () => void, currentUser: UserRecord | null }> = ({ onCancel, currentUser }) => {
+export const SvgaCompressor: React.FC<{ onCancel: () => void, currentUser: UserRecord | null, onSubscriptionRequired: () => void }> = ({ onCancel, currentUser, onSubscriptionRequired }) => {
   const [svgaFile, setSvgaFile] = useState<SvgaFile | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const { checkAccess } = useAccessControl();
   const [quality, setQuality] = useState(80);
   const [compressionMode, setCompressionMode] = useState<'manual' | 'target'>('manual');
   const [targetSize, setTargetSize] = useState<number>(0); // in KB
@@ -81,6 +83,13 @@ export const SvgaCompressor: React.FC<{ onCancel: () => void, currentUser: UserR
 
   const processSvga = async () => {
     if (!svgaFile || isProcessing) return;
+
+    const { allowed } = await checkAccess('SVGA Compression');
+    if (!allowed) {
+      onSubscriptionRequired();
+      return;
+    }
+
     setIsProcessing(true);
     setSvgaFile(prev => prev ? { ...prev, status: 'processing' } : null);
 

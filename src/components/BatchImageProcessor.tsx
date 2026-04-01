@@ -15,7 +15,15 @@ interface ProcessedImage {
   error?: string;
 }
 
-export const BatchImageProcessor: React.FC<{ onCancel?: () => void }> = ({ onCancel }) => {
+import { useAccessControl } from '../hooks/useAccessControl';
+
+interface BatchImageProcessorProps {
+  onCancel?: () => void;
+  onSubscriptionRequired?: () => void;
+}
+
+export const BatchImageProcessor: React.FC<BatchImageProcessorProps> = ({ onCancel, onSubscriptionRequired }) => {
+  const { checkAccess } = useAccessControl();
   const [files, setFiles] = useState<File[]>([]);
   const [processedImages, setProcessedImages] = useState<ProcessedImage[]>([]);
   const [targetWidth, setTargetWidth] = useState<number>(512);
@@ -55,6 +63,12 @@ export const BatchImageProcessor: React.FC<{ onCancel?: () => void }> = ({ onCan
 
   const processImages = async () => {
     if (files.length === 0) return;
+
+    const { allowed } = await checkAccess('Batch Image Processor');
+    if (!allowed) {
+      if (onSubscriptionRequired) onSubscriptionRequired();
+      return;
+    }
     
     setIsProcessing(true);
     setProgress(0);

@@ -148,6 +148,22 @@
     "/settings/{settingId}": {
       "schema": "AppSetting",
       "description": "Global config"
+    },
+    "/banned_emails/{emailId}": {
+      "schema": "object",
+      "description": "Banned email addresses"
+    },
+    "/banned_ips/{ipId}": {
+      "schema": "object",
+      "description": "Banned IP addresses"
+    },
+    "/banned_devices/{deviceId}": {
+      "schema": "object",
+      "description": "Banned device IDs"
+    },
+    "/presetBackgrounds/{bgId}": {
+      "schema": "object",
+      "description": "Preset backgrounds for the editor"
     }
   }
 }

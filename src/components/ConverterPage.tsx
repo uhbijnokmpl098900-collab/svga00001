@@ -2,12 +2,22 @@ import React, { useState, useRef, useEffect } from 'react';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import { Upload, CheckCircle2 } from 'lucide-react';
+import { useAccessControl } from '../hooks/useAccessControl';
+import { UserRecord } from '../types';
 
-export const ConverterPage: React.FC<{ onCancel: () => void }> = ({ onCancel }) => {
+interface ConverterPageProps {
+  onCancel: () => void;
+  currentUser: UserRecord | null;
+  onLoginRequired: () => void;
+  onSubscriptionRequired: () => void;
+}
+
+export const ConverterPage: React.FC<ConverterPageProps> = ({ onCancel, currentUser, onLoginRequired, onSubscriptionRequired }) => {
+  const { checkAccess } = useAccessControl();
   const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
   const [previewFile, setPreviewFile] = useState<{file: File, url: string, type: string, name: string} | null>(null);
   const [convertSource, setConvertSource] = useState('SVGA 2.0');
-  const [convertTarget, setConvertTarget] = useState('Lottie (JSON)');
+  const [convertTarget, setConvertTarget] = useState('SVGA 2.0');
   const [isProcessingVideo, setIsProcessingVideo] = useState(false);
   const [exportResult, setExportResult] = useState<{ url: string; filename: string } | null>(null);
   const ffmpegRef = useRef(new FFmpeg());
@@ -35,7 +45,7 @@ export const ConverterPage: React.FC<{ onCancel: () => void }> = ({ onCancel }) 
   const availableFormats = [
     'SVGA 2.0', 'SVGA 2.0 EX', 'VAP (MP4)', 'GIF (Animation)', 
     'WebP (Animated)', 'APNG (Animation)', 'WebM (Video)', 
-    'Image Sequence', 'Lottie (JSON)'
+    'Image Sequence'
   ];
 
   const handlePreviewFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -68,6 +78,13 @@ export const ConverterPage: React.FC<{ onCancel: () => void }> = ({ onCancel }) 
     
     if (!ffmpegLoaded) {
       alert('جاري تحميل محرك التحويل، يرجى الانتظار...');
+      return;
+    }
+
+    const { allowed } = await checkAccess('converterProcess');
+    if (!allowed) {
+      if (!currentUser) onLoginRequired();
+      else onSubscriptionRequired();
       return;
     }
 

@@ -4,7 +4,14 @@ import { db, storage } from '../lib/firebase';
 import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, query, orderBy, Timestamp, setDoc, getDoc, limit } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { StoreManager } from './StoreManager';
-import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, BadgeCheck, Wifi, Smartphone, Store } from 'lucide-react';
+import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import firebaseConfig from '../../firebase-applet-config.json';
+
+// Secondary app for creating users without logging out admin
+const secondaryApp = initializeApp(firebaseConfig, 'SecondaryApp');
+const secondaryAuth = getAuth(secondaryApp);
 
 interface AdminPanelProps {
   currentUser: UserRecord | null;
@@ -14,7 +21,7 @@ interface AdminPanelProps {
 const EXPORT_FORMATS = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP 1.0.5', 'VAP (MP4)'];
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'keys' | 'assets' | 'settings' | 'records'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records'>('users');
   const [dropdownState, setDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState<UserRecord[]>([]);
@@ -22,11 +29,94 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
   const [bannedDevices, setBannedDevices] = useState<string[]>([]);
   const [keys, setKeys] = useState<LicenseKey[]>([]);
   const [backgrounds, setBackgrounds] = useState<PresetBackground[]>([]);
-  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [settings, setSettings] = useState<AppSettings>({
+    appName: 'SVGA Platinum',
+    logoUrl: '',
+    backgroundUrl: '',
+    whatsappNumber: '',
+    isRegistrationOpen: true,
+    defaultFreeAttempts: 5,
+    isSvgaExEnabled: false,
+    costs: {
+      svgaProcess: 0,
+      batchCompress: 0,
+      vipPrice: 0
+    }
+  });
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [cache, setCache] = useState<Record<string, { data: any, timestamp: number }>>({});
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'user' as 'admin' | 'moderator' | 'user' });
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [permissionModal, setPermissionModal] = useState<{ userId: string; name: string; permissions: string[] } | null>(null);
+
+  const TABS = [
+    { id: 'users', label: 'المستخدمين', icon: <Users /> },
+    { id: 'store', label: 'المتجر', icon: <Store /> },
+    { id: 'keys', label: 'الاشتراكات', icon: <Key /> },
+    { id: 'assets', label: 'الوسائط', icon: <ImageIcon /> },
+    { id: 'records', label: 'السجلات', icon: <FileText /> },
+    { id: 'settings', label: 'الإعدادات', icon: <SettingsIcon /> },
+  ];
+
+  const canAccessTab = (tabId: string) => {
+    if (currentUser?.isSuperAdmin || currentUser?.role === 'admin') return true;
+    if (currentUser?.role === 'moderator') {
+      return currentUser.permissions?.includes(tabId);
+    }
+    return false;
+  };
+
+  const isSuperAdmin = (user: UserRecord) => user.isSuperAdmin || (user.role === 'admin' && user.email === 'iejehdgdig@gmail.com');
 
   const CACHE_DURATION = 30000; // 30 seconds
+
+  // ... (rest of the component)
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUser.name || !newUser.email || !newUser.password) return alert("يرجى ملء جميع الحقول");
+    
+    setCreatingUser(true);
+    try {
+      const { user } = await createUserWithEmailAndPassword(secondaryAuth, newUser.email, newUser.password);
+      
+      const userData: UserRecord = {
+        id: user.uid,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        isApproved: true,
+        isVIP: newUser.role === 'admin' || newUser.role === 'moderator',
+        status: 'active',
+        subscriptionType: (newUser.role === 'admin' || newUser.role === 'moderator') ? 'year' : 'none',
+        freeAttempts: (newUser.role === 'admin' || newUser.role === 'moderator') ? 999999 : settings.defaultFreeAttempts,
+        coins: (newUser.role === 'admin' || newUser.role === 'moderator') ? 999999 : 0,
+        subscriptionExpiry: (newUser.role === 'admin' || newUser.role === 'moderator') ? Timestamp.fromDate(new Date(Date.now() + 1000 * 60 * 60 * 24 * 365)) : null,
+        createdAt: Timestamp.now(),
+        lastLogin: Timestamp.now(),
+        deviceId: 'admin_created',
+        lastIp: '0.0.0.0',
+        hasSvgaExAccess: newUser.role === 'admin' || newUser.role === 'moderator',
+        permissions: newUser.role === 'moderator' ? ['users'] : []
+      };
+
+      await setDoc(doc(db, 'users', user.uid), userData);
+      
+      // Sign out from secondary auth to avoid session confusion
+      await secondaryAuth.signOut();
+      
+      alert("تم إنشاء الحساب بنجاح");
+      setShowCreateUser(false);
+      setNewUser({ name: '', email: '', password: '', role: 'user' });
+      fetchData();
+    } catch (error: any) {
+      console.error("Error creating user:", error);
+      alert("فشل إنشاء الحساب: " + (error.message || "خطأ غير معروف"));
+    } finally {
+      setCreatingUser(false);
+    }
+  };
 
   // URL Input States
   const [logoUrlInput, setLogoUrlInput] = useState('');
@@ -108,6 +198,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
           const settingsData = docSnap.data() as AppSettings;
           setSettings(settingsData);
           setCache(prev => ({ ...prev, settings: { data: settingsData, timestamp: now } }));
+        } else {
+          setCache(prev => ({ ...prev, settings: { data: settings, timestamp: now } }));
         }
       } else if (activeTab === 'records') {
         const q = query(collection(db, 'activityLogs'), orderBy('timestamp', 'desc'), limit(100));
@@ -125,6 +217,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
 
   // ... (User Management)
   const handleBanUser = async (user: UserRecord) => {
+    if (isSuperAdmin(user)) return alert("لا يمكن حظر حساب المدير العام");
+    if (currentUser?.role === 'moderator' && user.role === 'admin') return alert("لا تملك صلاحية حظر المسؤولين");
     if (!confirm('هل أنت متأكد من تغيير حالة هذا المستخدم؟')) return;
     try {
       const newStatus = user.status === 'banned' ? 'active' : 'banned';
@@ -235,6 +329,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
   };
 
   const handleDeleteUser = async (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (user && isSuperAdmin(user)) return alert("لا يمكن حذف حساب المدير العام");
+    if (user && currentUser?.role === 'moderator' && user.role === 'admin') return alert("لا تملك صلاحية حذف المسؤولين");
     if (!confirm('هل أنت متأكد من حذف هذا المستخدم نهائياً؟ لا يمكن التراجع عن هذا الإجراء.')) return;
     try {
       await deleteDoc(doc(db, 'users', userId));
@@ -242,6 +339,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
     } catch (error) {
       console.error("Error deleting user:", error);
       alert("فشل حذف المستخدم");
+    }
+  };
+
+  const handleUpdatePermissions = async () => {
+    if (!permissionModal) return;
+    try {
+      await updateDoc(doc(db, 'users', permissionModal.userId), {
+        permissions: permissionModal.permissions
+      });
+      setUsers(users.map(u => u.id === permissionModal.userId ? { ...u, permissions: permissionModal.permissions } : u));
+      setPermissionModal(null);
+      alert("تم تحديث الصلاحيات بنجاح");
+    } catch (error) {
+      console.error("Error updating permissions:", error);
+      alert("فشل تحديث الصلاحيات");
     }
   };
 
@@ -370,7 +482,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
   // ... (Settings Management)
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!settings) return;
     try {
       await setDoc(doc(db, 'settings', 'global'), settings, { merge: true });
       alert("تم حفظ الإعدادات بنجاح");
@@ -396,12 +507,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
       <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
         {/* Sidebar */}
         <div className="w-full lg:w-64 bg-slate-950/50 border-b lg:border-b-0 lg:border-l border-white/10 flex flex-row lg:flex-col p-2 sm:p-4 gap-1 sm:gap-2 overflow-x-auto custom-scrollbar no-scrollbar">
-          <NavButton active={activeTab === 'users'} onClick={() => setActiveTab('users')} icon={<Users />} label="المستخدمين" />
-          <NavButton active={activeTab === 'store'} onClick={() => setActiveTab('store')} icon={<Store />} label="المتجر" />
-          <NavButton active={activeTab === 'keys'} onClick={() => setActiveTab('keys')} icon={<Key />} label="الاشتراكات" />
-          <NavButton active={activeTab === 'assets'} onClick={() => setActiveTab('assets')} icon={<ImageIcon />} label="الوسائط" />
-          <NavButton active={activeTab === 'records'} onClick={() => setActiveTab('records')} icon={<FileText />} label="السجلات" />
-          <NavButton active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={<SettingsIcon />} label="الإعدادات" />
+          {TABS.map(tab => canAccessTab(tab.id) && (
+            <NavButton 
+              key={tab.id}
+              active={activeTab === tab.id} 
+              onClick={() => setActiveTab(tab.id as any)} 
+              icon={tab.icon} 
+              label={tab.label} 
+            />
+          ))}
         </div>
 
         {/* Content */}
@@ -415,7 +529,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
               {activeTab === 'store' && <StoreManager />}
               {activeTab === 'users' && (
                 <div className="space-y-6">
-                  <h3 className="text-xl font-bold mb-4">إدارة المستخدمين</h3>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-bold">إدارة المستخدمين</h3>
+                    <button 
+                      onClick={() => setShowCreateUser(true)}
+                      className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-bold transition-all flex items-center gap-2 shadow-lg shadow-indigo-500/20"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      إنشاء مستخدم جديد
+                    </button>
+                  </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-right border-collapse">
                       <thead>
@@ -432,7 +555,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                           <tr key={user.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                             <td className="p-3 font-medium flex items-center gap-2">
                                 {user.name}
-                                {user.isVIP && <BadgeCheck className="w-4 h-4 text-blue-400" />}
+                                {isSuperAdmin(user) && <BadgeCheck className="w-4 h-4 text-amber-400" />}
+                                {user.role === 'admin' && !isSuperAdmin(user) && <BadgeCheck className="w-4 h-4 text-blue-400" />}
+                                {user.role === 'moderator' && <Shield className="w-4 h-4 text-green-400" />}
                             </td>
                             <td className="p-3 text-slate-400">{user.email}</td>
                             <td className="p-3">
@@ -441,100 +566,123 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                               </span>
                             </td>
                             <td className="p-3">
-                              <span className={`px-2 py-1 rounded text-xs ${user.isVIP ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-500/20 text-slate-400'}`}>
-                                {user.subscriptionType || 'مجاني'}
+                              <span className={`px-2 py-1 rounded text-xs ${
+                                isSuperAdmin(user) ? 'bg-amber-500/20 text-amber-400' :
+                                user.role === 'admin' ? 'bg-blue-500/20 text-blue-400' :
+                                user.role === 'moderator' ? 'bg-green-500/20 text-green-400' :
+                                'bg-slate-500/20 text-slate-400'
+                              }`}>
+                                {isSuperAdmin(user) ? 'مدير عام' : 
+                                 user.role === 'admin' ? 'مسؤول' : 
+                                 user.role === 'moderator' ? 'مشرف' : 
+                                 'مستخدم'}
                               </span>
                             </td>
                             <td className="p-3 flex gap-2">
-                              <button 
-                                onClick={() => handleBanUser(user)}
-                                className="p-1.5 hover:bg-red-500/20 text-red-400 rounded transition-colors"
-                                title={user.status === 'active' ? 'حظر' : 'فك الحظر'}
-                              >
-                                <Ban className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => handleBanIp(user.lastIp)}
-                                className={`p-1.5 rounded transition-colors ${bannedIps.includes(user.lastIp || '') ? 'bg-red-500 text-white' : 'hover:bg-red-500/20 text-red-400'}`}
-                                title={bannedIps.includes(user.lastIp || '') ? 'فك حظر الشبكة' : 'حظر الشبكة (IP)'}
-                              >
-                                <Wifi className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => handleBanDevice(user.deviceId)}
-                                className={`p-1.5 rounded transition-colors ${bannedDevices.includes(user.deviceId || '') ? 'bg-red-500 text-white' : 'hover:bg-red-500/20 text-red-400'}`}
-                                title={bannedDevices.includes(user.deviceId || '') ? 'فك حظر الجهاز' : 'حظر الجهاز'}
-                              >
-                                <Smartphone className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => handleDeleteUser(user.id)}
-                                className="p-1.5 hover:bg-red-500/20 text-red-400 rounded transition-colors"
-                                title="حذف المستخدم"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                              <div className="relative group">
-                                <button className="p-1.5 hover:bg-indigo-500/20 text-indigo-400 rounded transition-colors" title="تغيير الاشتراك">
-                                  <RefreshCw className="w-4 h-4" />
-                                </button>
-                                <div className="absolute left-0 bottom-full mb-2 hidden group-hover:flex flex-col bg-slate-800 border border-white/10 rounded-lg p-1 z-10 w-32 shadow-xl">
-                                  {['day', 'week', 'month', 'year'].map(type => (
+                              {!isSuperAdmin(user) && (
+                                <>
+                                  <button 
+                                    onClick={() => handleBanUser(user)}
+                                    className="p-1.5 hover:bg-red-500/20 text-red-400 rounded transition-colors"
+                                    title={user.status === 'active' ? 'حظر' : 'فك الحظر'}
+                                  >
+                                    <Ban className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleBanIp(user.lastIp)}
+                                    className={`p-1.5 rounded transition-colors ${bannedIps.includes(user.lastIp || '') ? 'bg-red-500 text-white' : 'hover:bg-red-500/20 text-red-400'}`}
+                                    title={bannedIps.includes(user.lastIp || '') ? 'فك حظر الشبكة' : 'حظر الشبكة (IP)'}
+                                  >
+                                    <Wifi className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleBanDevice(user.deviceId)}
+                                    className={`p-1.5 rounded transition-colors ${bannedDevices.includes(user.deviceId || '') ? 'bg-red-500 text-white' : 'hover:bg-red-500/20 text-red-400'}`}
+                                    title={bannedDevices.includes(user.deviceId || '') ? 'فك حظر الجهاز' : 'حظر الجهاز'}
+                                  >
+                                    <Smartphone className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteUser(user.id)}
+                                    className="p-1.5 hover:bg-red-500/20 text-red-400 rounded transition-colors"
+                                    title="حذف المستخدم"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                  
+                                  {user.role === 'moderator' && (
                                     <button 
-                                      key={type}
-                                      onClick={() => handleSetSubscription(user.id, type as SubscriptionType)}
-                                      className="text-xs text-right px-2 py-1.5 hover:bg-white/10 rounded text-slate-300"
+                                      onClick={() => setPermissionModal({ userId: user.id, name: user.name, permissions: user.permissions || [] })}
+                                      className="p-1.5 hover:bg-green-500/20 text-green-400 rounded transition-colors"
+                                      title="إدارة الصلاحيات"
                                     >
-                                      تفعيل {type}
+                                      <Lock className="w-4 h-4" />
                                     </button>
-                                  ))}
-                                </div>
-                              </div>
-                              
-                              {/* Format Restriction Dropdown */}
-                              <div className="relative">
-                                <button 
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (dropdownState?.userId === user.id) {
-                                            setDropdownState(null);
-                                        } else {
-                                            const rect = e.currentTarget.getBoundingClientRect();
-                                            const spaceBelow = window.innerHeight - rect.bottom;
-                                            const dropdownHeight = 320; // approx max height
-                                            
-                                            if (spaceBelow < dropdownHeight && rect.top > spaceBelow) {
-                                                // Flip up
-                                                setDropdownState({
-                                                    userId: user.id,
-                                                    x: rect.left,
-                                                    y: rect.top - 8,
-                                                    position: 'top'
-                                                });
+                                  )}
+
+                                  <div className="relative group">
+                                    <button className="p-1.5 hover:bg-indigo-500/20 text-indigo-400 rounded transition-colors" title="تغيير الاشتراك">
+                                      <RefreshCw className="w-4 h-4" />
+                                    </button>
+                                    <div className="absolute left-0 bottom-full mb-2 hidden group-hover:flex flex-col bg-slate-800 border border-white/10 rounded-lg p-1 z-10 w-32 shadow-xl">
+                                      {['day', 'week', 'month', 'year'].map(type => (
+                                        <button 
+                                          key={type}
+                                          onClick={() => handleSetSubscription(user.id, type as SubscriptionType)}
+                                          className="text-xs text-right px-2 py-1.5 hover:bg-white/10 rounded text-slate-300"
+                                        >
+                                          تفعيل {type}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Format Restriction Dropdown */}
+                                  <div className="relative">
+                                    <button 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (dropdownState?.userId === user.id) {
+                                                setDropdownState(null);
                                             } else {
-                                                // Down
-                                                setDropdownState({
-                                                    userId: user.id,
-                                                    x: rect.left,
-                                                    y: rect.bottom + 8,
-                                                    position: 'bottom'
-                                                });
+                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                const spaceBelow = window.innerHeight - rect.bottom;
+                                                const dropdownHeight = 320; // approx max height
+                                                
+                                                if (spaceBelow < dropdownHeight && rect.top > spaceBelow) {
+                                                    // Flip up
+                                                    setDropdownState({
+                                                        userId: user.id,
+                                                        x: rect.left,
+                                                        y: rect.top - 8,
+                                                        position: 'top'
+                                                    });
+                                                } else {
+                                                    // Down
+                                                    setDropdownState({
+                                                        userId: user.id,
+                                                        x: rect.left,
+                                                        y: rect.bottom + 8,
+                                                        position: 'bottom'
+                                                    });
+                                                }
                                             }
-                                        }
-                                    }}
-                                    className={`p-1.5 rounded transition-colors ${user.allowedExportFormat ? 'bg-amber-500/20 text-amber-400' : 'hover:bg-slate-500/20 text-slate-400'}`} 
-                                    title="تحديد صيغة التصدير"
-                                >
-                                  <SettingsIcon className="w-4 h-4" />
-                                </button>
-                              </div>
-                              <button 
-                                onClick={() => handleToggleSvgaExAccess(user.id, !!user.hasSvgaExAccess)}
-                                className={`p-1.5 rounded transition-colors ${user.hasSvgaExAccess ? 'bg-red-500/20 text-red-400' : 'hover:bg-slate-500/20 text-slate-400'}`} 
-                                title={user.hasSvgaExAccess ? "إلغاء صلاحية SVGA 2.0" : "منح صلاحية SVGA 2.0"}
-                              >
-                                <BadgeCheck className="w-4 h-4" />
-                              </button>
+                                        }}
+                                        className={`p-1.5 rounded transition-colors ${user.allowedExportFormat ? 'bg-amber-500/20 text-amber-400' : 'hover:bg-slate-500/20 text-slate-400'}`} 
+                                        title="تحديد صيغة التصدير"
+                                    >
+                                      <SettingsIcon className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                  <button 
+                                    onClick={() => handleToggleSvgaExAccess(user.id, !!user.hasSvgaExAccess)}
+                                    className={`p-1.5 rounded transition-colors ${user.hasSvgaExAccess ? 'bg-red-500/20 text-red-400' : 'hover:bg-slate-500/20 text-slate-400'}`} 
+                                    title={user.hasSvgaExAccess ? "إلغاء صلاحية SVGA 2.0" : "منح صلاحية SVGA 2.0"}
+                                  >
+                                    <BadgeCheck className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -847,8 +995,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                       <label className="block text-sm font-medium text-slate-400 mb-2">اسم التطبيق</label>
                       <input 
                         type="text" 
-                        value={settings?.appName || ''} 
-                        onChange={e => setSettings(prev => prev ? { ...prev, appName: e.target.value } : null)}
+                        value={settings.appName} 
+                        onChange={e => setSettings({ ...settings, appName: e.target.value })}
                         className="w-full bg-slate-950/50 border border-white/10 rounded-lg px-4 py-3 focus:outline-none focus:border-indigo-500/50 transition-colors"
                         placeholder="اسم التطبيق"
                       />
@@ -858,8 +1006,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                       <label className="block text-sm font-medium text-slate-400 mb-2">رقم واتساب للدعم</label>
                       <input 
                         type="text" 
-                        value={settings?.whatsappNumber || ''} 
-                        onChange={e => setSettings(prev => prev ? { ...prev, whatsappNumber: e.target.value } : null)}
+                        value={settings.whatsappNumber} 
+                        onChange={e => setSettings({ ...settings, whatsappNumber: e.target.value })}
                         className="w-full bg-slate-950/50 border border-white/10 rounded-lg px-4 py-3 focus:outline-none focus:border-indigo-500/50 transition-colors"
                         placeholder="مثال: 201000000000"
                       />
@@ -870,8 +1018,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                         <label className="block text-sm font-medium text-slate-400 mb-2">تكلفة معالجة SVGA</label>
                         <input 
                           type="number" 
-                          value={settings?.costs?.svgaProcess || 0} 
-                          onChange={e => setSettings(prev => prev ? { ...prev, costs: { ...prev.costs, svgaProcess: Number(e.target.value) } } : null)}
+                          value={settings.costs.svgaProcess} 
+                          onChange={e => setSettings({ ...settings, costs: { ...settings.costs, svgaProcess: Number(e.target.value) } })}
                           className="w-full bg-slate-950/50 border border-white/10 rounded-lg px-4 py-3 focus:outline-none focus:border-indigo-500/50 transition-colors"
                         />
                       </div>
@@ -879,8 +1027,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                         <label className="block text-sm font-medium text-slate-400 mb-2">تكلفة الضغط المجمع</label>
                         <input 
                           type="number" 
-                          value={settings?.costs?.batchCompress || 0} 
-                          onChange={e => setSettings(prev => prev ? { ...prev, costs: { ...prev.costs, batchCompress: Number(e.target.value) } } : null)}
+                          value={settings.costs.batchCompress} 
+                          onChange={e => setSettings({ ...settings, costs: { ...settings.costs, batchCompress: Number(e.target.value) } })}
                           className="w-full bg-slate-950/50 border border-white/10 rounded-lg px-4 py-3 focus:outline-none focus:border-indigo-500/50 transition-colors"
                         />
                       </div>
@@ -891,10 +1039,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                         <input 
                           type="number" 
                           min="0"
-                          value={settings?.defaultFreeAttempts ?? 5} 
-                          onChange={e => setSettings(prev => prev ? { ...prev, defaultFreeAttempts: Number(e.target.value) } : null)}
+                          value={settings.defaultFreeAttempts} 
+                          onChange={e => setSettings({ ...settings, defaultFreeAttempts: Number(e.target.value) })}
                           className="w-full bg-slate-950/50 border border-white/10 rounded-lg px-4 py-3 focus:outline-none focus:border-indigo-500/50 transition-colors"
                         />
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 bg-slate-950/30 border border-white/10 rounded-xl">
+                        <div className="flex flex-col gap-1">
+                            <span className="text-sm font-bold text-white">فتح التسجيل للجميع</span>
+                            <span className="text-[10px] text-slate-500">عند التعطيل، لن يتمكن المستخدمون الجدد من إنشاء حسابات</span>
+                        </div>
+                        <button 
+                            type="button"
+                            onClick={() => setSettings({ ...settings, isRegistrationOpen: !settings.isRegistrationOpen })}
+                            className={`w-12 h-6 rounded-full transition-all relative ${settings.isRegistrationOpen ? 'bg-green-500' : 'bg-slate-700'}`}
+                        >
+                            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.isRegistrationOpen ? 'right-7' : 'right-1'}`}></div>
+                        </button>
                     </div>
 
                     <div className="flex items-center justify-between p-4 bg-slate-950/30 border border-white/10 rounded-xl">
@@ -904,10 +1066,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                         </div>
                         <button 
                             type="button"
-                            onClick={() => setSettings(prev => prev ? { ...prev, isSvgaExEnabled: !prev.isSvgaExEnabled } : null)}
-                            className={`w-12 h-6 rounded-full transition-all relative ${settings?.isSvgaExEnabled ? 'bg-red-500' : 'bg-slate-700'}`}
+                            onClick={() => setSettings({ ...settings, isSvgaExEnabled: !settings.isSvgaExEnabled })}
+                            className={`w-12 h-6 rounded-full transition-all relative ${settings.isSvgaExEnabled ? 'bg-red-500' : 'bg-slate-700'}`}
                         >
-                            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings?.isSvgaExEnabled ? 'right-7' : 'right-1'}`}></div>
+                            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.isSvgaExEnabled ? 'right-7' : 'right-1'}`}></div>
                         </button>
                     </div>
 
@@ -926,6 +1088,126 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
           )}
         </div>
       </div>
+
+      {/* Create User Modal */}
+      {showCreateUser && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-300">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-indigo-400" />
+                إنشاء مستخدم جديد
+              </h3>
+              <button onClick={() => setShowCreateUser(false)} className="p-2 hover:bg-white/5 rounded-lg transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateUser} className="space-y-4">
+              <div>
+                <label className="block text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">الاسم</label>
+                <input 
+                  type="text" 
+                  value={newUser.name}
+                  onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
+                  className="w-full bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-indigo-500/50 transition-all"
+                  placeholder="الاسم الكامل"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">البريد الإلكتروني</label>
+                <input 
+                  type="email" 
+                  value={newUser.email}
+                  onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                  className="w-full bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-indigo-500/50 transition-all"
+                  placeholder="email@example.com"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">كلمة المرور</label>
+                <input 
+                  type="password" 
+                  value={newUser.password}
+                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                  className="w-full bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-indigo-500/50 transition-all"
+                  placeholder="••••••••"
+                  required
+                  minLength={6}
+                />
+              </div>
+              <div>
+                <label className="block text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">الرتبة</label>
+                <select 
+                  value={newUser.role}
+                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value as any })}
+                  className="w-full bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3 text-slate-200 focus:outline-none focus:border-indigo-500/50 transition-all"
+                >
+                  <option value="user">مستخدم عادي</option>
+                  <option value="moderator">مشرف (Moderator)</option>
+                  <option value="admin">مسؤول (Admin)</option>
+                </select>
+              </div>
+
+              <button 
+                type="submit"
+                disabled={creatingUser}
+                className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-50 mt-4"
+              >
+                {creatingUser ? 'جاري الإنشاء...' : 'إنشاء الحساب'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Permission Modal */}
+      {permissionModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold flex items-center gap-2">
+                <Shield className="w-5 h-5 text-green-400" />
+                صلاحيات المشرف: {permissionModal.name}
+              </h3>
+              <button onClick={() => setPermissionModal(null)} className="p-2 hover:bg-white/5 rounded-lg transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 mb-6">
+              {TABS.map(tab => (
+                <label key={tab.id} className="flex items-center justify-between p-3 bg-slate-950/30 border border-white/5 rounded-xl cursor-pointer hover:bg-white/5 transition-colors">
+                  <div className="flex items-center gap-3">
+                    {React.cloneElement(tab.icon as React.ReactElement, { className: 'w-4 h-4 text-slate-400' })}
+                    <span className="text-sm">{tab.label}</span>
+                  </div>
+                  <input 
+                    type="checkbox"
+                    checked={permissionModal.permissions.includes(tab.id)}
+                    onChange={(e) => {
+                      const newPerms = e.target.checked 
+                        ? [...permissionModal.permissions, tab.id]
+                        : permissionModal.permissions.filter(p => p !== tab.id);
+                      setPermissionModal({ ...permissionModal, permissions: newPerms });
+                    }}
+                    className="w-5 h-5 rounded border-white/10 bg-slate-950 text-indigo-500 focus:ring-indigo-500/50"
+                  />
+                </label>
+              ))}
+            </div>
+
+            <button 
+              onClick={handleUpdatePermissions}
+              className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-green-500/20 transition-all"
+            >
+              حفظ الصلاحيات
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -856,7 +856,7 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
 
     const { allowed, reason } = await checkAccess('Image to SVGA');
     if (!allowed) {
-      if (reason === 'trial_ended' && onSubscriptionRequired) onSubscriptionRequired();
+      if (onSubscriptionRequired) onSubscriptionRequired();
       return;
     }
 

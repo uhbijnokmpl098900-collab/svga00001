@@ -86,8 +86,8 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
   const processAll = async () => {
     if (isProcessing) return;
     
-    const hasAccess = await checkAccess('svgaProcess');
-    if (!hasAccess) {
+    const { allowed } = await checkAccess('svgaProcess', { subscriptionOnly: true });
+    if (!allowed) {
       if (!currentUser) onLoginRequired();
       else onSubscriptionRequired();
       return;

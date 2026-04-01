@@ -373,7 +373,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
 
     const { allowed, reason } = await checkAccess('Video Conversion');
     if (!allowed) {
-      if (reason === 'trial_ended') onSubscriptionRequired();
+      onSubscriptionRequired();
       return;
     }
 

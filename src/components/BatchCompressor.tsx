@@ -128,7 +128,7 @@ export const BatchCompressor: React.FC<BatchCompressorProps> = ({ onCancel, curr
 
     const { allowed, reason } = await checkAccess('Batch Compression');
     if (!allowed) {
-      if (reason === 'trial_ended') onSubscriptionRequired();
+      onSubscriptionRequired();
       return;
     }
 
@@ -202,7 +202,7 @@ export const BatchCompressor: React.FC<BatchCompressorProps> = ({ onCancel, curr
       
       const { allowed, reason } = await checkAccess('Batch Compression');
       if (!allowed) {
-        if (reason === 'trial_ended') onSubscriptionRequired();
+        onSubscriptionRequired();
         return;
       }
 

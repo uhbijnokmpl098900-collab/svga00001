@@ -65,14 +65,18 @@ export interface StoreOrder {
   createdAt: any;
 }
 
+export type UserRole = 'admin' | 'moderator' | 'user';
+
 export interface UserRecord {
   id: string;
   name: string;
   email?: string;
   password?: string;
-  role: 'admin' | 'user';
+  role: UserRole;
   isApproved: boolean;
   isVIP: boolean;
+  isSuperAdmin?: boolean; // Main admin who cannot be managed by moderators
+  permissions?: string[]; // List of tabs or features allowed for moderators
   subscriptionExpiry: any; // Firebase Timestamp or null
   subscriptionType: SubscriptionType;
   activatedKey?: string;

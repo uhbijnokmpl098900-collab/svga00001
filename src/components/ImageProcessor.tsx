@@ -17,15 +17,34 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+import { useAccessControl } from '../hooks/useAccessControl';
+
 interface ImageProcessorProps {
   onCancel: () => void;
   currentUser: any;
+  onSubscriptionRequired?: () => void;
 }
 
-export const ImageProcessor: React.FC<ImageProcessorProps> = ({ onCancel, currentUser }) => {
+export const ImageProcessor: React.FC<ImageProcessorProps> = ({ onCancel, currentUser, onSubscriptionRequired }) => {
+  const { checkAccess } = useAccessControl();
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  const handleDownload = async () => {
+    if (!canvasRef.current || !image) return;
+
+    const { allowed } = await checkAccess('Image Processor Export');
+    if (!allowed) {
+      if (onSubscriptionRequired) onSubscriptionRequired();
+      return;
+    }
+
+    const link = document.createElement('a');
+    link.download = `processed_image_${Date.now()}.png`;
+    link.href = canvasRef.current.toDataURL('image/png');
+    link.click();
+  };
   
   // Settings
   const [whiteEffect, setWhiteEffect] = useState(0); // 0 to 1
@@ -177,8 +196,15 @@ export const ImageProcessor: React.FC<ImageProcessorProps> = ({ onCancel, curren
     processImage();
   }, [processImage]);
 
-  const handleExport = (format: 'png' | 'jpg') => {
+  const handleExport = async (format: 'png' | 'jpg') => {
     if (!canvasRef.current) return;
+
+    const { allowed } = await checkAccess('Image Processor Export');
+    if (!allowed) {
+      if (onSubscriptionRequired) onSubscriptionRequired();
+      return;
+    }
+
     const link = document.createElement('a');
     link.download = `processed-image.${format}`;
     link.href = canvasRef.current.toDataURL(format === 'png' ? 'image/png' : 'image/jpeg', 0.9);
