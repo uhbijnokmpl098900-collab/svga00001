@@ -75,6 +75,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [currentFrame, setCurrentFrame] = useState(0);
   const [selectedFormat, setSelectedFormat] = useState('AE Project');
   const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>(initialGlobalQuality);
+  const [compressionRatio, setCompressionRatio] = useState<number>(100);
   const [isExporting, setIsExporting] = useState(false);
   const [lottiePreviewData, setLottiePreviewData] = useState<any>(null);
   const [progress, setProgress] = useState(0);
@@ -3964,10 +3965,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         // Hex 33 = Decimal 51 (Level 5.1)
         const codec = totalPixels > 2228224 ? 'avc1.4d0033' : 'avc1.4d002a';
 
-        let bitrate = 8000000;
-        if (globalQuality === 'low') bitrate = 2000000;
-        if (globalQuality === 'medium') bitrate = 5000000;
-        if (globalQuality === 'high') bitrate = 12000000;
+        // Calculate bitrate based on globalQuality and user-defined compressionRatio
+        let baseBitrate = 8000000;
+        if (globalQuality === 'low') baseBitrate = 2000000;
+        if (globalQuality === 'medium') baseBitrate = 5000000;
+        if (globalQuality === 'high') baseBitrate = 12000000;
+
+        // Apply user-defined compression ratio (100% = baseBitrate, 10% = 10% of baseBitrate)
+        let bitrate = Math.round(baseBitrate * (compressionRatio / 100));
+        bitrate = Math.max(bitrate, 1000000); // Minimum safe bitrate
 
         videoEncoder.configure({
             codec: codec,
@@ -4426,11 +4432,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             }
 
             // VAP Export Optimization
-            // 1. Bitrate: Increased significantly to prevent frame dropping/macroblocking at low settings.
+            // 1. Bitrate: Adjusted based on globalQuality and user-defined compressionRatio.
             //    VAP is double-width, so it needs roughly 2x the bitrate of a normal video.
-            let bitrate = 12000000; // 12 Mbps (High)
-            if (globalQuality === 'medium') bitrate = 8000000; // 8 Mbps
-            if (globalQuality === 'low') bitrate = 5000000; // 5 Mbps (Minimum safe for smooth playback)
+            let baseBitrate = 12000000; // 12 Mbps (High)
+            if (globalQuality === 'medium') baseBitrate = 8000000; // 8 Mbps
+            if (globalQuality === 'low') baseBitrate = 5000000; // 5 Mbps
+            
+            // Apply user-defined compression ratio (100% = baseBitrate, 10% = 10% of baseBitrate)
+            // This allows for precise control over the final file size and quality.
+            let bitrate = Math.round(baseBitrate * (compressionRatio / 100));
+            
+            // Ensure a minimum safe bitrate for VAP to maintain some level of visibility
+            bitrate = Math.max(bitrate, 1000000); 
 
             // 2. Codec Config: Use H.264 (AVC) with specific profile for mobile compatibility
             // Use High Profile Level 5.1 (avc1.640033) for better resolution support (up to 4K)
@@ -6625,7 +6638,32 @@ class _MyAppState extends State<MyApp> {
                 </div>
               )}
                     <div className="space-y-4 pt-4 border-t border-white/5">
-                        <h4 className="text-white font-black text-xs uppercase tracking-widest text-emerald-400 mb-2">جودة التصدير (حجم الملف)</h4>
+                        <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-white font-black text-xs uppercase tracking-widest text-emerald-400">جودة التصدير (حجم الملف)</h4>
+                            <div className="flex items-center gap-2 bg-slate-900/50 px-3 py-1.5 rounded-lg border border-white/5">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase">الضغط:</span>
+                                <input 
+                                    type="number" 
+                                    min="0" 
+                                    max="100" 
+                                    value={compressionRatio}
+                                    onChange={(e) => setCompressionRatio(Math.max(0, Math.min(100, parseInt(e.target.value) || 100)))}
+                                    className="w-12 bg-transparent text-emerald-400 text-xs font-black text-center focus:outline-none"
+                                />
+                                <span className="text-[10px] text-emerald-500/50 font-black">%</span>
+                            </div>
+                        </div>
+                        <div className="px-1 mb-2">
+                            <input 
+                                type="range" 
+                                min="0" 
+                                max="100" 
+                                step="1" 
+                                value={compressionRatio}
+                                onChange={(e) => setCompressionRatio(parseInt(e.target.value))}
+                                className="w-full h-1.5 bg-white/5 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                            />
+                        </div>
                         <div className="flex gap-1">
                             <button onClick={() => setGlobalQuality('low')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase border transition-all ${globalQuality === 'low' ? 'bg-emerald-500 text-white border-emerald-500 shadow-glow-emerald' : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'}`}>
                                 منخفضة

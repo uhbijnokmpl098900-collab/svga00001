@@ -18,6 +18,7 @@ import {
   Layers,
   Music,
   Trash2,
+  Clock,
   Scissors
 } from 'lucide-react';
 import { logActivity } from '../utils/logger';
@@ -61,6 +62,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
   const ffmpegRef = useRef(new FFmpeg());
   const [selectedFormat, setSelectedFormat] = useState('VAP (MP4)');
   const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>(initialGlobalQuality);
+  const [compressionRatio, setCompressionRatio] = useState<number>(100);
   const [exportScale, setExportScale] = useState(1.0);
   const [customWidth, setCustomWidth] = useState<number | ''>('');
   const [customHeight, setCustomHeight] = useState<number | ''>('');
@@ -70,6 +72,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
   const [removeBlack, setRemoveBlack] = useState(false);
   const [removeWhite, setRemoveWhite] = useState(false);
   const [isVapInput, setIsVapInput] = useState(false);
+  const [isAutoDuration, setIsAutoDuration] = useState(true);
   const [whiteTolerance, setWhiteTolerance] = useState(30);
   const [removeGreen, setRemoveGreen] = useState(false);
   const [removeBlue, setRemoveBlue] = useState(false);
@@ -434,13 +437,16 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
       let vw = safe.width;
       let vh = safe.height;
       
-      video.currentTime = startTime;
+      const effectiveStartTime = isAutoDuration ? 0 : startTime;
+      const effectiveEndTime = isAutoDuration ? video.duration : endTime;
+      
+      video.currentTime = effectiveStartTime;
       await new Promise(r => {
         const onSeek = () => { video.removeEventListener('seeked', onSeek); r(null); };
         video.addEventListener('seeked', onSeek);
       });
 
-      const duration = isNaN(endTime) || isNaN(startTime) ? 0 : endTime - startTime;
+      const duration = isNaN(effectiveEndTime) || isNaN(effectiveStartTime) ? 0 : effectiveEndTime - effectiveStartTime;
       const validFps = isNaN(fps) || fps <= 0 ? 30 : fps;
       const totalFrames = Math.max(1, Math.floor(duration * validFps));
 
@@ -913,18 +919,22 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
     const totalPixels = videoW * videoH;
     const codec = totalPixels > 2228224 ? 'avc1.4d0033' : 'avc1.4d002a';
 
-    let bitrate = customBitrate ? Number(customBitrate) * 1000000 : 4000000;
-    if (!customBitrate) {
-        bitrate = globalQuality === 'high' ? 8000000 : globalQuality === 'medium' ? 4000000 : 1500000;
-    }
+        // Calculate bitrate based on globalQuality and user-defined compressionRatio
+        let baseBitrate = 8000000;
+        if (globalQuality === 'low') baseBitrate = 2000000;
+        if (globalQuality === 'medium') baseBitrate = 5000000;
+        if (globalQuality === 'high') baseBitrate = 12000000;
 
-    videoEncoder.configure({
-        codec: codec,
-        width: videoW,
-        height: videoH,
-        bitrate: bitrate,
-        framerate: fps
-    });
+        let bitrate = customBitrate ? Number(customBitrate) * 1000000 : Math.round(baseBitrate * (compressionRatio / 100));
+        bitrate = Math.max(bitrate, 1000000); // Minimum safe bitrate
+
+        videoEncoder.configure({
+            codec: codec,
+            width: videoW,
+            height: videoH,
+            bitrate: bitrate,
+            framerate: fps
+        });
 
     const frameDuration = 1000000 / fps; // Microseconds
     
@@ -1402,11 +1412,20 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
         await audioEncoder.flush();
     }
 
+        // Calculate bitrate based on globalQuality and user-defined compressionRatio
+        let baseBitrate = 8000000;
+        if (globalQuality === 'medium') baseBitrate = 4000000;
+        if (globalQuality === 'low') baseBitrate = 1500000;
+        if (globalQuality === 'high') baseBitrate = 12000000;
+
+        let bitrate = customBitrate ? Number(customBitrate) * 1000000 : Math.round(baseBitrate * (compressionRatio / 100));
+        bitrate = Math.max(bitrate, 1000000); // Minimum safe bitrate
+
         videoEncoder.configure({ 
         codec: 'avc1.42E01F', // H.264 Baseline Profile
         width: vapCanvas.width, 
         height: vapCanvas.height, 
-        bitrate: customBitrate ? Number(customBitrate) * 1000000 : (globalQuality === 'high' ? 8000000 : globalQuality === 'medium' ? 4000000 : 1500000),
+        bitrate: bitrate,
         avc: { format: 'annexb' }
     });
 
@@ -1805,8 +1824,10 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
                     className="max-h-40 rounded-xl mb-2 border border-white/10" 
                     onTimeUpdate={(e) => {
                       const v = e.currentTarget;
-                      if (v.currentTime > endTime) v.currentTime = startTime;
-                      if (v.currentTime < startTime) v.currentTime = startTime;
+                      const effectiveStart = isAutoDuration ? 0 : startTime;
+                      const effectiveEnd = isAutoDuration ? v.duration : endTime;
+                      if (v.currentTime > effectiveEnd) v.currentTime = effectiveStart;
+                      if (v.currentTime < effectiveStart) v.currentTime = effectiveStart;
                     }}
                     autoPlay loop muted playsInline
                   />
@@ -1998,11 +2019,86 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
               </div>
             </div>
 
-            {/* Quality Settings */}
+            {/* Duration Settings */}
             <div className="space-y-4 pb-4 border-b border-white/5">
-              <div className="flex items-center gap-2">
-                <Settings2 className="w-3 h-3 text-sky-400" />
-                <span className="text-slate-400 text-[10px] font-black uppercase tracking-widest">جودة التصدير</span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-3 h-3 text-amber-400" />
+                  <span className="text-slate-400 text-[10px] font-black uppercase tracking-widest">مدة الفيديو</span>
+                </div>
+                <div className="flex gap-1 bg-white/5 p-1 rounded-lg border border-white/10">
+                  <button 
+                    onClick={() => setIsAutoDuration(true)}
+                    className={`px-3 py-1 rounded-md text-[9px] font-black uppercase transition-all ${isAutoDuration ? 'bg-amber-500 text-white shadow-glow-amber' : 'text-slate-500 hover:text-white'}`}
+                  >
+                    تلقائي
+                  </button>
+                  <button 
+                    onClick={() => setIsAutoDuration(false)}
+                    className={`px-3 py-1 rounded-md text-[9px] font-black uppercase transition-all ${!isAutoDuration ? 'bg-amber-500 text-white shadow-glow-amber' : 'text-slate-500 hover:text-white'}`}
+                  >
+                    يدوي
+                  </button>
+                </div>
+              </div>
+              {!isAutoDuration && (
+                <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="space-y-2">
+                    <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest block">البداية (ثانية)</label>
+                    <input 
+                      type="number" 
+                      step="0.1"
+                      min="0"
+                      max={duration}
+                      value={startTime}
+                      onChange={(e) => setStartTime(Math.max(0, Math.min(duration, parseFloat(e.target.value) || 0)))}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-white text-xs focus:border-amber-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest block">النهاية (ثانية)</label>
+                    <input 
+                      type="number" 
+                      step="0.1"
+                      min="0"
+                      max={duration}
+                      value={endTime}
+                      onChange={(e) => setEndTime(Math.max(0, Math.min(duration, parseFloat(e.target.value) || duration)))}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-white text-xs focus:border-amber-500 outline-none transition-all"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="space-y-4 pb-4 border-b border-white/5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Settings2 className="w-3 h-3 text-sky-400" />
+                  <span className="text-slate-400 text-[10px] font-black uppercase tracking-widest">جودة التصدير</span>
+                </div>
+                <div className="flex items-center gap-2 bg-slate-900/50 px-3 py-1.5 rounded-lg border border-white/5">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase">الضغط:</span>
+                    <input 
+                        type="number" 
+                        min="0" 
+                        max="100" 
+                        value={compressionRatio}
+                        onChange={(e) => setCompressionRatio(Math.max(0, Math.min(100, parseInt(e.target.value) || 100)))}
+                        className="w-12 bg-transparent text-emerald-400 text-xs font-black text-center focus:outline-none"
+                    />
+                    <span className="text-[10px] text-emerald-500/50 font-black">%</span>
+                </div>
+              </div>
+              <div className="px-1">
+                <input 
+                    type="range" 
+                    min="0" 
+                    max="100" 
+                    step="1" 
+                    value={compressionRatio}
+                    onChange={(e) => setCompressionRatio(parseInt(e.target.value))}
+                    className="w-full h-1.5 bg-white/5 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                />
               </div>
               <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
                   <button onClick={() => { setGlobalQuality('low'); setCustomBitrate(''); }} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${globalQuality === 'low' && !customBitrate ? 'bg-red-500/20 text-red-400 shadow-glow-red' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>منخفضة</button>
