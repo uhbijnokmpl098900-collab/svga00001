@@ -4,7 +4,7 @@ import { db, storage } from '../lib/firebase';
 import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, query, orderBy, Timestamp, setDoc, getDoc, limit } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { StoreManager } from './StoreManager';
-import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield } from 'lucide-react';
+import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, CheckCircle, Upload, RefreshCw, X, FileText, Link as LinkIcon, BadgeCheck, Wifi, Smartphone, Store, UserPlus, Lock, Unlock, Shield, ShieldPlus, ShieldOff } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -345,15 +345,54 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
   const handleUpdatePermissions = async () => {
     if (!permissionModal) return;
     try {
-      await updateDoc(doc(db, 'users', permissionModal.userId), {
+      const userToUpdate = users.find(u => u.id === permissionModal.userId);
+      const updates: any = {
         permissions: permissionModal.permissions
-      });
-      setUsers(users.map(u => u.id === permissionModal.userId ? { ...u, permissions: permissionModal.permissions } : u));
+      };
+      
+      // If user is not already a moderator or admin, promote to moderator
+      if (userToUpdate && userToUpdate.role !== 'admin' && userToUpdate.role !== 'moderator') {
+        updates.role = 'moderator';
+        // Also give them VIP perks as they are now staff
+        updates.isVIP = true;
+        updates.subscriptionType = 'year';
+        updates.subscriptionExpiry = Timestamp.fromDate(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000));
+        updates.coins = 999999;
+        updates.freeAttempts = 999999;
+        updates.hasSvgaExAccess = true;
+      }
+
+      await updateDoc(doc(db, 'users', permissionModal.userId), updates);
+      setUsers(users.map(u => u.id === permissionModal.userId ? { ...u, ...updates } : u));
       setPermissionModal(null);
       alert("تم تحديث الصلاحيات بنجاح");
     } catch (error) {
       console.error("Error updating permissions:", error);
       alert("فشل تحديث الصلاحيات");
+    }
+  };
+
+  const handleRevokeModeration = async (userId: string) => {
+    if (!confirm('هل أنت متأكد من سحب الإشراف من هذا المستخدم؟ سيعود مستخدماً عادياً.')) return;
+    try {
+      const updates = {
+        role: 'user',
+        permissions: [],
+        // Optionally reset perks, but maybe keep them if they were paid? 
+        // Usually staff perks are revoked.
+        isVIP: false,
+        subscriptionType: 'none',
+        subscriptionExpiry: null,
+        coins: 0,
+        freeAttempts: settings.defaultFreeAttempts,
+        hasSvgaExAccess: false
+      };
+      await updateDoc(doc(db, 'users', userId), updates);
+      setUsers(users.map(u => u.id === userId ? { ...u, ...updates } : u));
+      alert("تم سحب الإشراف بنجاح");
+    } catch (error) {
+      console.error("Error revoking moderation:", error);
+      alert("فشل سحب الإشراف");
     }
   };
 
@@ -610,14 +649,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                                     <Trash2 className="w-4 h-4" />
                                   </button>
                                   
-                                  {user.role === 'moderator' && (
-                                    <button 
-                                      onClick={() => setPermissionModal({ userId: user.id, name: user.name, permissions: user.permissions || [] })}
-                                      className="p-1.5 hover:bg-green-500/20 text-green-400 rounded transition-colors"
-                                      title="إدارة الصلاحيات"
-                                    >
-                                      <Lock className="w-4 h-4" />
-                                    </button>
+                                  {user.role === 'moderator' ? (
+                                    <>
+                                      <button 
+                                        onClick={() => setPermissionModal({ userId: user.id, name: user.name, permissions: user.permissions || [] })}
+                                        className="p-1.5 hover:bg-green-500/20 text-green-400 rounded transition-colors"
+                                        title="إدارة الصلاحيات"
+                                      >
+                                        <Lock className="w-4 h-4" />
+                                      </button>
+                                      <button 
+                                        onClick={() => handleRevokeModeration(user.id)}
+                                        className="p-1.5 hover:bg-orange-500/20 text-orange-400 rounded transition-colors"
+                                        title="سحب الإشراف"
+                                      >
+                                        <ShieldOff className="w-4 h-4" />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    user.role === 'user' && (
+                                      <button 
+                                        onClick={() => setPermissionModal({ userId: user.id, name: user.name, permissions: [] })}
+                                        className="p-1.5 hover:bg-indigo-500/20 text-indigo-400 rounded transition-colors"
+                                        title="إعطاء إشراف"
+                                      >
+                                        <ShieldPlus className="w-4 h-4" />
+                                      </button>
+                                    )
                                   )}
 
                                   <div className="relative group">
