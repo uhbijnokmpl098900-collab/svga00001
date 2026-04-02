@@ -115,14 +115,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ currentUser,
               {currentUser.name.charAt(0).toUpperCase()}
               {currentUser.isVIP && (
                 <div className="absolute -bottom-1 -right-1 bg-slate-900 rounded-full p-0.5">
-                  <BadgeCheck className="w-5 h-5 text-blue-500 fill-blue-500/20" />
+                  <BadgeCheck className={`w-5 h-5 ${currentUser.activatedKey ? 'text-yellow-400 fill-yellow-400/20' : 'text-blue-500 fill-blue-500/20'}`} />
                 </div>
               )}
             </div>
             <div>
               <h4 className="text-lg font-bold text-white flex items-center gap-2">
                 {currentUser.name}
-                {currentUser.isVIP && <BadgeCheck className="w-4 h-4 text-blue-500" />}
+                {currentUser.isVIP && <BadgeCheck className={`w-4 h-4 ${currentUser.activatedKey ? 'text-yellow-400' : 'text-blue-500'}`} />}
               </h4>
               <p className="text-slate-400 text-sm">{currentUser.email}</p>
               <div className="flex items-center gap-2 mt-1">

@@ -594,9 +594,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                           <tr key={user.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                             <td className="p-3 font-medium flex items-center gap-2">
                                 {user.name}
-                                {isSuperAdmin(user) && <BadgeCheck className="w-4 h-4 text-amber-400" />}
-                                {user.role === 'admin' && !isSuperAdmin(user) && <BadgeCheck className="w-4 h-4 text-blue-400" />}
-                                {user.role === 'moderator' && <Shield className="w-4 h-4 text-green-400" />}
+                                {isSuperAdmin(user) && <BadgeCheck className="w-4 h-4 text-amber-400" title="المدير العام" />}
+                                {user.role === 'admin' && !isSuperAdmin(user) && <BadgeCheck className="w-4 h-4 text-blue-400" title="مسؤول" />}
+                                {user.role === 'moderator' && <Shield className="w-4 h-4 text-green-400" title="مشرف" />}
+                                {user.activatedKey && <BadgeCheck className="w-4 h-4 text-yellow-400" title="مفعل كود اشتراك" />}
                             </td>
                             <td className="p-3 text-slate-400">{user.email}</td>
                             <td className="p-3">
