@@ -1,13 +1,16 @@
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Upload, FileVideo, FileCode, Loader2, X } from 'lucide-react';
+import { UserRecord } from '../types';
+import { logActivity } from '../utils/logger';
 
 interface VapToSvgaConverterProps {
   isOpen: boolean;
   onClose: () => void;
+  currentUser: UserRecord | null;
 }
 
-export const VapToSvgaConverter: React.FC<VapToSvgaConverterProps> = ({ isOpen, onClose }) => {
+export const VapToSvgaConverter: React.FC<VapToSvgaConverterProps> = ({ isOpen, onClose, currentUser }) => {
   const [inputPath, setInputPath] = useState<string>('');
   const [outputPath, setOutputPath] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -38,6 +41,11 @@ export const VapToSvgaConverter: React.FC<VapToSvgaConverterProps> = ({ isOpen, 
       setProgress(100);
       setStatus('تم التحويل بنجاح!');
       setIsProcessing(false);
+      
+      if (currentUser) {
+        logActivity(currentUser, 'feature_usage', `Converted VAP to SVGA: ${inputPath}`);
+      }
+
       alert("تم تحويل الملف بنجاح!");
     }, 3000);
   };

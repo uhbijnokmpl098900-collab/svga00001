@@ -2598,6 +2598,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         setProgress
       });
 
+      if (currentUser) {
+        logActivity(currentUser, 'export', `Exported After Effects Project: ${metadata.name}.zip`);
+      }
+
     } catch (e) { 
       console.error(e); 
       alert("❌ Error during After Effects export!");
@@ -2799,6 +2803,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       link.download = `${metadata.name.replace('.svga','')}_Sequence.zip`;
       link.click();
       
+      if (currentUser) {
+        logActivity(currentUser, 'export', `Exported Image Sequence: ${metadata.name}_Sequence.zip`);
+      }
+
       svgaInstance.stepToFrame(originalFrame, true);
       
     } catch (e) {
@@ -2907,6 +2915,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             link.href = URL.createObjectURL(blob);
             link.download = `${metadata.name.replace('.svga', '')}_Transparent.gif`;
             link.click();
+            
+            if (currentUser) {
+              logActivity(currentUser, 'export', `Exported Transparent GIF: ${metadata.name}.gif`);
+            }
+
             setIsExporting(false);
             svgaInstance.stepToFrame(originalFrame, true);
             if (isPlaying) svgaInstance.startAnimation();
@@ -3132,6 +3145,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         const buffer = muxer.target.buffer;
         const blob = new Blob([buffer], { type: 'video/webm' });
         
+        if (currentUser) {
+          logActivity(currentUser, 'export', `Exported WebM (VP9): ${metadata.name}.webm`);
+        }
+
         const url = URL.createObjectURL(blob);
         setExportResult({
             url,
@@ -3355,6 +3372,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         const finalBlob = new Blob([riff, webpHeader, ...chunks], { type: 'image/webp' });
         const url = URL.createObjectURL(finalBlob);
         
+        if (currentUser) {
+          logActivity(currentUser, 'export', `Exported Animated WebP: ${metadata.name}.webp`);
+        }
+
         setExportResult({
             url,
             filename: `${metadata.name.replace('.svga', '')}_Animated.webp`
@@ -3438,6 +3459,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         link.href = URL.createObjectURL(blob);
         link.download = `${metadata.name.replace('.svga', '')}_Animation.png`;
         link.click();
+
+        if (currentUser) {
+          logActivity(currentUser, 'export', `Exported Animated PNG: ${metadata.name}.png`);
+        }
 
         setIsExporting(false);
         svgaInstance.stepToFrame(originalFrame, true);
@@ -3862,6 +3887,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         a.download = `${metadata.name.replace('.svga', '')}_Recording.${extension}`;
         a.click();
 
+        if (currentUser) {
+          logActivity(currentUser, 'export', `Exported ${extension.toUpperCase()} Video: ${metadata.name}.${extension}`);
+        }
+
         svgaInstance.stepToFrame(originalFrame, true);
         if (isPlaying) svgaInstance.startAnimation();
 
@@ -4283,6 +4312,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         videoLink.download = `${baseName}.mp4`;
         videoLink.click();
         
+        if (currentUser) {
+          logActivity(currentUser, 'export', `Exported VAP 1.0.5: ${baseName}.mp4`);
+        }
+
         // 3. Checksum (SHA-256)
         const checksumBlob = new Blob([checksum], { type: 'text/plain' });
         const checksumUrl = URL.createObjectURL(checksumBlob);
@@ -4372,6 +4405,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             applyTransparencyEffects, setProgress, setExportPhase, setIsExporting,
             protobuf, globalQuality
         });
+        if (currentUser) {
+          logActivity(currentUser, 'export', `Exported SVGA 2.0 EX: ${metadata.name}.svga`);
+        }
     }
     else if (currentFormat === 'Image Sequence') await handleExportImageSequence({ decrement: false });
     else if (currentFormat === 'GIF (Animation)') await handleExportGIF({ decrement: false });
@@ -4765,6 +4801,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             a.href = url;
             a.download = `${metadata.name.replace('.svga', '')}_VAP.mp4`;
             a.click();
+            
+            if (currentUser) {
+              logActivity(currentUser, 'export', `Exported VAP (MP4): ${metadata.name}_VAP.mp4`);
+            }
             
             svgaInstance.stepToFrame(originalFrame, true);
             if (isPlaying) svgaInstance.startAnimation();
@@ -5492,6 +5532,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 link.href = URL.createObjectURL(new Blob([compressedBuffer]));
                 link.download = `${metadata.name.replace('.svga','')}_Quantum_${Math.round(exportScale*100)}.svga`;
                 link.click();
+                
+                if (currentUser) {
+                  logActivity(currentUser, 'export', `Exported SVGA 2.0: ${metadata.name}_Quantum_${Math.round(exportScale*100)}.svga`);
+                }
+                
                 setProgress(100);
             }
         } catch (e) {

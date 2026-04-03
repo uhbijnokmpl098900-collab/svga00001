@@ -3,6 +3,7 @@ import { UserRecord } from '../types';
 import { parse } from 'protobufjs';
 import pako from 'pako';
 import { svgaSchema } from '../svga-proto';
+import { logActivity } from '../utils/logger';
 import { useAccessControl } from '../hooks/useAccessControl';
 
 declare var JSZip: any;
@@ -234,6 +235,10 @@ export const SvgaCompressor: React.FC<{ onCancel: () => void, currentUser: UserR
       });
       
       const downloadUrl = URL.createObjectURL(generatedBlob);
+
+      if (currentUser) {
+        logActivity(currentUser, 'feature_usage', `Compressed SVGA: ${svgaFile.file.name}. Saved ${Math.round(((svgaFile.originalSize - generatedBlob.size) / svgaFile.originalSize) * 100)}%`);
+      }
 
       setSvgaFile(prev => prev ? {
         ...prev,

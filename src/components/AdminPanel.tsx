@@ -8,6 +8,7 @@ import { Users, Key, Image as ImageIcon, Settings as SettingsIcon, Trash2, Ban, 
 import { initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { logActivity } from '../utils/logger';
 
 // Secondary app for creating users without logging out admin
 const secondaryApp = initializeApp(firebaseConfig, 'SecondaryApp');
@@ -23,6 +24,7 @@ const EXPORT_FORMATS = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Image Sequence
 export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel }) => {
   const [activeTab, setActiveTab] = useState<'users' | 'store' | 'keys' | 'assets' | 'settings' | 'records'>('users');
   const [dropdownState, setDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
+  const [subDropdownState, setSubDropdownState] = useState<{ userId: string; x: number; y: number; position: 'top' | 'bottom' } | null>(null);
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [bannedIps, setBannedIps] = useState<string[]>([]);
@@ -308,9 +310,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
         subscriptionExpiry: Timestamp.fromDate(expiry),
         isVIP: true
       });
+      
+      if (currentUser) {
+        const targetUser = users.find(u => u.id === userId);
+        logActivity(currentUser, 'subscription', `Set ${type} subscription for user: ${targetUser?.name || userId} (${targetUser?.email || 'N/A'})`);
+      }
+      
       fetchData(); // Refresh to show changes
     } catch (error) {
       console.error("Error setting subscription:", error);
+    }
+  };
+
+  const handleRemoveSubscription = async (userId: string) => {
+    if (!confirm('هل أنت متأكد من إزالة الاشتراك من هذا المستخدم؟')) return;
+    try {
+      const updates = {
+        isVIP: false,
+        subscriptionType: 'none',
+        subscriptionExpiry: null,
+        activatedKey: null
+      };
+      await updateDoc(doc(db, 'users', userId), updates);
+      setUsers(users.map(u => u.id === userId ? { ...u, ...updates } : u));
+      
+      if (currentUser) {
+        const targetUser = users.find(u => u.id === userId);
+        logActivity(currentUser, 'subscription', `Removed subscription from user: ${targetUser?.name || userId} (${targetUser?.email || 'N/A'})`);
+      }
+      
+      alert("تم إزالة الاشتراك بنجاح");
+    } catch (error) {
+      console.error("Error removing subscription:", error);
+      alert("فشل إزالة الاشتراك");
     }
   };
 
@@ -679,22 +711,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                                     )
                                   )}
 
-                                  <div className="relative group">
-                                    <button className="p-1.5 hover:bg-indigo-500/20 text-indigo-400 rounded transition-colors" title="تغيير الاشتراك">
-                                      <RefreshCw className="w-4 h-4" />
-                                    </button>
-                                    <div className="absolute left-0 bottom-full mb-2 hidden group-hover:flex flex-col bg-slate-800 border border-white/10 rounded-lg p-1 z-10 w-32 shadow-xl">
-                                      {['day', 'week', 'month', 'year'].map(type => (
-                                        <button 
-                                          key={type}
-                                          onClick={() => handleSetSubscription(user.id, type as SubscriptionType)}
-                                          className="text-xs text-right px-2 py-1.5 hover:bg-white/10 rounded text-slate-300"
-                                        >
-                                          تفعيل {type}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </div>
+                                   <div className="relative">
+                                     <button 
+                                       onClick={(e) => {
+                                           e.stopPropagation();
+                                           if (subDropdownState?.userId === user.id) {
+                                               setSubDropdownState(null);
+                                           } else {
+                                               const rect = e.currentTarget.getBoundingClientRect();
+                                               const spaceBelow = window.innerHeight - rect.bottom;
+                                               const dropdownHeight = 220;
+                                               if (spaceBelow < dropdownHeight && rect.top > spaceBelow) {
+                                                   setSubDropdownState({ userId: user.id, x: rect.left, y: rect.top - 8, position: 'top' });
+                                               } else {
+                                                   setSubDropdownState({ userId: user.id, x: rect.left, y: rect.bottom + 8, position: 'bottom' });
+                                               }
+                                           }
+                                       }}
+                                       className={`p-1.5 rounded transition-colors ${user.isVIP ? 'bg-indigo-500/20 text-indigo-400' : 'hover:bg-slate-500/20 text-slate-400'}`} 
+                                       title="إدارة الاشتراك"
+                                     >
+                                       <RefreshCw className="w-4 h-4" />
+                                     </button>
+                                   </div>
+
+                                   {(user.isVIP || user.activatedKey) && (
+                                     <button 
+                                       onClick={() => handleRemoveSubscription(user.id)}
+                                       className="p-1.5 hover:bg-red-500/20 text-red-400 rounded transition-colors"
+                                       title="إلغاء الاشتراك"
+                                     >
+                                       <ShieldOff className="w-4 h-4" />
+                                     </button>
+                                   )}
                                   
                                   {/* Format Restriction Dropdown */}
                                   <div className="relative">
@@ -823,6 +872,54 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                   </>
               )}
 
+              {subDropdownState && (
+                  <>
+                      <div className="fixed inset-0 z-40" onClick={() => setSubDropdownState(null)}></div>
+                      <div 
+                          className="fixed z-50 bg-slate-800 border border-white/10 rounded-lg p-1 shadow-xl w-40 flex flex-col"
+                          style={{ 
+                              left: subDropdownState.x, 
+                              top: subDropdownState.position === 'bottom' ? subDropdownState.y : 'auto',
+                              bottom: subDropdownState.position === 'top' ? (window.innerHeight - subDropdownState.y) : 'auto'
+                          }}
+                      >
+                          {(() => {
+                              const user = users.find(u => u.id === subDropdownState.userId);
+                              if (!user) return null;
+                              
+                              return (
+                                  <>
+                                      <div className="px-2 py-1.5 text-[10px] text-slate-500 border-b border-white/5 mb-1">تفعيل اشتراك</div>
+                                      {['day', 'week', 'month', 'year'].map(type => (
+                                          <button 
+                                              key={type}
+                                              onClick={() => {
+                                                  handleSetSubscription(user.id, type as SubscriptionType);
+                                                  setSubDropdownState(null);
+                                              }}
+                                              className="text-xs text-right px-3 py-2 hover:bg-white/10 rounded text-slate-300 transition-colors"
+                                          >
+                                              تفعيل {type === 'day' ? 'يوم' : type === 'week' ? 'أسبوع' : type === 'month' ? 'شهر' : 'سنة'}
+                                          </button>
+                                      ))}
+                                      {(user.isVIP || user.activatedKey) && (
+                                          <button 
+                                              onClick={() => {
+                                                  handleRemoveSubscription(user.id);
+                                                  setSubDropdownState(null);
+                                              }}
+                                              className="text-xs text-right px-3 py-2 hover:bg-red-500/20 rounded text-red-400 border-t border-white/5 mt-1 flex items-center justify-between"
+                                          >
+                                              <span>إزالة الاشتراك</span>
+                                              <ShieldOff className="w-3 h-3" />
+                                          </button>
+                                      )}
+                                  </>
+                              );
+                          })()}
+                      </div>
+                  </>
+              )}
               {activeTab === 'keys' && (
                 <div className="space-y-6">
                   <div className="flex justify-between items-center">

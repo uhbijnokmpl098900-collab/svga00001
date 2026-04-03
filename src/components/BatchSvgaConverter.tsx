@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { UserRecord, AppSettings } from '../types';
 import { useAccessControl } from '../hooks/useAccessControl';
+import { logActivity } from '../utils/logger';
 import { Download, Trash2, Upload, Play, Check, X, Layers, Settings, RefreshCw, Video, FileVideo } from 'lucide-react';
 import * as Mp4Muxer from 'mp4-muxer';
 
@@ -296,6 +297,11 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
 
     const content = await zip.generateAsync({ type: 'blob' });
     const url = URL.createObjectURL(content);
+    
+    if (currentUser) {
+      logActivity(currentUser, 'export', `Batch converted ${doneFiles.length} SVGA files to ${exportFormat.toUpperCase()}`);
+    }
+
     const link = document.createElement('a');
     link.href = url;
     link.download = `converted_videos_${Date.now()}.zip`;
