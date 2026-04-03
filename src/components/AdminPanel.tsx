@@ -738,10 +738,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                                    {(user.isVIP || user.activatedKey) && (
                                      <button 
                                        onClick={() => handleRemoveSubscription(user.id)}
-                                       className="p-1.5 hover:bg-red-500/20 text-red-400 rounded transition-colors"
+                                       className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-all flex items-center gap-2 text-[10px] font-bold border border-red-500/20"
                                        title="إلغاء الاشتراك"
                                      >
-                                       <ShieldOff className="w-4 h-4" />
+                                       <ShieldOff className="w-3 h-3" />
+                                       <span>إلغاء الاشتراك</span>
                                      </button>
                                    )}
                                   

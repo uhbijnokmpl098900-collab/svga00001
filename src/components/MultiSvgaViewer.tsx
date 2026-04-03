@@ -84,6 +84,7 @@ const DEVICE_PRESETS: DevicePreset[] = [
 ];
 
 import { useAccessControl } from '../hooks/useAccessControl';
+import { logActivity } from '../utils/logger';
 
 export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, currentUser, onSubscriptionRequired }) => {
   const { checkAccess } = useAccessControl();
@@ -205,6 +206,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
     setIsExporting(true);
     setExportProgress(0);
+
+    if (currentUser) {
+      logActivity(currentUser, 'export', `Multi SVGA Grid Export: ${items.length} files`);
+    }
 
     // Create a hidden container for offscreen rendering
     const renderContainer = document.createElement('div');
@@ -580,6 +585,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     setIsZipping(true);
     setExportProgress(0);
     
+    if (currentUser) {
+      logActivity(currentUser, 'export', `Multi SVGA ZIP Export: ${items.length} files`);
+    }
+    
     const zip = new JSZip();
     const folder = zip.folder("SVGA_Screenshots");
 
@@ -600,7 +609,87 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     setIsZipping(false);
   };
 
+  const handleDownloadAllSvga = async () => {
+    if (items.length === 0) return;
+
+    const { allowed } = await checkAccess('Multi SVGA Files Export');
+    if (!allowed) {
+      if (onSubscriptionRequired) onSubscriptionRequired();
+      return;
+    }
+
+    setIsZipping(true);
+    setExportProgress(0);
+    
+    if (currentUser) {
+      logActivity(currentUser, 'export', `Multi SVGA Files Export: ${items.length} files`);
+    }
+    
+    const zip = new JSZip();
+    const folder = zip.folder("SVGA_Files");
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      folder?.file(item.name, item.file);
+      setExportProgress(Math.round(((i + 1) / items.length) * 100));
+    }
+
+    const content = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(content);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `SVGA_Files_${Date.now()}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setIsZipping(false);
+  };
+
+  const handleDownloadAllCombined = async () => {
+    if (items.length === 0) return;
+
+    const { allowed } = await checkAccess('Multi SVGA Combined Export', { subscriptionOnly: true });
+    if (!allowed) {
+      if (onSubscriptionRequired) onSubscriptionRequired();
+      return;
+    }
+
+    setIsZipping(true);
+    setExportProgress(0);
+    
+    if (currentUser) {
+      logActivity(currentUser, 'export', `Multi SVGA Combined Export: ${items.length} items`);
+    }
+    
+    const zip = new JSZip();
+    const svgaFolder = zip.folder("SVGA_Files");
+    const imageFolder = zip.folder("SVGA_Images");
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      // Add SVGA file
+      svgaFolder?.file(item.name, item.file);
+      
+      // Add Image
+      const blob = await captureFrame(item, Math.floor(item.frames / 2));
+      imageFolder?.file(`${item.name.replace('.svga', '')}.png`, blob);
+      
+      setExportProgress(Math.round(((i + 1) / items.length) * 100));
+    }
+
+    const content = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(content);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `SVGA_Full_Package_${Date.now()}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setIsZipping(false);
+  };
+
   const handleDownloadSingleImage = async (item: MultiSvgaItem) => {
+    if (currentUser) {
+      logActivity(currentUser, 'export', `Single SVGA Image Export: ${item.name}`);
+    }
     const blob = await captureFrame(item, Math.floor(item.frames / 2));
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -611,6 +700,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   };
 
   const handleDownloadSvga = (item: MultiSvgaItem) => {
+    if (currentUser) {
+      logActivity(currentUser, 'export', `Single SVGA File Download: ${item.name}`);
+    }
     const url = URL.createObjectURL(item.file);
     const a = document.createElement('a');
     a.href = url;
@@ -808,6 +900,22 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               >
                 {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل كل الصور (ZIP)'}
+              </button>
+              <button 
+                onClick={handleDownloadAllSvga}
+                disabled={isZipping || isExporting}
+                className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl shadow-lg shadow-blue-600/20 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
+              >
+                {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل كل ملفات SVGA (ZIP)'}
+              </button>
+              <button 
+                onClick={handleDownloadAllCombined}
+                disabled={isZipping || isExporting}
+                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl shadow-lg shadow-indigo-600/20 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
+              >
+                {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل الكل (SVGA + صور)'}
               </button>
               <button 
                 onClick={handleExportGrid}
