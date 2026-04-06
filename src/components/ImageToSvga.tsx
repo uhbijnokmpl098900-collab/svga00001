@@ -16,10 +16,13 @@ import {
   CheckSquare,
   ListOrdered,
   Image as ImageIcon,
-  Stamp
+  Stamp,
+  Film
 } from 'lucide-react';
 import { parse } from 'protobufjs';
 import pako from 'pako';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import lottie from 'lottie-web';
 import JSZip from 'jszip';
 import { svgaSchema } from '../svga-proto';
@@ -90,6 +93,8 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
   const [currentPreviewFrame, setCurrentPreviewFrame] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const ffmpegRef = useRef(new FFmpeg());
+  const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
   const [canvasSize, setCanvasSize] = useState({ width: 750, height: 750 });
   const [autoSize, setAutoSize] = useState(true);
   const [target10MB, setTarget10MB] = useState(false);
@@ -105,6 +110,443 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
   const [rangeEnd, setRangeEnd] = useState(1);
   const [showRangeModal, setShowRangeModal] = useState(false);
   const [exportPhase, setExportPhase] = useState('');
+
+  const loadFfmpeg = async () => {
+    if (ffmpegLoaded) return;
+    
+    const ffmpeg = ffmpegRef.current;
+    const cdns = [
+        'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd',
+        'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd',
+        'https://cdnjs.cloudflare.com/ajax/libs/ffmpeg-core/0.12.6'
+    ];
+    
+    ffmpeg.on('log', ({ message }) => {
+        console.log("FFmpeg Log:", message);
+    });
+
+    const attemptLoad = async (baseURL: string) => {
+        console.log(`Attempting to load FFmpeg from: ${baseURL}`);
+        
+        const coreURL = `${baseURL}/ffmpeg-core.js`;
+        const wasmURL = `${baseURL}/ffmpeg-core.wasm`;
+
+        const loadPromise = ffmpeg.load({
+            coreURL: await toBlobURL(coreURL, 'text/javascript'),
+            wasmURL: await toBlobURL(wasmURL, 'application/wasm'),
+        });
+
+        // Increase timeout to 180 seconds for very slow connections
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error(`FFmpeg load timeout (180s) from ${baseURL}`)), 180000)
+        );
+
+        await Promise.race([loadPromise, timeoutPromise]);
+        console.log("FFmpeg Loaded successfully");
+        setFfmpegLoaded(true);
+    };
+
+    let lastError: any = null;
+    for (let i = 0; i < cdns.length; i++) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                await attemptLoad(cdns[i]);
+                return;
+            } catch (e) {
+                lastError = e;
+                console.error(`FFmpeg load failed (CDN: ${cdns[i]}, Attempt: ${attempt + 1}):`, e);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+        }
+    }
+    
+    throw lastError || new Error("Failed to load FFmpeg from all available CDNs");
+  };
+
+  const generateWebP = async () => {
+    if (frames.length === 0) return;
+    
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    setIsProcessing(true);
+    setExportPhase('WebP');
+    setProgress(0);
+
+    try {
+        await loadFfmpeg();
+        const ffmpeg = ffmpegRef.current;
+        const isSingleImageEffect = frames.length === 1 && effectType !== 'none';
+        const totalFramesCount = isSingleImageEffect ? Math.floor(effectDuration * fps) : Math.max(1, Math.round(duration * fps));
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = canvasSize.width;
+        canvas.height = canvasSize.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error("Could not get canvas context");
+
+        for (let i = 0; i < totalFramesCount; i++) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const resampledIndex = isSingleImageEffect ? 0 : Math.floor((i / totalFramesCount) * frames.length);
+            const frame = frames[resampledIndex];
+            
+            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve(image);
+                image.onerror = () => reject(new Error(`Failed to load frame ${resampledIndex}`));
+                image.src = frame.previewUrl;
+            });
+
+            if (isSingleImageEffect) {
+                const t = i / totalFramesCount;
+                let scaleX = 1, scaleY = 1, translateX = 0, translateY = 0, rotation = 0, alpha = 1;
+
+                if (effectType === 'pulse') {
+                    const s = 1 + Math.sin(t * Math.PI * 2) * (0.1 + effectIntensity * 0.2);
+                    scaleX = s; scaleY = s;
+                } else if (effectType === 'shake') {
+                    translateX = Math.sin(t * Math.PI * 10) * (5 + effectIntensity * 20);
+                } else if (effectType === 'flash') {
+                    alpha = 0.5 + Math.abs(Math.sin(t * Math.PI * 2)) * 0.5;
+                } else if (effectType === 'spin') {
+                    rotation = t * 360;
+                }
+
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                const imgScale = Math.min(canvas.width / frame.width, canvas.height / frame.height);
+                ctx.translate(canvas.width / 2 + translateX, canvas.height / 2 + translateY);
+                ctx.rotate(rotation * Math.PI / 180);
+                ctx.scale(scaleX, scaleY);
+                const drawW = frame.width * imgScale;
+                const drawH = frame.height * imgScale;
+                ctx.drawImage(img, -drawW/2, -drawH/2, drawW, drawH);
+                ctx.restore();
+
+                if (effectType === 'sparkles') drawSparkles(ctx, canvas.width, canvas.height, t, effectIntensity);
+                if (effectType === 'shine') drawShine(ctx, canvas.width, canvas.height, t, effectIntensity);
+            } else {
+                const scale = Math.min(canvas.width / frame.width, canvas.height / frame.height);
+                const x = (canvas.width - frame.width * scale) / 2;
+                const y = (canvas.height - frame.height * scale) / 2;
+                ctx.drawImage(img, x, y, frame.width * scale, frame.height * scale);
+            }
+
+            if (chromaKeyEnabled) processChromaKey(ctx, canvas.width, canvas.height);
+            if (backgroundImage) drawOverlays(ctx, canvas.width, canvas.height, true);
+            if (watermarkImage) drawOverlays(ctx, canvas.width, canvas.height, false);
+
+            const dataUrl = canvas.toDataURL('image/png');
+            const binary = atob(dataUrl.split(',')[1]);
+            const bytes = new Uint8Array(binary.length);
+            for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
+            
+            await ffmpeg.writeFile(`frame${i.toString().padStart(5, '0')}.png`, bytes);
+            
+            setProgress(Math.floor(((i + 1) / totalFramesCount) * 50));
+            if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+        }
+
+        setExportPhase('WebP (Converting)');
+        await ffmpeg.exec(['-framerate', fps.toString(), '-i', 'frame%05d.png', '-loop', '0', '-lossless', '0', '-q:v', (quality * 100).toString(), 'output.webp']);
+        
+        const data = await ffmpeg.readFile('output.webp');
+        const blob = new Blob([data], { type: 'image/webp' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `animation_${Date.now()}.webp`;
+        link.click();
+        
+        for (let i = 0; i < totalFramesCount; i++) {
+            try { await ffmpeg.deleteFile(`frame${i.toString().padStart(5, '0')}.png`); } catch(e) {}
+        }
+        try { await ffmpeg.deleteFile('output.webp'); } catch(e) {}
+
+        if (currentUser) {
+            logActivity(currentUser, 'export_webp', `Exported WebP from ${frames.length} frames`);
+        }
+
+    } catch (e: any) {
+        console.error("WebP Export Error:", e);
+        alert(`فشل إنشاء ملف WebP: ${e.message || e}`);
+    } finally {
+        setIsProcessing(false);
+        setExportPhase('');
+        setProgress(0);
+    }
+  };
+
+  const generateGif = async () => {
+    if (frames.length === 0) return;
+    
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    setIsProcessing(true);
+    setExportPhase('GIF');
+    setProgress(0);
+
+    try {
+        await loadFfmpeg();
+        const ffmpeg = ffmpegRef.current;
+        const isSingleImageEffect = frames.length === 1 && effectType !== 'none';
+        const totalFramesCount = isSingleImageEffect ? Math.floor(effectDuration * fps) : Math.max(1, Math.round(duration * fps));
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = canvasSize.width;
+        canvas.height = canvasSize.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error("Could not get canvas context");
+
+        for (let i = 0; i < totalFramesCount; i++) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const resampledIndex = isSingleImageEffect ? 0 : Math.floor((i / totalFramesCount) * frames.length);
+            const frame = frames[resampledIndex];
+            
+            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve(image);
+                image.onerror = () => reject(new Error(`Failed to load frame ${resampledIndex}`));
+                image.src = frame.previewUrl;
+            });
+
+            if (isSingleImageEffect) {
+                const t = i / totalFramesCount;
+                let scaleX = 1, scaleY = 1, translateX = 0, translateY = 0, rotation = 0, alpha = 1;
+
+                if (effectType === 'pulse') {
+                    const s = 1 + Math.sin(t * Math.PI * 2) * (0.1 + effectIntensity * 0.2);
+                    scaleX = s; scaleY = s;
+                } else if (effectType === 'shake') {
+                    translateX = Math.sin(t * Math.PI * 10) * (5 + effectIntensity * 20);
+                } else if (effectType === 'flash') {
+                    alpha = 0.5 + Math.abs(Math.sin(t * Math.PI * 2)) * 0.5;
+                } else if (effectType === 'spin') {
+                    rotation = t * 360;
+                }
+
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                const imgScale = Math.min(canvas.width / frame.width, canvas.height / frame.height);
+                ctx.translate(canvas.width / 2 + translateX, canvas.height / 2 + translateY);
+                ctx.rotate(rotation * Math.PI / 180);
+                ctx.scale(scaleX, scaleY);
+                const drawW = frame.width * imgScale;
+                const drawH = frame.height * imgScale;
+                ctx.drawImage(img, -drawW/2, -drawH/2, drawW, drawH);
+                ctx.restore();
+
+                if (effectType === 'sparkles') drawSparkles(ctx, canvas.width, canvas.height, t, effectIntensity);
+                if (effectType === 'shine') drawShine(ctx, canvas.width, canvas.height, t, effectIntensity);
+            } else {
+                const scale = Math.min(canvas.width / frame.width, canvas.height / frame.height);
+                const x = (canvas.width - frame.width * scale) / 2;
+                const y = (canvas.height - frame.height * scale) / 2;
+                ctx.drawImage(img, x, y, frame.width * scale, frame.height * scale);
+            }
+
+            if (chromaKeyEnabled) processChromaKey(ctx, canvas.width, canvas.height);
+            if (backgroundImage) drawOverlays(ctx, canvas.width, canvas.height, true);
+            if (watermarkImage) drawOverlays(ctx, canvas.width, canvas.height, false);
+
+            const dataUrl = canvas.toDataURL('image/png');
+            const binary = atob(dataUrl.split(',')[1]);
+            const bytes = new Uint8Array(binary.length);
+            for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
+            
+            await ffmpeg.writeFile(`frame${i.toString().padStart(5, '0')}.png`, bytes);
+            
+            setProgress(Math.floor(((i + 1) / totalFramesCount) * 50));
+            if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+        }
+
+        setExportPhase('GIF (Converting)');
+        await ffmpeg.exec(['-framerate', fps.toString(), '-i', 'frame%05d.png', '-vf', 'split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse', '-loop', '0', 'output.gif']);
+        
+        const data = await ffmpeg.readFile('output.gif');
+        const blob = new Blob([data], { type: 'image/gif' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `animation_${Date.now()}.gif`;
+        link.click();
+        
+        for (let i = 0; i < totalFramesCount; i++) {
+            try { await ffmpeg.deleteFile(`frame${i.toString().padStart(5, '0')}.png`); } catch(e) {}
+        }
+        try { await ffmpeg.deleteFile('output.gif'); } catch(e) {}
+
+        if (currentUser) {
+            logActivity(currentUser, 'export_gif', `Exported GIF from ${frames.length} frames`);
+        }
+
+    } catch (e: any) {
+        console.error("GIF Export Error:", e);
+        alert(`فشل إنشاء ملف GIF: ${e.message || e}`);
+    } finally {
+        setIsProcessing(false);
+        setExportPhase('');
+        setProgress(0);
+    }
+  };
+
+  const generateYYEVA = async () => {
+    if (frames.length === 0) return;
+    
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    setIsProcessing(true);
+    setExportPhase('YYEVA');
+    setProgress(0);
+
+    try {
+        await loadFfmpeg();
+        const ffmpeg = ffmpegRef.current;
+        const isSingleImageEffect = frames.length === 1 && effectType !== 'none';
+        const totalFramesCount = isSingleImageEffect ? Math.floor(effectDuration * fps) : Math.max(1, Math.round(duration * fps));
+        
+        // YYEVA is side-by-side: Left is Color, Right is Alpha
+        const canvas = document.createElement('canvas');
+        canvas.width = canvasSize.width * 2;
+        canvas.height = canvasSize.height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) throw new Error("Could not get canvas context");
+
+        // Temporary canvas for drawing the frame before extracting alpha
+        const frameCanvas = document.createElement('canvas');
+        frameCanvas.width = canvasSize.width;
+        frameCanvas.height = canvasSize.height;
+        const fctx = frameCanvas.getContext('2d', { willReadFrequently: true });
+        if (!fctx) throw new Error("Could not get frame canvas context");
+
+        for (let i = 0; i < totalFramesCount; i++) {
+            fctx.clearRect(0, 0, frameCanvas.width, frameCanvas.height);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const resampledIndex = isSingleImageEffect ? 0 : Math.floor((i / totalFramesCount) * frames.length);
+            const frame = frames[resampledIndex];
+            
+            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve(image);
+                image.onerror = () => reject(new Error(`Failed to load frame ${resampledIndex}`));
+                image.src = frame.previewUrl;
+            });
+
+            // Draw frame with effects on frameCanvas
+            if (isSingleImageEffect) {
+                const t = i / totalFramesCount;
+                let scaleX = 1, scaleY = 1, translateX = 0, translateY = 0, rotation = 0, alpha = 1;
+
+                if (effectType === 'pulse') {
+                    const s = 1 + Math.sin(t * Math.PI * 2) * (0.1 + effectIntensity * 0.2);
+                    scaleX = s; scaleY = s;
+                } else if (effectType === 'shake') {
+                    translateX = Math.sin(t * Math.PI * 10) * (5 + effectIntensity * 20);
+                } else if (effectType === 'flash') {
+                    alpha = 0.5 + Math.abs(Math.sin(t * Math.PI * 2)) * 0.5;
+                } else if (effectType === 'spin') {
+                    rotation = t * 360;
+                }
+
+                fctx.save();
+                fctx.globalAlpha = alpha;
+                const imgScale = Math.min(frameCanvas.width / frame.width, frameCanvas.height / frame.height);
+                fctx.translate(frameCanvas.width / 2 + translateX, frameCanvas.height / 2 + translateY);
+                fctx.rotate(rotation * Math.PI / 180);
+                fctx.scale(scaleX, scaleY);
+                const drawW = frame.width * imgScale;
+                const drawH = frame.height * imgScale;
+                fctx.drawImage(img, -drawW/2, -drawH/2, drawW, drawH);
+                fctx.restore();
+
+                if (effectType === 'sparkles') drawSparkles(fctx, frameCanvas.width, frameCanvas.height, t, effectIntensity);
+                if (effectType === 'shine') drawShine(fctx, frameCanvas.width, frameCanvas.height, t, effectIntensity);
+            } else {
+                const scale = Math.min(frameCanvas.width / frame.width, frameCanvas.height / frame.height);
+                const x = (frameCanvas.width - frame.width * scale) / 2;
+                const y = (frameCanvas.height - frame.height * scale) / 2;
+                fctx.drawImage(img, x, y, frame.width * scale, frame.height * scale);
+            }
+
+            if (chromaKeyEnabled) processChromaKey(fctx, frameCanvas.width, frameCanvas.height);
+            if (backgroundImage) drawOverlays(fctx, frameCanvas.width, frameCanvas.height, true);
+            if (watermarkImage) drawOverlays(fctx, frameCanvas.width, frameCanvas.height, false);
+
+            // Draw RGB on left half
+            ctx.drawImage(frameCanvas, 0, 0);
+
+            // Extract Alpha and draw as grayscale on right half
+            const imageData = fctx.getImageData(0, 0, frameCanvas.width, frameCanvas.height);
+            const data = imageData.data;
+            for (let j = 0; j < data.length; j += 4) {
+                const alpha = data[j + 3];
+                data[j] = alpha;     // R
+                data[j + 1] = alpha; // G
+                data[j + 2] = alpha; // B
+                data[j + 3] = 255;   // A (opaque grayscale)
+            }
+            ctx.putImageData(imageData, frameCanvas.width, 0);
+
+            const dataUrl = canvas.toDataURL('image/png');
+            const binary = atob(dataUrl.split(',')[1]);
+            const bytes = new Uint8Array(binary.length);
+            for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
+            
+            await ffmpeg.writeFile(`frame${i.toString().padStart(5, '0')}.png`, bytes);
+            
+            setProgress(Math.floor(((i + 1) / totalFramesCount) * 50));
+            if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
+        }
+
+        setExportPhase('YYEVA (Encoding Video)');
+        // Encode as MP4 with H.264
+        await ffmpeg.exec([
+            '-framerate', fps.toString(),
+            '-i', 'frame%05d.png',
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            '-crf', '18',
+            '-preset', 'veryfast',
+            'output.mp4'
+        ]);
+        
+        const data = await ffmpeg.readFile('output.mp4');
+        const blob = new Blob([data], { type: 'video/mp4' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `animation_yyeva_${Date.now()}.mp4`;
+        link.click();
+        
+        for (let i = 0; i < totalFramesCount; i++) {
+            try { await ffmpeg.deleteFile(`frame${i.toString().padStart(5, '0')}.png`); } catch(e) {}
+        }
+        try { await ffmpeg.deleteFile('output.mp4'); } catch(e) {}
+
+        if (currentUser) {
+            logActivity(currentUser, 'export_yyeva', `Exported YYEVA from ${frames.length} frames`);
+        }
+
+    } catch (e: any) {
+        console.error("YYEVA Export Error:", e);
+        alert(`فشل إنشاء ملف YYEVA: ${e.message || e}`);
+    } finally {
+        setIsProcessing(false);
+        setExportPhase('');
+        setProgress(0);
+    }
+  };
 
   const downloadFramesAsZip = async () => {
     if (frames.length === 0) return;
@@ -1268,6 +1710,26 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
 
   return (
     <div className="max-w-7xl mx-auto p-6 sm:p-10 bg-slate-900/60 backdrop-blur-3xl rounded-[3rem] border border-white/10 shadow-3xl text-right font-sans" dir="rtl">
+      {isProcessing && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/80 backdrop-blur-md">
+          <div className="bg-slate-900 border border-white/10 p-10 rounded-[3rem] shadow-3xl flex flex-col items-center gap-6 max-w-sm w-full">
+            <div className="relative w-24 h-24">
+              <div className="absolute inset-0 border-4 border-purple-500/20 rounded-full"></div>
+              <div 
+                className="absolute inset-0 border-4 border-purple-500 rounded-full border-t-transparent animate-spin"
+                style={{ animationDuration: '1s' }}
+              ></div>
+              <div className="absolute inset-0 flex items-center justify-center text-white font-black text-lg">
+                {progress}%
+              </div>
+            </div>
+            <div className="text-center space-y-2">
+              <h3 className="text-xl font-black text-white uppercase tracking-tighter">جاري المعالجة...</h3>
+              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">{exportPhase}</p>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-10">
         {onCancel && (
             <button onClick={onCancel} className="p-3 hover:bg-white/10 rounded-2xl transition-all text-slate-400 hover:text-white">
@@ -1697,12 +2159,57 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
                         disabled={frames.length === 0 || isProcessing}
                         className={`py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${frames.length === 0 || isProcessing ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-blue-500 text-white shadow-glow-blue hover:bg-blue-400 active:scale-95'}`}
                     >
-                        {isProcessing ? (
+                        {isProcessing && exportPhase.includes('Lottie') ? (
                             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                         ) : (
                             <>
                                 <Zap className="w-4 h-4" />
                                 <span>تصدير Lottie</span>
+                            </>
+                        )}
+                    </button>
+
+                    <button 
+                        onClick={generateWebP}
+                        disabled={frames.length === 0 || isProcessing}
+                        className={`py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${frames.length === 0 || isProcessing ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-emerald-500 text-white shadow-glow-green hover:bg-emerald-400 active:scale-95'}`}
+                    >
+                        {isProcessing && exportPhase.includes('WebP') ? (
+                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                        ) : (
+                            <>
+                                <ImageIcon className="w-4 h-4" />
+                                <span>تصدير WebP</span>
+                            </>
+                        )}
+                    </button>
+
+                    <button 
+                        onClick={generateGif}
+                        disabled={frames.length === 0 || isProcessing}
+                        className={`py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${frames.length === 0 || isProcessing ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-orange-500 text-white shadow-glow-orange hover:bg-orange-400 active:scale-95'}`}
+                    >
+                        {isProcessing && exportPhase.includes('GIF') ? (
+                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                        ) : (
+                            <>
+                                <Download className="w-4 h-4" />
+                                <span>تصدير GIF</span>
+                            </>
+                        )}
+                    </button>
+
+                    <button 
+                        onClick={generateYYEVA}
+                        disabled={frames.length === 0 || isProcessing}
+                        className={`py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${frames.length === 0 || isProcessing ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-rose-500 text-white shadow-glow-rose hover:bg-rose-400 active:scale-95'}`}
+                    >
+                        {isProcessing && exportPhase.includes('YYEVA') ? (
+                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                        ) : (
+                            <>
+                                <Film className="w-4 h-4" />
+                                <span>SVGA → YYEVA</span>
                             </>
                         )}
                     </button>
@@ -1757,7 +2264,7 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
                 <input 
                     type="file" 
                     multiple 
-                    accept="image/*,application/json,.json,.svga" 
+                    accept="image/*,application/json,.json,.svga,.webp,.gif,.apng" 
                     ref={fileInputRef} 
                     className="hidden" 
                     onChange={handleFileUpload} 

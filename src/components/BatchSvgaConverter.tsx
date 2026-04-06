@@ -200,7 +200,11 @@ export const BatchSvgaConverter: React.FC<BatchSvgaConverterProps> = ({ onCancel
 
         const support = await VideoEncoder.isConfigSupported(videoConfig);
         if (!support.supported) {
-          videoConfig.codec = 'avc1.4d0028'; // Main 4.0
+          videoConfig.codec = 'avc1.4d0033'; // Main 5.1
+          const support2 = await VideoEncoder.isConfigSupported(videoConfig);
+          if (!support2.supported) {
+            videoConfig.codec = 'avc1.4d002a'; // Main 4.2
+          }
         }
         
         videoEncoder.configure(videoConfig);

@@ -4347,7 +4347,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     }
   }, [currentUser, selectedFormat]);
 
-  const availableFormats = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Lottie (Sequence)', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP (MP4)', 'VAP 1.0.5'];
+  const availableFormats = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Lottie (Sequence)', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP (MP4)', 'VAP 1.0.5', 'SVGA → YYEVA'];
   
   const displayedFormats = useMemo(() => {
       // If we are in EX mode, only show SVGA 2.0 EX
@@ -4361,8 +4361,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
       if (!currentUser?.allowedExportFormat) return availableFormats.filter(f => !hiddenFormats.includes(f));
       const allowed = Array.isArray(currentUser.allowedExportFormat) 
-          ? currentUser.allowedExportFormat 
+          ? [...currentUser.allowedExportFormat] 
           : [currentUser.allowedExportFormat];
+          
+      if ((currentUser?.role === 'admin' || currentUser?.role === 'moderator') && !allowed.includes('SVGA → YYEVA')) {
+          allowed.push('SVGA → YYEVA');
+      }
       
       // Always show SVGA 2.0 and SVGA 2.0 EX if enabled globally, even if not in allowed formats
       return availableFormats.filter(f => (allowed.includes(f) || (f === 'SVGA 2.0' && settings?.isSvgaExEnabled) || (f === 'SVGA 2.0 EX')) && !hiddenFormats.includes(f));
@@ -4415,9 +4419,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     else if (currentFormat === 'WebM (Video)') await handleExportWebM({ decrement: false });
     else if (currentFormat === 'WebP (Animated)') await handleExportWebP({ decrement: false });
     else if (currentFormat === 'MP4 (Standard)') await handleExportStandardVideo({ decrement: false });
-    else if (currentFormat === 'VAP (MP4)') {
+    else if (currentFormat === 'VAP (MP4)' || currentFormat === 'SVGA → YYEVA') {
         setIsExporting(true);
-        setExportPhase('جاري إنشاء فيديو VAP (Alpha+RGB)...');
+        setExportPhase(`جاري إنشاء فيديو ${currentFormat === 'SVGA → YYEVA' ? 'YYEVA' : 'VAP'} (Alpha+RGB)...`);
 
         let audioContext: AudioContext | null = null;
 
@@ -4433,7 +4437,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             const totalFrames = Math.ceil(recordingDuration * fps) || originalTotalFrames;
             
             // Ensure even dimensions for video encoding using utility
-            const isVap = currentFormat === 'VAP (MP4)' || currentFormat === 'VAP 1.0.5';
+            const isVap = currentFormat === 'VAP (MP4)' || currentFormat === 'VAP 1.0.5' || currentFormat === 'SVGA → YYEVA';
             const maxPixels = isVap ? 6000000 : 9437184; 
             const safe = calculateSafeDimensions(videoWidth, videoHeight, maxPixels);
             const safeWidth = safe.width;
@@ -4640,12 +4644,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             // Check support and fallback if needed
             const support = await VideoEncoder.isConfigSupported(videoConfig);
             if (!support.supported) {
-                console.warn("H.264 High Profile 5.1 not supported, falling back to Main Profile 4.0");
-                videoConfig.codec = 'avc1.4d0028'; 
+                console.warn("H.264 High Profile 5.1 not supported, falling back to Main Profile 5.1");
+                videoConfig.codec = 'avc1.4d0033'; 
                 const support2 = await VideoEncoder.isConfigSupported(videoConfig);
                 if (!support2.supported) {
-                    console.warn("H.264 Main Profile 4.0 not supported, falling back to Baseline");
-                    videoConfig.codec = 'avc1.42001E';
+                    console.warn("H.264 Main Profile 5.1 not supported, falling back to Main Profile 4.2");
+                    videoConfig.codec = 'avc1.4d002a';
                 }
             }
 
@@ -4662,10 +4666,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
             for (let i = 0; i < totalFrames; i++) {
                 // Use modulo to loop the animation if totalFrames > originalTotalFrames
-                svgaInstance.stepToFrame(i % originalTotalFrames, true);
+                // Use false to prevent auto-play, ensuring we stay on the specific frame
+                svgaInstance.stepToFrame(i % originalTotalFrames, false);
                 
-                // Wait for frame rendering
-                await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); 
+                // Increased delay to 100ms to ensure frame is fully rendered and prevent stuttering/cutting
+                // This is critical for ensuring the SVGA canvas is fully updated before capture
+                await new Promise(r => setTimeout(r, 100));
                 
                 // Manage Encoder Queue - Keep it fed but not overflowing
                 while (videoEncoder.encodeQueueSize > 5) { 
@@ -4726,32 +4732,54 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 });
                 // --- COMPOSITION END ---
 
-                // Prepare VAP Frame
+                // Prepare VAP/YYEVA Frame
                 vCtx.fillStyle = '#000000';
                 vCtx.fillRect(0, 0, vapWidth, vapHeight);
 
-                // Draw RGB (Right Side)
-                vCtx.drawImage(compCanvas, safeWidth, 0);
+                if (currentFormat === 'SVGA → YYEVA') {
+                    // YYEVA: RGB on Left, Alpha on Right
+                    vCtx.drawImage(compCanvas, 0, 0);
+                    if (tCtx) {
+                        tCtx.clearRect(0, 0, safeWidth, safeHeight);
+                        tCtx.drawImage(compCanvas, 0, 0);
+                        
+                        applyTransparencyEffects(tCtx, safeWidth, safeHeight);
 
-                // Draw Alpha (Left Side)
-                if (tCtx) {
-                    tCtx.clearRect(0, 0, safeWidth, safeHeight);
-                    tCtx.drawImage(compCanvas, 0, 0);
-                    
-                    applyTransparencyEffects(tCtx, safeWidth, safeHeight);
-
-                    const imageData = tCtx.getImageData(0, 0, safeWidth, safeHeight);
-                    const data = imageData.data;
-                    
-                    for (let j = 0; j < data.length; j += 4) {
-                        const alpha = data[j + 3];
-                        data[j] = alpha;     // R
-                        data[j + 1] = alpha; // G
-                        data[j + 2] = alpha; // B
-                        data[j + 3] = 255;   // Full Opaque
+                        const imageData = tCtx.getImageData(0, 0, safeWidth, safeHeight);
+                        const data = imageData.data;
+                        
+                        for (let j = 0; j < data.length; j += 4) {
+                            const alpha = data[j + 3];
+                            data[j] = alpha;     // R
+                            data[j + 1] = alpha; // G
+                            data[j + 2] = alpha; // B
+                            data[j + 3] = 255;   // Full Opaque
+                        }
+                        tCtx.putImageData(imageData, 0, 0);
+                        vCtx.drawImage(tempCanvas, safeWidth, 0);
                     }
-                    tCtx.putImageData(imageData, 0, 0);
-                    vCtx.drawImage(tempCanvas, 0, 0);
+                } else {
+                    // VAP: RGB on Right, Alpha on Left
+                    vCtx.drawImage(compCanvas, safeWidth, 0);
+                    if (tCtx) {
+                        tCtx.clearRect(0, 0, safeWidth, safeHeight);
+                        tCtx.drawImage(compCanvas, 0, 0);
+                        
+                        applyTransparencyEffects(tCtx, safeWidth, safeHeight);
+
+                        const imageData = tCtx.getImageData(0, 0, safeWidth, safeHeight);
+                        const data = imageData.data;
+                        
+                        for (let j = 0; j < data.length; j += 4) {
+                            const alpha = data[j + 3];
+                            data[j] = alpha;     // R
+                            data[j + 1] = alpha; // G
+                            data[j + 2] = alpha; // B
+                            data[j + 3] = 255;   // Full Opaque
+                        }
+                        tCtx.putImageData(imageData, 0, 0);
+                        vCtx.drawImage(tempCanvas, 0, 0);
+                    }
                 }
                 
                 const bitmap = await createImageBitmap(vapCanvas);
@@ -4799,11 +4827,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${metadata.name.replace('.svga', '')}_VAP.mp4`;
+            a.download = `${metadata.name.replace('.svga', '')}_${currentFormat === 'SVGA → YYEVA' ? 'YYEVA' : 'VAP'}.mp4`;
             a.click();
             
             if (currentUser) {
-              logActivity(currentUser, 'export', `Exported VAP (MP4): ${metadata.name}_VAP.mp4`);
+              logActivity(currentUser, 'export', `Exported ${currentFormat === 'SVGA → YYEVA' ? 'YYEVA' : 'VAP (MP4)'}: ${metadata.name}_${currentFormat === 'SVGA → YYEVA' ? 'YYEVA' : 'VAP'}.mp4`);
             }
             
             svgaInstance.stepToFrame(originalFrame, true);
@@ -4813,7 +4841,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
         } catch (e) {
             console.error(e);
-            alert("فشل تصدير VAP: " + (e as any).message);
+            alert(`فشل تصدير ${currentFormat === 'SVGA → YYEVA' ? 'YYEVA' : 'VAP'}: ` + (e as any).message);
             setIsExporting(false);
         } finally {
             if (audioContext) {

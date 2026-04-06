@@ -3,6 +3,15 @@ import { UserRecord } from '../types';
 
 import { useAccessControl } from '../hooks/useAccessControl';
 
+interface OverlayData {
+  id: string;
+  img: HTMLImageElement;
+  scale: number;
+  opacity: number;
+  x: number;
+  y: number;
+}
+
 interface ImageEditorProps {
   currentUser: UserRecord | null;
   onCancel: () => void;
@@ -15,15 +24,14 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ currentUser, onCancel,
   const { checkAccess } = useAccessControl();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [mainImg, setMainImg] = useState<HTMLImageElement | null>(null);
-  const [overlayImg, setOverlayImg] = useState<HTMLImageElement | null>(null);
+  const [overlays, setOverlays] = useState<OverlayData[]>([]);
+  const [activeOverlayId, setActiveOverlayId] = useState<string | null>(null);
   const [selectedQuality, setSelectedQuality] = useState<'low' | 'medium' | 'high'>(initialGlobalQuality);
   
   const [config, setConfig] = useState({
     width: 500,
     height: 500,
     borderRadius: 30,
-    overlayScale: 40,
-    overlayOpacity: 100,
     mainScale: 100,
     mainX: 0,
     mainY: 0,
@@ -31,8 +39,33 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ currentUser, onCancel,
     rotation: 0
   });
 
-  const handleConfigChange = (key: string, value: number) => {
+  const handleConfigChange = (key: string, value: number | string) => {
     setConfig(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleOverlayChange = (id: string, key: keyof OverlayData, value: number) => {
+    setOverlays(prev => prev.map(o => o.id === id ? { ...o, [key]: value } : o));
+  };
+
+  const duplicateOverlay = (id: string) => {
+    const overlayToCopy = overlays.find(o => o.id === id);
+    if (overlayToCopy) {
+      const newOverlay = {
+        ...overlayToCopy,
+        id: Date.now().toString(),
+        x: overlayToCopy.x + 20,
+        y: overlayToCopy.y + 20
+      };
+      setOverlays(prev => [...prev, newOverlay]);
+      setActiveOverlayId(newOverlay.id);
+    }
+  };
+
+  const removeOverlay = (id: string) => {
+    setOverlays(prev => prev.filter(o => o.id !== id));
+    if (activeOverlayId === id) {
+      setActiveOverlayId(null);
+    }
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isOverlay: boolean) => {
@@ -44,7 +77,16 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ currentUser, onCancel,
       const img = new Image();
       img.onload = () => {
         if (isOverlay) {
-          setOverlayImg(img);
+          const newOverlay: OverlayData = {
+            id: Date.now().toString(),
+            img: img,
+            scale: 40,
+            opacity: 100,
+            x: 0,
+            y: 0
+          };
+          setOverlays(prev => [...prev, newOverlay]);
+          setActiveOverlayId(newOverlay.id);
         } else {
           setMainImg(img);
           // Reset position on new image
@@ -154,6 +196,23 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ currentUser, onCancel,
     ctx.drawImage(mainImg, drawX, drawY, drawW, drawH);
     ctx.restore();
 
+    // Draw overlay BEFORE masking so it gets feathered too
+    overlays.forEach(overlay => {
+      const scale = overlay.scale / 100;
+      const overlayW = overlay.img.naturalWidth * scale;
+      const overlayH = overlay.img.naturalHeight * scale;
+      
+      let posX = (canvas.width - overlayW) / 2 + overlay.x;
+      let posY = (canvas.height - overlayH) / 2 + overlay.y;
+
+      const opacity = overlay.opacity / 100;
+      ctx.globalAlpha = opacity;
+
+      ctx.drawImage(overlay.img, posX, posY, overlayW, overlayH);
+
+      ctx.globalAlpha = 1.0;
+    });
+
     // Apply the mask using destination-in
     // This keeps the image where the mask is white (opaque) and fades it where mask is transparent
     ctx.globalCompositeOperation = 'destination-in';
@@ -164,21 +223,7 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ currentUser, onCancel,
 
     ctx.restore();
 
-    if (overlayImg) {
-      const scale = config.overlayScale / 100;
-      const overlayW = overlayImg.naturalWidth * scale;
-      const overlayH = overlayImg.naturalHeight * scale;
-      const posX = (canvas.width - overlayW) / 2;
-      const posY = (canvas.height - overlayH) / 2;
-
-      const opacity = config.overlayOpacity / 100;
-      ctx.globalAlpha = opacity;
-
-      ctx.drawImage(overlayImg, posX, posY, overlayW, overlayH);
-
-      ctx.globalAlpha = 1.0;
-    }
-  }, [config, mainImg, overlayImg]);
+  }, [config, mainImg, overlays]);
 
   useEffect(() => {
     redrawCanvas();
@@ -378,36 +423,89 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ currentUser, onCancel,
                 className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-500/10 file:text-indigo-400 hover:file:bg-indigo-500/20 transition-all cursor-pointer"
               />
               
-              <div className="grid grid-cols-2 gap-4 mt-4">
-                <div>
-                  <div className="flex justify-between mb-1">
-                    <label className="text-xs font-bold text-slate-400">Scale</label>
-                    <span className="text-[10px] font-mono text-indigo-400">{config.overlayScale}%</span>
+              {overlays.length > 0 && (
+                <div className="mt-4 space-y-4">
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {overlays.map((overlay, index) => (
+                      <button
+                        key={overlay.id}
+                        onClick={() => setActiveOverlayId(overlay.id)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${activeOverlayId === overlay.id ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                      >
+                        Layer {index + 1}
+                      </button>
+                    ))}
                   </div>
-                  <input 
-                    type="range" 
-                    min="10" 
-                    max="200" 
-                    value={config.overlayScale}
-                    onChange={(e) => handleConfigChange('overlayScale', parseInt(e.target.value))}
-                    className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                  />
+
+                  {overlays.map(overlay => overlay.id === activeOverlayId && (
+                    <div key={overlay.id} className="space-y-4 bg-slate-800/50 p-4 rounded-xl border border-white/5">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-bold text-slate-300">Layer Settings</span>
+                        <div className="flex gap-2">
+                          <button onClick={() => duplicateOverlay(overlay.id)} className="text-[10px] bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 px-2 py-1 rounded font-bold transition-colors">Duplicate</button>
+                          <button onClick={() => removeOverlay(overlay.id)} className="text-[10px] bg-red-500/20 text-red-400 hover:bg-red-500/30 px-2 py-1 rounded font-bold transition-colors">Remove</button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="flex justify-between mb-1">
+                            <label className="text-xs font-bold text-slate-400">Scale</label>
+                            <span className="text-[10px] font-mono text-indigo-400">{overlay.scale}%</span>
+                          </div>
+                          <input 
+                            type="range" 
+                            min="10" 
+                            max="200" 
+                            value={overlay.scale}
+                            onChange={(e) => handleOverlayChange(overlay.id, 'scale', parseInt(e.target.value))}
+                            className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex justify-between mb-1">
+                            <label className="text-xs font-bold text-slate-400">Opacity</label>
+                            <span className="text-[10px] font-mono text-indigo-400">{overlay.opacity}%</span>
+                          </div>
+                          <input 
+                            type="range" 
+                            min="0" 
+                            max="100" 
+                            value={overlay.opacity}
+                            onChange={(e) => handleOverlayChange(overlay.id, 'opacity', parseInt(e.target.value))}
+                            className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-400 mb-1">Position X</label>
+                          <input 
+                            type="range" 
+                            min={-config.width} 
+                            max={config.width} 
+                            value={overlay.x}
+                            onChange={(e) => handleOverlayChange(overlay.id, 'x', parseInt(e.target.value))}
+                            className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-400 mb-1">Position Y</label>
+                          <input 
+                            type="range" 
+                            min={-config.height} 
+                            max={config.height} 
+                            value={overlay.y}
+                            onChange={(e) => handleOverlayChange(overlay.id, 'y', parseInt(e.target.value))}
+                            className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div>
-                  <div className="flex justify-between mb-1">
-                    <label className="text-xs font-bold text-slate-400">Opacity</label>
-                    <span className="text-[10px] font-mono text-indigo-400">{config.overlayOpacity}%</span>
-                  </div>
-                  <input 
-                    type="range" 
-                    min="0" 
-                    max="100" 
-                    value={config.overlayOpacity}
-                    onChange={(e) => handleConfigChange('overlayOpacity', parseInt(e.target.value))}
-                    className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                  />
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Quality Settings */}
@@ -425,12 +523,12 @@ export const ImageEditor: React.FC<ImageEditorProps> = ({ currentUser, onCancel,
               onClick={handleDownload}
               disabled={!mainImg}
               className={`w-full py-4 rounded-xl font-black text-sm uppercase tracking-widest shadow-lg transition-all hover:scale-[1.02] ${
-                mainImg 
+                mainImg
                   ? 'bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-pink-900/20' 
                   : 'bg-slate-800 text-slate-500 cursor-not-allowed'
               }`}
             >
-              Download PNG
+              {selectedQuality === 'high' ? 'DOWNLOAD PNG' : 'DOWNLOAD WEBP'}
             </button>
 
           </div>

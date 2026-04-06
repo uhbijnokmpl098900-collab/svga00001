@@ -123,7 +123,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
   }, []);
 
   const formats = [
-    { id: 'MP4 (Standard)', name: 'MP4 (Standard)', icon: '🎬', cost: 1, desc: 'فيديو MP4 قياسي بجودة عالية' },
+    { id: 'SVGA → YYEVA', name: 'SVGA → YYEVA', icon: '🎬', cost: 1, desc: 'تحويل الفيديو إلى صيغة YYEVA' },
     { id: 'VAP (MP4)', name: 'VAP (Alpha+RGB)', icon: '📹', cost: 1, desc: 'فيديو مع قناة شفافية منفصلة' },
     { id: 'VAP 1.0.5', name: 'VAP 1.0.5 (Special)', icon: '🚀', cost: 1, desc: 'تصدير خاص VAP 1.0.5' },
     { id: 'SVGA 2.0', name: 'SVGA Animation', icon: '📦', cost: 1, desc: 'ملف SVGA متوافق مع تطبيقات البث' },
@@ -456,10 +456,10 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
         audioData = new Uint8Array(arrayBuffer);
       }
 
-      if (selectedFormat === 'MP4 (Standard)') {
-        await exportToMP4Standard(video, vw, vh, totalFrames, fps, audioData, startTime, currentFile.name);
+      if (selectedFormat === 'SVGA → YYEVA') {
+        await exportToVAP(video, vw, vh, totalFrames, fps, audioData, startTime, currentFile.name, true);
       } else if (selectedFormat === 'VAP (MP4)') {
-        await exportToVAP(video, vw, vh, totalFrames, fps, audioData, startTime, currentFile.name);
+        await exportToVAP(video, vw, vh, totalFrames, fps, audioData, startTime, currentFile.name, false);
       } else if (selectedFormat === 'VAP 1.0.5') {
         await exportToVAP105(video, vw, vh, totalFrames, fps, audioData, startTime, currentFile.name);
       } else if (selectedFormat === 'SVGA 2.0') {
@@ -1289,8 +1289,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
     setProgress(100);
   };
 
-  const exportToVAP = async (video: HTMLVideoElement, vw: number, vh: number, totalFrames: number, fps: number, audioData: Uint8Array | null, startTime: number, fileName?: string) => {
-    setPhase('جاري إنشاء فيديو VAP...');
+  const exportToVAP = async (video: HTMLVideoElement, vw: number, vh: number, totalFrames: number, fps: number, audioData: Uint8Array | null, startTime: number, fileName?: string, isYYEVA: boolean = false) => {
+    setPhase(`جاري إنشاء فيديو ${isYYEVA ? 'YYEVA' : 'VAP'}...`);
     
     // Ensure valid dimensions and even integers for MP4
     vw = Math.round(vw);
@@ -1421,13 +1421,28 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
         let bitrate = customBitrate ? Number(customBitrate) * 1000000 : Math.round(baseBitrate * (compressionRatio / 100));
         bitrate = Math.max(bitrate, 1000000); // Minimum safe bitrate
 
-        videoEncoder.configure({ 
-        codec: 'avc1.42E01F', // H.264 Baseline Profile
+        const videoConfig: VideoEncoderConfig = { 
+        codec: 'avc1.640033', // H.264 High Profile 5.1
         width: vapCanvas.width, 
         height: vapCanvas.height, 
         bitrate: bitrate,
+        framerate: fps,
+        latencyMode: 'quality',
         avc: { format: 'annexb' }
-    });
+    };
+
+    const support = await VideoEncoder.isConfigSupported(videoConfig);
+    if (!support.supported) {
+        console.warn("H.264 High Profile 5.1 not supported, falling back to Main Profile 5.1");
+        videoConfig.codec = 'avc1.4d0033'; 
+        const support2 = await VideoEncoder.isConfigSupported(videoConfig);
+        if (!support2.supported) {
+            console.warn("H.264 Main Profile 5.1 not supported, falling back to Main Profile 4.2");
+            videoConfig.codec = 'avc1.4d002a';
+        }
+    }
+
+    videoEncoder.configure(videoConfig);
 
     for (let i = 0; i < totalFrames; i++) {
       video.currentTime = startTime + (i / fps);
@@ -1487,7 +1502,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
     }
     muxer.finalize();
     
-    downloadBlob(new Blob([muxer.target.buffer], { type: 'video/mp4' }), `${file?.name}_VAP.mp4`);
+    downloadBlob(new Blob([muxer.target.buffer], { type: 'video/mp4' }), `${file?.name}_${isYYEVA ? 'YYEVA' : 'VAP'}.mp4`);
   };
 
   const exportToSVGA = async (video: HTMLVideoElement, vw: number, vh: number, totalFrames: number, fps: number, audioData: Uint8Array | null, startTime: number, endTime: number, fileName?: string) => {
