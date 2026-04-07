@@ -759,6 +759,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         if (newLayerImages[key] === TRANSPARENT_PIXEL) continue;
         try {
             newLayerImages[key] = await compressAsset(newLayerImages[key], optimizeQuality);
+            if (svgaInstance && !deletedKeys.has(key)) {
+                const color = assetColors[key];
+                const mode = assetColorModes[key] || 'tint';
+                if (color && color !== '#ffffff') {
+                    const tinted = await tintImage(newLayerImages[key], color, mode);
+                    svgaInstance.setImage(tinted, key);
+                } else {
+                    svgaInstance.setImage(newLayerImages[key], key);
+                }
+            }
         } catch (e) {
             console.error(e);
         }
@@ -6956,7 +6966,11 @@ class _MyAppState extends State<MyApp> {
                                         type="number" 
                                         step="0.01"
                                         value={metadata.fps || 30}
-                                        onChange={(e) => setMetadata({...metadata, fps: Math.min(120, Math.max(1, parseFloat(e.target.value) || 30))})}
+                                        onChange={(e) => {
+                                            const newFps = Math.min(120, Math.max(1, parseFloat(e.target.value) || 30));
+                                            const newVideoItem = metadata.videoItem ? { ...metadata.videoItem, FPS: newFps } : null;
+                                            setMetadata({...metadata, fps: newFps, videoItem: newVideoItem});
+                                        }}
                                         className="w-16 bg-transparent text-center text-white font-mono font-bold text-lg outline-none"
                                     />
                                     <span className="text-purple-500 font-bold text-xs ml-1">FPS</span>
@@ -6978,7 +6992,9 @@ class _MyAppState extends State<MyApp> {
                                             const duration = parseFloat(e.target.value);
                                             if (duration > 0 && metadata.frames) {
                                                 const newFps = metadata.frames / duration;
-                                                setMetadata({...metadata, fps: Math.min(120, Math.max(1, newFps))});
+                                                const finalFps = Math.min(120, Math.max(1, newFps));
+                                                const newVideoItem = metadata.videoItem ? { ...metadata.videoItem, FPS: finalFps } : null;
+                                                setMetadata({...metadata, fps: finalFps, videoItem: newVideoItem});
                                             }
                                         }}
                                         className="w-16 bg-transparent text-center text-white font-mono font-bold text-lg outline-none"
