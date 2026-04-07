@@ -91,7 +91,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [searchQuery, setSearchQuery] = useState('');
   const [assetsLoading, setAssetsLoading] = useState(true);
   const [scale, setScale] = useState(1);
-  const [activeSideTab, setActiveSideTab] = useState<'layers' | 'transforms' | 'bg' | 'optimize' | 'settings'>('transforms');
+  const [maintainAspectRatio, setMaintainAspectRatio] = useState(true);
+  const [activeSideTab, setActiveSideTab] = useState<'layers' | 'transforms' | 'bg' | 'optimize' | 'resize' | 'settings'>('transforms');
   const [hiddenFormats, setHiddenFormats] = useState<string[]>(() => {
       const saved = localStorage.getItem('quantum_hidden_formats');
       return saved ? JSON.parse(saved) : [];
@@ -2773,8 +2774,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       if (!canvas) throw new Error("Canvas not found");
 
       const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = canvas.width;
-      tempCanvas.height = canvas.height;
+      tempCanvas.width = videoWidth;
+      tempCanvas.height = videoHeight;
       const tCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
 
       const originalFrame = currentFrame;
@@ -2786,7 +2787,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         const currentCanvas = playerRef.current?.querySelector('canvas');
         if (currentCanvas && tCtx) {
             tCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
-            tCtx.drawImage(currentCanvas, 0, 0);
+            
+            const s = Math.min(videoWidth / currentCanvas.width, videoHeight / currentCanvas.height);
+            const w = currentCanvas.width * s;
+            const h = currentCanvas.height * s;
+            const x = (videoWidth - w) / 2;
+            const y = (videoHeight - h) / 2;
+            
+            tCtx.drawImage(currentCanvas, x, y, w, h);
+            
             applyTransparencyEffects(tCtx, tempCanvas.width, tempCanvas.height);
             
             const dataUrl = tempCanvas.toDataURL("image/png");
@@ -2859,15 +2868,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         const gif = new GIF({
             workers: 2,
             quality: gifQuality,
-            width: canvas.width,
-            height: canvas.height,
+            width: videoWidth,
+            height: videoHeight,
             transparent: 0x00FF00,
             workerScript: workerUrl
         });
 
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = canvas.width;
-        tempCanvas.height = canvas.height;
+        tempCanvas.width = videoWidth;
+        tempCanvas.height = videoHeight;
         const tCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
 
         for (let i = 0; i < totalFrames; i++) {
@@ -2877,7 +2886,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             const currentCanvas = playerRef.current?.querySelector('canvas');
             if (tCtx && currentCanvas) {
                 tCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
-                tCtx.drawImage(currentCanvas, 0, 0);
+                
+                const s = Math.min(videoWidth / currentCanvas.width, videoHeight / currentCanvas.height);
+                const w = currentCanvas.width * s;
+                const h = currentCanvas.height * s;
+                const x = (videoWidth - w) / 2;
+                const y = (videoHeight - h) / 2;
+                
+                tCtx.drawImage(currentCanvas, x, y, w, h);
                 
                 applyTransparencyEffects(tCtx, tempCanvas.width, tempCanvas.height);
 
@@ -3093,7 +3109,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             cCtx.translate(cx + svgaPos.x, cy + svgaPos.y);
             cCtx.scale(svgaScale, svgaScale);
             cCtx.translate(-cx, -cy);
-            cCtx.drawImage(currentCanvas, 0, 0);
+            
+            const s = Math.min(safeWidth / currentCanvas.width, safeHeight / currentCanvas.height);
+            const w = currentCanvas.width * s;
+            const h = currentCanvas.height * s;
+            const x = (safeWidth - w) / 2;
+            const y = (safeHeight - h) / 2;
+            cCtx.drawImage(currentCanvas, x, y, w, h);
+            
             cCtx.restore();
 
             // 4. Watermark
@@ -3252,7 +3275,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             cCtx.translate(cx + svgaPos.x, cy + svgaPos.y);
             cCtx.scale(svgaScale, svgaScale);
             cCtx.translate(-cx, -cy);
-            cCtx.drawImage(currentCanvas, 0, 0);
+            
+            const s = Math.min(safeWidth / currentCanvas.width, safeHeight / currentCanvas.height);
+            const w = currentCanvas.width * s;
+            const h = currentCanvas.height * s;
+            const x = (safeWidth - w) / 2;
+            const y = (safeHeight - h) / 2;
+            cCtx.drawImage(currentCanvas, x, y, w, h);
+            
             cCtx.restore();
 
             if (wmImg && wmImg.complete && wmImg.naturalWidth > 0) {
@@ -3545,7 +3575,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         cCtx.translate(cx + svgaPos.x, cy + svgaPos.y);
         cCtx.scale(svgaScale, svgaScale);
         cCtx.translate(-cx, -cy);
-        cCtx.drawImage(currentCanvas, 0, 0);
+        
+        const s = Math.min(safeWidth / currentCanvas.width, safeHeight / currentCanvas.height);
+        const w = currentCanvas.width * s;
+        const h = currentCanvas.height * s;
+        const x = (safeWidth - w) / 2;
+        const y = (safeHeight - h) / 2;
+        cCtx.drawImage(currentCanvas, x, y, w, h);
+        
         cCtx.restore();
     }
 
@@ -3829,7 +3866,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 cCtx.translate(cx + svgaPos.x, cy + svgaPos.y);
                 cCtx.scale(svgaScale, svgaScale);
                 cCtx.translate(-cx, -cy);
-                cCtx.drawImage(currentSourceCanvas, 0, 0);
+                
+                const s = Math.min(safeWidth / currentSourceCanvas.width, safeHeight / currentSourceCanvas.height);
+                const w = currentSourceCanvas.width * s;
+                const h = currentSourceCanvas.height * s;
+                const x = (safeWidth - w) / 2;
+                const y = (safeHeight - h) / 2;
+                cCtx.drawImage(currentSourceCanvas, x, y, w, h);
+                
                 cCtx.restore();
             }
 
@@ -4709,7 +4753,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                     cCtx.translate(cx + svgaPos.x, cy + svgaPos.y);
                     cCtx.scale(svgaScale, svgaScale);
                     cCtx.translate(-cx, -cy);
-                    cCtx.drawImage(currentSourceCanvas, 0, 0);
+                    
+                    const s = Math.min(safeWidth / currentSourceCanvas.width, safeHeight / currentSourceCanvas.height);
+                    const w = currentSourceCanvas.width * s;
+                    const h = currentSourceCanvas.height * s;
+                    const x = (safeWidth - w) / 2;
+                    const y = (safeHeight - h) / 2;
+                    cCtx.drawImage(currentSourceCanvas, x, y, w, h);
+                    
                     cCtx.restore();
                 }
 
@@ -5054,43 +5105,33 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 const fitOffsetX = (videoWidth - origW * fitScale) / 2;
                 const fitOffsetY = (videoHeight - origH * fitScale) / 2;
 
+                const Gs = fitScale * svgaScale;
+                const cx = videoWidth / 2;
+                const cy = videoHeight / 2;
+                const Gtx = (fitOffsetX - cx) * svgaScale + cx + svgaPos.x;
+                const Gty = (fitOffsetY - cy) * svgaScale + cy + svgaPos.y;
+
                 if (message.sprites) {
                     message.sprites.forEach((sprite: any) => {
                         if (sprite.frames) {
                             sprite.frames.forEach((frame: any) => {
-                                const cx = videoWidth / 2;
-                                const cy = videoHeight / 2;
-                                const totalScale = fitScale * svgaScale;
-
-                                if (frame.layout) {
-                                    let fx = frame.layout.x * fitScale + fitOffsetX;
-                                    let fy = frame.layout.y * fitScale + fitOffsetY;
-                                    let fw = frame.layout.width * fitScale;
-                                    let fh = frame.layout.height * fitScale;
-
-                                    frame.layout.x = (fx - cx) * svgaScale + cx + svgaPos.x;
-                                    frame.layout.y = (fy - cy) * svgaScale + cy + svgaPos.y;
-                                    frame.layout.width = fw * svgaScale;
-                                    frame.layout.height = fh * svgaScale;
+                                if (!frame.transform) {
+                                    frame.transform = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
                                 }
+                                
+                                const origA = frame.transform.a !== undefined ? frame.transform.a : 1;
+                                const origB = frame.transform.b !== undefined ? frame.transform.b : 0;
+                                const origC = frame.transform.c !== undefined ? frame.transform.c : 0;
+                                const origD = frame.transform.d !== undefined ? frame.transform.d : 1;
+                                const origTx = frame.transform.tx !== undefined ? frame.transform.tx : 0;
+                                const origTy = frame.transform.ty !== undefined ? frame.transform.ty : 0;
 
-                                if (frame.transform) {
-                                    if (frame.layout) {
-                                        frame.transform.tx *= totalScale;
-                                        frame.transform.ty *= totalScale;
-                                    } else {
-                                         let ftx = frame.transform.tx * fitScale + fitOffsetX;
-                                         let fty = frame.transform.ty * fitScale + fitOffsetY;
-                                         
-                                         frame.transform.tx = (ftx - cx) * svgaScale + cx + svgaPos.x;
-                                         frame.transform.ty = (fty - cy) * svgaScale + cy + svgaPos.y;
-                                         
-                                         frame.transform.a *= totalScale;
-                                         frame.transform.b *= totalScale;
-                                         frame.transform.c *= totalScale;
-                                         frame.transform.d *= totalScale;
-                                    }
-                                }
+                                frame.transform.a = Gs * origA;
+                                frame.transform.b = Gs * origB;
+                                frame.transform.c = Gs * origC;
+                                frame.transform.d = Gs * origD;
+                                frame.transform.tx = Gs * origTx + Gtx;
+                                frame.transform.ty = Gs * origTy + Gty;
                             });
                         }
                     });
@@ -5358,42 +5399,31 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 const fitOffsetX = (videoWidth - origW * fitScale) / 2;
                 const fitOffsetY = (videoHeight - origH * fitScale) / 2;
 
+                const Gs = fitScale * svgaScale;
+                const cx = videoWidth / 2;
+                const cy = videoHeight / 2;
+                const Gtx = (fitOffsetX - cx) * svgaScale + cx + svgaPos.x;
+                const Gty = (fitOffsetY - cy) * svgaScale + cy + svgaPos.y;
+
                 finalSprites.forEach((sprite: any) => {
                     sprite.frames.forEach((frame: any) => {
-                        const cx = videoWidth / 2;
-                        const cy = videoHeight / 2;
-                        const totalScale = fitScale * svgaScale;
-
-                        if (frame.layout) {
-                            let fx = frame.layout.x * fitScale + fitOffsetX;
-                            let fy = frame.layout.y * fitScale + fitOffsetY;
-                            let fw = frame.layout.width * fitScale;
-                            let fh = frame.layout.height * fitScale;
-
-                            frame.layout.x = (fx - cx) * svgaScale + cx + svgaPos.x;
-                            frame.layout.y = (fy - cy) * svgaScale + cy + svgaPos.y;
-                            frame.layout.width = fw * svgaScale;
-                            frame.layout.height = fh * svgaScale;
+                        if (!frame.transform) {
+                            frame.transform = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
                         }
+                        
+                        const origA = frame.transform.a !== undefined ? frame.transform.a : 1;
+                        const origB = frame.transform.b !== undefined ? frame.transform.b : 0;
+                        const origC = frame.transform.c !== undefined ? frame.transform.c : 0;
+                        const origD = frame.transform.d !== undefined ? frame.transform.d : 1;
+                        const origTx = frame.transform.tx !== undefined ? frame.transform.tx : 0;
+                        const origTy = frame.transform.ty !== undefined ? frame.transform.ty : 0;
 
-                        if (frame.transform) {
-                            if (frame.layout) {
-                                frame.transform.tx *= totalScale;
-                                frame.transform.ty *= totalScale;
-                            } 
-                            else {
-                                 let ftx = frame.transform.tx * fitScale + fitOffsetX;
-                                 let fty = frame.transform.ty * fitScale + fitOffsetY;
-                                 
-                                 frame.transform.tx = (ftx - cx) * svgaScale + cx + svgaPos.x;
-                                 frame.transform.ty = (fty - cy) * svgaScale + cy + svgaPos.y;
-                                 
-                                 frame.transform.a *= totalScale;
-                                 frame.transform.b *= totalScale;
-                                 frame.transform.c *= totalScale;
-                                 frame.transform.d *= totalScale;
-                            }
-                        }
+                        frame.transform.a = Gs * origA;
+                        frame.transform.b = Gs * origB;
+                        frame.transform.c = Gs * origC;
+                        frame.transform.d = Gs * origD;
+                        frame.transform.tx = Gs * origTx + Gtx;
+                        frame.transform.ty = Gs * origTy + Gty;
                     });
                 });
 
@@ -5779,6 +5809,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
               <button onClick={() => setActiveSideTab('layers')} className={`flex-shrink-0 px-4 py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[9px] font-black uppercase transition-all ${activeSideTab === 'layers' ? 'bg-sky-500 text-white shadow-glow-sky' : 'text-slate-500'}`}>الطبقات</button>
               <button onClick={() => setActiveSideTab('transforms')} className={`flex-shrink-0 px-4 py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[9px] font-black uppercase transition-all ${activeSideTab === 'transforms' ? 'bg-sky-500 text-white shadow-glow-sky' : 'text-slate-500'}`}>التحويلات</button>
               <button onClick={() => setActiveSideTab('bg')} className={`flex-shrink-0 px-4 py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[9px] font-black uppercase transition-all ${activeSideTab === 'bg' ? 'bg-sky-500 text-white shadow-glow-sky' : 'text-slate-500'}`}>الخلفية</button>
+              <button onClick={() => setActiveSideTab('resize')} className={`flex-shrink-0 px-4 py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[9px] font-black uppercase transition-all ${activeSideTab === 'resize' ? 'bg-indigo-500 text-white shadow-glow-indigo' : 'text-slate-500'}`}>ضبط الحجم</button>
               <button onClick={() => setActiveSideTab('optimize')} className={`flex-shrink-0 px-4 py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[9px] font-black uppercase transition-all ${activeSideTab === 'optimize' ? 'bg-emerald-500 text-white shadow-glow-emerald' : 'text-slate-500'}`}>ضغط الحجم</button>
               {/* {currentUser?.role === 'admin' && (
                 <button onClick={() => setActiveSideTab('settings')} className={`flex-shrink-0 px-4 py-3 rounded-xl sm:rounded-2xl text-[8px] sm:text-[9px] font-black uppercase transition-all ${activeSideTab === 'settings' ? 'bg-purple-500 text-white shadow-glow-purple' : 'text-slate-500'}`}>الإعدادات</button>
@@ -6758,6 +6789,133 @@ class _MyAppState extends State<MyApp> {
                     </div>
 
 
+                </div>
+              )}
+
+              {activeSideTab === 'resize' && (
+                <div className="space-y-8 animate-in fade-in duration-300">
+                    <div className="bg-slate-950/40 p-6 rounded-[2rem] border border-white/5 space-y-6">
+                        <div className="flex items-center gap-2 mb-4">
+                            <div className="w-1 h-4 bg-indigo-500 rounded-full"></div>
+                            <h4 className="text-white font-black text-xs uppercase tracking-widest">تغيير الأبعاد (Resize)</h4>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-[9px] font-black text-slate-500 uppercase">العرض (Width)</label>
+                                <input 
+                                    type="number" 
+                                    value={videoWidth} 
+                                    onChange={(e) => {
+                                        const newWidth = parseInt(e.target.value) || 750;
+                                        const newHeight = maintainAspectRatio ? Math.round(newWidth * (videoHeight / videoWidth)) : (customDimensions?.height || videoHeight);
+                                        
+                                        if (videoWidth > 0 && videoHeight > 0) {
+                                            const scaleX = newWidth / videoWidth;
+                                            const scaleY = newHeight / videoHeight;
+                                            setCustomLayers(prev => prev.map(layer => ({
+                                                ...layer,
+                                                x: layer.x * scaleX,
+                                                y: layer.y * scaleY,
+                                                scale: layer.scale * Math.min(scaleX, scaleY)
+                                            })));
+                                        }
+
+                                        setCustomDimensions({ width: newWidth, height: newHeight });
+                                    }}
+                                    className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-white text-xs font-mono focus:border-indigo-500 outline-none"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[9px] font-black text-slate-500 uppercase">الارتفاع (Height)</label>
+                                <input 
+                                    type="number" 
+                                    value={videoHeight} 
+                                    onChange={(e) => {
+                                        const newHeight = parseInt(e.target.value) || 750;
+                                        const newWidth = maintainAspectRatio ? Math.round(newHeight * (videoWidth / videoHeight)) : (customDimensions?.width || videoWidth);
+                                        
+                                        if (videoWidth > 0 && videoHeight > 0) {
+                                            const scaleX = newWidth / videoWidth;
+                                            const scaleY = newHeight / videoHeight;
+                                            setCustomLayers(prev => prev.map(layer => ({
+                                                ...layer,
+                                                x: layer.x * scaleX,
+                                                y: layer.y * scaleY,
+                                                scale: layer.scale * Math.min(scaleX, scaleY)
+                                            })));
+                                        }
+
+                                        setCustomDimensions({ width: newWidth, height: newHeight });
+                                    }}
+                                    className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-white text-xs font-mono focus:border-indigo-500 outline-none"
+                                />
+                            </div>
+                            
+                            <div className="col-span-2 flex items-center gap-2 mt-2">
+                                <input 
+                                    type="checkbox" 
+                                    id="maintainAspectRatio"
+                                    checked={maintainAspectRatio}
+                                    onChange={(e) => setMaintainAspectRatio(e.target.checked)}
+                                    className="w-4 h-4 rounded bg-slate-900 border-white/10 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-slate-950"
+                                />
+                                <label htmlFor="maintainAspectRatio" className="text-[10px] font-bold text-slate-400 cursor-pointer">
+                                    الحفاظ على تناسب الأبعاد (Maintain Aspect Ratio)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-slate-950/40 p-6 rounded-[2rem] border border-white/5 space-y-6">
+                        <div className="flex items-center gap-2 mb-4">
+                            <div className="w-1 h-4 bg-emerald-500 rounded-full"></div>
+                            <h4 className="text-white font-black text-xs uppercase tracking-widest">ضغط الملف (Compression)</h4>
+                        </div>
+                        
+                        <div className="grid grid-cols-3 gap-2">
+                            <button onClick={() => { setOptimizeQuality(90); setExportScale(1.0); }} className={`py-3 rounded-xl text-[10px] font-black uppercase transition-all ${exportScale >= 0.9 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-500 hover:bg-slate-700'}`}>عالي الجودة</button>
+                            <button onClick={() => { setOptimizeQuality(60); setExportScale(0.7); }} className={`py-3 rounded-xl text-[10px] font-black uppercase transition-all ${exportScale < 0.9 && exportScale >= 0.6 ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : 'bg-slate-800 text-slate-500 hover:bg-slate-700'}`}>متوسط</button>
+                            <button onClick={() => { setOptimizeQuality(30); setExportScale(0.4); }} className={`py-3 rounded-xl text-[10px] font-black uppercase transition-all ${exportScale < 0.6 ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-slate-800 text-slate-500 hover:bg-slate-700'}`}>حجم صغير</button>
+                        </div>
+                    </div>
+
+                    <div className="bg-slate-950/40 p-6 rounded-[2rem] border border-white/5 space-y-6">
+                        <div className="flex items-center gap-2 mb-4">
+                            <div className="w-1 h-4 bg-sky-500 rounded-full"></div>
+                            <h4 className="text-white font-black text-xs uppercase tracking-widest">تصدير الملف (Export)</h4>
+                        </div>
+                        
+                        <div className="space-y-4">
+                            <select 
+                                value={selectedFormat}
+                                onChange={(e) => setSelectedFormat(e.target.value)}
+                                className="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-3 text-white text-xs font-black uppercase focus:border-sky-500 outline-none appearance-none"
+                            >
+                                {displayedFormats.map(format => (
+                                    <option key={format} value={format}>{format}</option>
+                                ))}
+                            </select>
+                            
+                            <button 
+                                onClick={() => handleMainExport()}
+                                disabled={isExporting}
+                                className={`w-full py-4 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${isExporting ? 'bg-slate-800 text-slate-600' : 'bg-sky-500 text-white shadow-glow-sky hover:bg-sky-400 hover:scale-[1.02]'}`}
+                            >
+                                {isExporting ? (
+                                    <>
+                                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                                        <span>جاري التصدير...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Download className="w-4 h-4" />
+                                        <span>تصدير الآن</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
                 </div>
               )}
 

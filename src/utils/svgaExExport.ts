@@ -246,6 +246,12 @@ export const handleSvgaExExport = async (params: {
         const fitOffsetX = (videoWidth - origW * fitScale) / 2;
         const fitOffsetY = (videoHeight - origH * fitScale) / 2;
 
+        const Gs = fitScale * svgaScale;
+        const cx = videoWidth / 2;
+        const cy = videoHeight / 2;
+        const Gtx = (fitOffsetX - cx) * svgaScale + cx + svgaPos.x;
+        const Gty = (fitOffsetY - cy) * svgaScale + cy + svgaPos.y;
+
         if (message.sprites) {
             message.sprites.forEach((sprite: any) => {
                 if (layerDisplayNames[sprite.imageKey]) {
@@ -253,37 +259,23 @@ export const handleSvgaExExport = async (params: {
                 }
                 if (sprite.frames) {
                     sprite.frames.forEach((frame: any) => {
-                        const cx = videoWidth / 2;
-                        const cy = videoHeight / 2;
-                        const totalScale = fitScale * svgaScale;
-
-                        if (frame.layout) {
-                            let fx = frame.layout.x * fitScale + fitOffsetX;
-                            let fy = frame.layout.y * fitScale + fitOffsetY;
-                            let fw = frame.layout.width * fitScale;
-                            let fh = frame.layout.height * fitScale;
-
-                            frame.layout.x = (fx - cx) * svgaScale + cx + svgaPos.x;
-                            frame.layout.y = (fy - cy) * svgaScale + cy + svgaPos.y;
-                            frame.layout.width = fw * svgaScale;
-                            frame.layout.height = fh * svgaScale;
+                        if (!frame.transform) {
+                            frame.transform = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
                         }
+                        
+                        const origA = frame.transform.a !== undefined ? frame.transform.a : 1;
+                        const origB = frame.transform.b !== undefined ? frame.transform.b : 0;
+                        const origC = frame.transform.c !== undefined ? frame.transform.c : 0;
+                        const origD = frame.transform.d !== undefined ? frame.transform.d : 1;
+                        const origTx = frame.transform.tx !== undefined ? frame.transform.tx : 0;
+                        const origTy = frame.transform.ty !== undefined ? frame.transform.ty : 0;
 
-                        if (frame.transform) {
-                            if (frame.layout) {
-                                frame.transform.tx *= totalScale;
-                                frame.transform.ty *= totalScale;
-                            } else {
-                                let ftx = frame.transform.tx * fitScale + fitOffsetX;
-                                let fty = frame.transform.ty * fitScale + fitOffsetY;
-                                frame.transform.tx = (ftx - cx) * svgaScale + cx + svgaPos.x;
-                                frame.transform.ty = (fty - cy) * svgaScale + cy + svgaPos.y;
-                                frame.transform.a *= totalScale;
-                                frame.transform.b *= totalScale;
-                                frame.transform.c *= totalScale;
-                                frame.transform.d *= totalScale;
-                            }
-                        }
+                        frame.transform.a = Gs * origA;
+                        frame.transform.b = Gs * origB;
+                        frame.transform.c = Gs * origC;
+                        frame.transform.d = Gs * origD;
+                        frame.transform.tx = Gs * origTx + Gtx;
+                        frame.transform.ty = Gs * origTy + Gty;
                     });
                 }
             });
