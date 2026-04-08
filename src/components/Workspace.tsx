@@ -6968,8 +6968,31 @@ class _MyAppState extends State<MyApp> {
                                         value={metadata.fps || 30}
                                         onChange={(e) => {
                                             const newFps = Math.min(120, Math.max(1, parseFloat(e.target.value) || 30));
-                                            const newVideoItem = metadata.videoItem ? { ...metadata.videoItem, FPS: newFps } : null;
-                                            setMetadata({...metadata, fps: newFps, videoItem: newVideoItem});
+                                            const oldFps = metadata.fps || 30;
+                                            const oldFrames = metadata.frames || 1;
+                                            const duration = oldFrames / oldFps;
+                                            const newFrames = Math.max(1, Math.round(duration * newFps));
+                                            
+                                            let newVideoItem = null;
+                                            if (metadata.videoItem) {
+                                                const newSprites = (metadata.videoItem.sprites || []).map((sprite: any) => {
+                                                    const resampledFrames = [];
+                                                    const spriteFramesCount = sprite.frames.length;
+                                                    for (let i = 0; i < newFrames; i++) {
+                                                        const oldIndex = Math.min(spriteFramesCount - 1, Math.floor((i / newFrames) * spriteFramesCount));
+                                                        resampledFrames.push(sprite.frames[oldIndex]);
+                                                    }
+                                                    return { ...sprite, frames: resampledFrames };
+                                                });
+                                                const newAudios = (metadata.videoItem.audios || []).map((audio: any) => ({
+                                                    ...audio,
+                                                    startFrame: Math.round((audio.startFrame / oldFrames) * newFrames),
+                                                    endFrame: Math.round((audio.endFrame / oldFrames) * newFrames)
+                                                }));
+                                                newVideoItem = { ...metadata.videoItem, FPS: newFps, frames: newFrames, sprites: newSprites, audios: newAudios };
+                                            }
+                                            
+                                            setMetadata({...metadata, fps: newFps, frames: newFrames, videoItem: newVideoItem});
                                         }}
                                         className="w-16 bg-transparent text-center text-white font-mono font-bold text-lg outline-none"
                                     />
@@ -6989,13 +7012,31 @@ class _MyAppState extends State<MyApp> {
                                         step="0.1"
                                         value={((metadata.frames || 0) / (metadata.fps || 30)).toFixed(2)}
                                         onChange={(e) => {
-                                            const duration = parseFloat(e.target.value);
-                                            if (duration > 0 && metadata.frames) {
-                                                const newFps = metadata.frames / duration;
-                                                const finalFps = Math.min(120, Math.max(1, newFps));
-                                                const newVideoItem = metadata.videoItem ? { ...metadata.videoItem, FPS: finalFps } : null;
-                                                setMetadata({...metadata, fps: finalFps, videoItem: newVideoItem});
+                                            const duration = Math.max(0.1, parseFloat(e.target.value) || 1);
+                                            const currentFps = metadata.fps || 30;
+                                            const oldFrames = metadata.frames || 1;
+                                            const newFrames = Math.max(1, Math.round(duration * currentFps));
+                                            
+                                            let newVideoItem = null;
+                                            if (metadata.videoItem) {
+                                                const newSprites = (metadata.videoItem.sprites || []).map((sprite: any) => {
+                                                    const resampledFrames = [];
+                                                    const spriteFramesCount = sprite.frames.length;
+                                                    for (let i = 0; i < newFrames; i++) {
+                                                        const oldIndex = Math.min(spriteFramesCount - 1, Math.floor((i / newFrames) * spriteFramesCount));
+                                                        resampledFrames.push(sprite.frames[oldIndex]);
+                                                    }
+                                                    return { ...sprite, frames: resampledFrames };
+                                                });
+                                                const newAudios = (metadata.videoItem.audios || []).map((audio: any) => ({
+                                                    ...audio,
+                                                    startFrame: Math.round((audio.startFrame / oldFrames) * newFrames),
+                                                    endFrame: Math.round((audio.endFrame / oldFrames) * newFrames)
+                                                }));
+                                                newVideoItem = { ...metadata.videoItem, frames: newFrames, sprites: newSprites, audios: newAudios };
                                             }
+                                            
+                                            setMetadata({...metadata, frames: newFrames, videoItem: newVideoItem});
                                         }}
                                         className="w-16 bg-transparent text-center text-white font-mono font-bold text-lg outline-none"
                                     />

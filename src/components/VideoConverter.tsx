@@ -72,7 +72,6 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
   const [removeBlack, setRemoveBlack] = useState(false);
   const [removeWhite, setRemoveWhite] = useState(false);
   const [isVapInput, setIsVapInput] = useState(false);
-  const [isAutoDuration, setIsAutoDuration] = useState(true);
   const [whiteTolerance, setWhiteTolerance] = useState(30);
   const [removeGreen, setRemoveGreen] = useState(false);
   const [removeBlue, setRemoveBlue] = useState(false);
@@ -437,8 +436,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
       let vw = safe.width;
       let vh = safe.height;
       
-      const effectiveStartTime = isAutoDuration ? 0 : startTime;
-      const effectiveEndTime = isAutoDuration ? video.duration : endTime;
+      const effectiveStartTime = startTime;
+      const effectiveEndTime = endTime;
       
       video.currentTime = effectiveStartTime;
       await new Promise(r => {
@@ -1839,8 +1838,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
                     className="max-h-40 rounded-xl mb-2 border border-white/10" 
                     onTimeUpdate={(e) => {
                       const v = e.currentTarget;
-                      const effectiveStart = isAutoDuration ? 0 : startTime;
-                      const effectiveEnd = isAutoDuration ? v.duration : endTime;
+                      const effectiveStart = startTime;
+                      const effectiveEnd = endTime;
                       if (v.currentTime > effectiveEnd) v.currentTime = effectiveStart;
                       if (v.currentTime < effectiveStart) v.currentTime = effectiveStart;
                     }}
@@ -2034,57 +2033,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
               </div>
             </div>
 
-            {/* Duration Settings */}
-            <div className="space-y-4 pb-4 border-b border-white/5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-3 h-3 text-amber-400" />
-                  <span className="text-slate-400 text-[10px] font-black uppercase tracking-widest">مدة الفيديو</span>
-                </div>
-                <div className="flex gap-1 bg-white/5 p-1 rounded-lg border border-white/10">
-                  <button 
-                    onClick={() => setIsAutoDuration(true)}
-                    className={`px-3 py-1 rounded-md text-[9px] font-black uppercase transition-all ${isAutoDuration ? 'bg-amber-500 text-white shadow-glow-amber' : 'text-slate-500 hover:text-white'}`}
-                  >
-                    تلقائي
-                  </button>
-                  <button 
-                    onClick={() => setIsAutoDuration(false)}
-                    className={`px-3 py-1 rounded-md text-[9px] font-black uppercase transition-all ${!isAutoDuration ? 'bg-amber-500 text-white shadow-glow-amber' : 'text-slate-500 hover:text-white'}`}
-                  >
-                    يدوي
-                  </button>
-                </div>
-              </div>
-              {!isAutoDuration && (
-                <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                  <div className="space-y-2">
-                    <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest block">البداية (ثانية)</label>
-                    <input 
-                      type="number" 
-                      step="0.1"
-                      min="0"
-                      max={duration}
-                      value={startTime}
-                      onChange={(e) => setStartTime(Math.max(0, Math.min(duration, parseFloat(e.target.value) || 0)))}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-white text-xs focus:border-amber-500 outline-none transition-all"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest block">النهاية (ثانية)</label>
-                    <input 
-                      type="number" 
-                      step="0.1"
-                      min="0"
-                      max={duration}
-                      value={endTime}
-                      onChange={(e) => setEndTime(Math.max(0, Math.min(duration, parseFloat(e.target.value) || duration)))}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-white text-xs focus:border-amber-500 outline-none transition-all"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+
             <div className="space-y-4 pb-4 border-b border-white/5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
