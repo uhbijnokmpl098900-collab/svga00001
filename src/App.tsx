@@ -9,6 +9,7 @@ import { MultiSvgaViewer } from './components/MultiSvgaViewer';
 import { ImageToSvga } from './components/ImageToSvga';
 import { ImageProcessor } from './components/ImageProcessor';
 import { BatchImageProcessor } from './components/BatchImageProcessor';
+import { BatchImageConverter } from './components/BatchImageConverter';
 import { ImageEditor } from './components/ImageEditor';
 import { ImageMatcher } from './components/ImageMatcher';
 import { Store } from './components/Store';
@@ -49,6 +50,7 @@ const App: React.FC = () => {
   const [initialLottieFile, setInitialLottieFile] = useState<File | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [showBatchImage, setShowBatchImage] = useState(false);
 
   useEffect(() => {
     // Check if user has seen onboarding
@@ -424,6 +426,7 @@ const App: React.FC = () => {
                   isUploading={false} 
                   onConverterOpen={() => handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter')}
                   onMultiSvgaOpen={() => handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview')}
+                  onBatchImageOpen={() => setShowBatchImage(true)}
                   globalQuality={globalQuality}
                   setGlobalQuality={setGlobalQuality}
                 />
@@ -561,6 +564,11 @@ const App: React.FC = () => {
         onClose={() => setShowSubscriptionModal(false)}
         settings={settings}
       />
+
+      {/* Batch Image Converter Modal */}
+      {showBatchImage && (
+        <BatchImageConverter onClose={() => setShowBatchImage(false)} />
+      )}
     </div>
   );
 };
