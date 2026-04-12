@@ -7,11 +7,12 @@ interface UploaderProps {
   onConverterOpen?: () => void;
   onMultiSvgaOpen?: () => void;
   onBatchImageOpen?: () => void;
+  onPagConverterOpen?: () => void;
   globalQuality?: 'low' | 'medium' | 'high';
   setGlobalQuality?: (q: 'low' | 'medium' | 'high') => void;
 }
 
-export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onConverterOpen, onMultiSvgaOpen, onBatchImageOpen, globalQuality = 'high', setGlobalQuality }) => {
+export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onConverterOpen, onMultiSvgaOpen, onBatchImageOpen, onPagConverterOpen, globalQuality = 'high', setGlobalQuality }) => {
   const [isDragOver, setIsDragOver] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -100,6 +101,13 @@ export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onCon
         >
            <span className="text-xl group-hover/btn:scale-110 transition-transform">🔄</span>
            <span className="text-[10px] text-emerald-400 font-black uppercase tracking-widest">تحويل الصور الجماعي</span>
+        </button>
+        <button 
+          onClick={(e) => { e.stopPropagation(); onPagConverterOpen?.(); }}
+          className="flex items-center justify-center gap-3 px-6 py-3 bg-purple-500/10 hover:bg-purple-500/20 rounded-xl sm:rounded-2xl border border-purple-500/20 transition-all group/btn"
+        >
+           <span className="text-xl group-hover/btn:scale-110 transition-transform">✨</span>
+           <span className="text-[10px] text-purple-400 font-black uppercase tracking-widest">استخراج طبقات SVGA</span>
         </button>
       </div>
       

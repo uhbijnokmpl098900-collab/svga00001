@@ -339,9 +339,9 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({ file, onClear, originalF
         let data = videoItem.images[key];
         let base64Data = "";
         if (typeof data === 'string') {
-           base64Data = data.replace(/^data:image\/(png|jpg);base64,/, "");
+           base64Data = data.includes(',') ? data.split(',')[1] : data;
         } else if (data.src) {
-           base64Data = data.src.replace(/^data:image\/(png|jpg);base64,/, "");
+           base64Data = data.src.includes(',') ? data.src.split(',')[1] : data.src;
         }
         
         if (base64Data) {
