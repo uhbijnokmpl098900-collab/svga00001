@@ -294,7 +294,7 @@ export const PagConverter: React.FC<PagConverterProps> = ({ onClose }) => {
             },
             body: JSON.stringify({
               files: [item.file.name],
-              format: outputFormat
+              format: 'zip'
             }),
           });
           
