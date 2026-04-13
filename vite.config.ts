@@ -14,7 +14,10 @@ export default defineConfig(({ mode }) => {
         port: 3000,
         host: '0.0.0.0',
       },
-      plugins: [react(), tailwindcss()],
+      plugins: [
+        react(), 
+        tailwindcss()
+      ],
       assetsInclude: ['**/*.svga', '**/*.proto', '**/*.wasm'],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
@@ -26,7 +29,21 @@ export default defineConfig(({ mode }) => {
       },
       build: {
         outDir: 'dist',
-        sourcemap: false
+        sourcemap: false,
+        minify: 'terser',
+        terserOptions: {
+          compress: {
+            drop_console: true,
+            drop_debugger: true
+          }
+        },
+        rollupOptions: {
+          output: {
+            entryFileNames: `assets/[hash].js`,
+            chunkFileNames: `assets/[hash].js`,
+            assetFileNames: `assets/[hash].[ext]`
+          }
+        }
       }
     };
 });
