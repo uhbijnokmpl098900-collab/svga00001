@@ -1172,14 +1172,17 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
         if (ctx && tCtx) {
             await captureFrame(video, ctx, tCtx, vw, vh, startTime + (i / fps));
             
-            const base64 = canvas.toDataURL('image/webp', globalQuality === 'high' ? 0.9 : globalQuality === 'medium' ? 0.75 : 0.5);
-            const binary = atob(base64.split(',')[1]);
-            const bytes = new Uint8Array(binary.length);
-            for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
-            
-            frames.push({ data: bytes, duration: Math.round(1000 / fps) });
+            const quality = globalQuality === 'high' ? 0.9 : globalQuality === 'medium' ? 0.75 : 0.5;
+            const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/webp', quality));
+            if (blob) {
+                const buffer = await blob.arrayBuffer();
+                frames.push({ data: new Uint8Array(buffer), duration: Math.round(1000 / fps) });
+            }
         }
-        setProgress(Math.floor((i / totalFrames) * 80));
+        if (i % 5 === 0) {
+            setProgress(Math.floor((i / totalFrames) * 80));
+            await new Promise(r => setTimeout(r, 0));
+        }
     }
 
     setPhase('جاري تجميع ملف WebP...');
@@ -1629,16 +1632,12 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
           const apng = UPNG.encode([imageData.data.buffer], actualWidth, actualHeight, colors);
           bytes = new Uint8Array(apng);
         } else {
-          const base64 = canvas.toDataURL('image/png');
-          try {
-            const response = await fetch(base64);
-            const blob = await response.blob();
+          const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+          if (blob) {
             const arrayBuffer = await blob.arrayBuffer();
             bytes = new Uint8Array(arrayBuffer);
-          } catch (e) {
-            const binary = atob(base64.split(',')[1]);
-            bytes = new Uint8Array(binary.length);
-            for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
+          } else {
+            bytes = new Uint8Array(0);
           }
         }
         
@@ -1709,13 +1708,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
     if (isNaN(vw) || vw <= 0) vw = 1334;
     if (isNaN(vh) || vh <= 0) vh = 750;
 
-    // Fetch worker to avoid path issues
-    let workerUrl = '/gif.worker.js';
-    try {
-      const resp = await fetch('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');
-      const blob = await resp.blob();
-      workerUrl = URL.createObjectURL(blob);
-    } catch (e) { console.error("Failed to fetch GIF worker", e); }
+    // Use local worker to avoid server dependency
+    const workerUrl = '/gif.worker.js';
 
     const gif = new GIF({ 
       workers: 2, 
@@ -1740,7 +1734,10 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
         await captureFrame(video, ctx, tCtx, vw, vh, startTime + (i / fps));
         gif.addFrame(ctx, { copy: true, delay: 1000 / fps });
       }
-      setProgress(Math.floor((i / totalFrames) * 50));
+      if (i % 5 === 0) {
+        setProgress(Math.floor((i / totalFrames) * 50));
+        await new Promise(r => setTimeout(r, 0));
+      }
     }
     gif.on('finished', (blob: Blob) => {
       downloadBlob(blob, `${file?.name}.gif`);
@@ -1774,10 +1771,17 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
         framesData.push(ctx.getImageData(0, 0, vw, vh).data.buffer);
         delays.push(1000 / fps);
       }
-      setProgress(Math.floor((i / totalFrames) * 100));
+      if (i % 5 === 0) {
+        setProgress(Math.floor((i / totalFrames) * 100));
+        await new Promise(r => setTimeout(r, 0));
+      }
     }
+    setPhase('جاري تجميع ملف APNG...');
+    // Yield before heavy encoding
+    await new Promise(r => setTimeout(r, 10));
     const apngBuffer = UPNG.encode(framesData, vw, vh, 0, delays);
     downloadBlob(new Blob([apngBuffer]), `${file?.name}.png`);
+    setProgress(100);
   };
 
   const downloadBlob = (blob: Blob, name: string) => {

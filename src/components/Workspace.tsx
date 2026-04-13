@@ -532,9 +532,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
               setExportPhase('جاري تحضير الملف...');
 
               try {
-                  const response = await fetch(metadata.fileUrl);
-                  const blob = await response.blob();
-                  const file = new File([blob], metadata.name, { type: metadata.type === 'IMAGE_ANIM' ? 'image/gif' : 'video/mp4' });
+                  let file: File;
+                  if (metadata.originalFile) {
+                      file = metadata.originalFile;
+                  } else {
+                      const response = await fetch(metadata.fileUrl);
+                      const blob = await response.blob();
+                      file = new File([blob], metadata.name, { type: metadata.type === 'IMAGE_ANIM' ? 'image/gif' : 'video/mp4' });
+                  }
                   
                   let isVap = false;
                   let vapLayout = 'rgb_left';
@@ -2856,11 +2861,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     setExportPhase('جاري إنشاء ملف GIF شفاف...');
 
     let workerUrl = '/gif.worker.js';
-    try {
-      const resp = await fetch('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');
-      const blob = await resp.blob();
-      workerUrl = URL.createObjectURL(blob);
-    } catch (e) { console.error("Failed to fetch GIF worker", e); }
 
     try {
         svgaInstance.pauseAnimation();

@@ -708,17 +708,17 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
                       player.stepToFrame(i, false);
                       const canvas = tempDiv.querySelector('canvas');
                       if (canvas) {
-                          const url = canvas.toDataURL('image/png');
-                          const res = await fetch(url);
-                          const blob = await res.blob();
-                          
-                          newFrames.push({
-                              id: Math.random().toString(36).substr(2, 9),
-                              file: new File([blob], `svga_frame_${i}.png`, { type: 'image/png' }),
-                              previewUrl: url,
-                              width: canvas.width,
-                              height: canvas.height
-                          });
+                          const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+                          if (blob) {
+                              const url = URL.createObjectURL(blob);
+                              newFrames.push({
+                                  id: Math.random().toString(36).substr(2, 9),
+                                  file: new File([blob], `svga_frame_${i}.png`, { type: 'image/png' }),
+                                  previewUrl: url,
+                                  width: canvas.width,
+                                  height: canvas.height
+                              });
+                          }
                       }
                       setProgress(Math.floor(((i + 1) / totalFrames) * 100));
                       if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
@@ -790,19 +790,18 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
                        const ctx = canvas.getContext('2d');
                        if (ctx) {
                            ctx.drawImage(videoFrame, 0, 0);
-                           const url = canvas.toDataURL('image/png');
                            
-                           // Create a blob from dataURL for the file object
-                           const res = await fetch(url);
-                           const blob = await res.blob();
-
-                           newFrames.push({
-                               id: Math.random().toString(36).substr(2, 9),
-                               file: new File([blob], `frame_${i}.png`, { type: 'image/png' }),
-                               previewUrl: url,
-                               width: canvas.width,
-                               height: canvas.height
-                           });
+                           const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+                           if (blob) {
+                               const url = URL.createObjectURL(blob);
+                               newFrames.push({
+                                   id: Math.random().toString(36).substr(2, 9),
+                                   file: new File([blob], `frame_${i}.png`, { type: 'image/png' }),
+                                   previewUrl: url,
+                                   width: canvas.width,
+                                   height: canvas.height
+                               });
+                           }
                        }
                        
                        videoFrame.close();
@@ -870,8 +869,24 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
             if (asset.p.startsWith('data:image')) {
                 // Base64 embedded image
                 imageUrl = asset.p;
-                const res = await fetch(imageUrl);
-                blob = await res.blob();
+                try {
+                    const res = await fetch(imageUrl);
+                    blob = await res.blob();
+                } catch (e) {
+                    try {
+                        const parts = imageUrl.split(',');
+                        const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png';
+                        const bstr = atob(parts[1]);
+                        let n = bstr.length;
+                        const u8arr = new Uint8Array(n);
+                        while(n--){
+                            u8arr[n] = bstr.charCodeAt(n);
+                        }
+                        blob = new Blob([u8arr], {type: mime});
+                    } catch (err) {
+                        console.warn(`Could not parse base64 asset:`, err);
+                    }
+                }
             } else if (asset.u) {
                 // External image (might not work due to CORS, but we try)
                 imageUrl = asset.u + asset.p;
