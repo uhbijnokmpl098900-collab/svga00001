@@ -285,26 +285,6 @@ export const PagConverter: React.FC<PagConverterProps> = ({ onClose }) => {
             url: 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(metadata, null, 2))
         });
 
-        // Call backend for conversion (simulated for now)
-        try {
-          const response = await fetch('/api/convert', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              files: [item.file.name],
-              format: 'zip'
-            }),
-          });
-          
-          if (!response.ok) {
-            throw new Error('Backend conversion failed');
-          }
-        } catch (backendError) {
-          console.warn('Backend conversion failed, falling back to local extraction', backendError);
-        }
-
         updateItem({ 
           status: 'done', 
           progress: 100, 

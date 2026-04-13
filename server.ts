@@ -22,30 +22,6 @@ async function startServer() {
     res.json({ ip });
   });
 
-  // Backend logic for SVGA to PAG conversion
-  app.post('/api/convert', async (req, res) => {
-    try {
-      const { files, format } = req.body;
-      
-      if (!files || !Array.isArray(files)) {
-        return res.status(400).json({ error: 'Invalid files data' });
-      }
-
-      // Simulate processing time
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // In a real scenario, we would use a backend library to perform the actual conversion
-      // For now, we'll return a simulated success response
-      res.json({ 
-        status: 'success', 
-        message: `Successfully processed ${files.length} files to ${format}` 
-      });
-    } catch (error) {
-      console.error('Conversion error:', error);
-      res.status(500).json({ error: 'Internal server error during conversion' });
-    }
-  });
-
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
