@@ -53,26 +53,26 @@ export const Header: React.FC<HeaderProps> = ({
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const navItems = [
-    { id: 'svga', label: 'SVGA Editor', icon: <Layers className="w-4 h-4" />, onClick: onLogoClick },
+    { id: 'svga', label: 'SVGA Editor', icon: <Layers className="w-4 h-4" />, onClick: onLogoClick, color: 'indigo' },
     { 
       id: 'svga-ex', 
       label: 'SVGA Editor EX', 
       icon: <Layers className="w-4 h-4" />, 
       onClick: onSvgaExOpen,
-      variant: 'red' as const,
+      color: 'red',
       locked: false,
       show: true
     },
-    { id: 'image-processor', label: 'Image Processor', icon: <Wand2 className="w-4 h-4" />, onClick: onImageProcessorOpen },
-    { id: 'batch-image-processor', label: 'Batch Image Processor', icon: <Image className="w-4 h-4" />, onClick: onBatchImageProcessorOpen },
-    { id: 'multi-svga', label: 'Multi SVGA Preview', icon: <Layers className="w-4 h-4" />, onClick: onMultiSvgaOpen },
-    { id: 'converter', label: 'Video Converter', icon: <Video className="w-4 h-4" />, onClick: onConverterOpen },
-    { id: 'image-converter', label: 'Image to SVGA', icon: <Image className="w-4 h-4" />, onClick: onImageConverterOpen },
-    { id: 'batch', label: 'Batch Compress', icon: <Layers className="w-4 h-4" />, onClick: onBatchOpen },
-    { id: 'image-editor', label: 'Image Editor', icon: <Wand2 className="w-4 h-4" />, onClick: onImageEditorOpen },
-    { id: 'image-matcher', label: 'Image Matcher', icon: <Maximize className="w-4 h-4" />, onClick: onImageMatcherOpen },
-    { id: 'cropper', label: 'Batch Cropper', icon: <Scissors className="w-4 h-4" />, onClick: onCropperOpen },
-    { id: 'store', label: 'Store', icon: <ShoppingBag className="w-4 h-4" />, onClick: onStoreOpen },
+    { id: 'image-processor', label: 'Image Processor', icon: <Wand2 className="w-4 h-4" />, onClick: onImageProcessorOpen, color: 'emerald' },
+    { id: 'batch-image-processor', label: 'Batch Image Processor', icon: <Image className="w-4 h-4" />, onClick: onBatchImageProcessorOpen, color: 'teal' },
+    { id: 'multi-svga', label: 'Multi SVGA Preview', icon: <Layers className="w-4 h-4" />, onClick: onMultiSvgaOpen, color: 'purple' },
+    { id: 'converter', label: 'Video Converter', icon: <Video className="w-4 h-4" />, onClick: onConverterOpen, color: 'pink' },
+    { id: 'image-converter', label: 'Image to SVGA', icon: <Image className="w-4 h-4" />, onClick: onImageConverterOpen, color: 'orange' },
+    { id: 'batch', label: 'Batch Compress', icon: <Layers className="w-4 h-4" />, onClick: onBatchOpen, color: 'amber' },
+    { id: 'image-editor', label: 'Image Editor', icon: <Wand2 className="w-4 h-4" />, onClick: onImageEditorOpen, color: 'cyan' },
+    { id: 'image-matcher', label: 'Image Matcher', icon: <Maximize className="w-4 h-4" />, onClick: onImageMatcherOpen, color: 'blue' },
+    { id: 'cropper', label: 'Batch Cropper', icon: <Scissors className="w-4 h-4" />, onClick: onCropperOpen, color: 'rose' },
+    { id: 'store', label: 'Store', icon: <ShoppingBag className="w-4 h-4" />, onClick: onStoreOpen, color: 'fuchsia' },
   ];
 
   return (
@@ -124,7 +124,7 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={item.onClick} 
               icon={item.icon}
               label={item.label}
-              variant={item.variant}
+              color={item.color}
               locked={item.locked}
             />
           ))}
@@ -303,29 +303,81 @@ interface NavButtonProps {
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
-  variant?: 'default' | 'red';
+  color?: string;
   locked?: boolean;
 }
 
-const NavButton: React.FC<NavButtonProps> = ({ active, onClick, icon, label, variant = 'default', locked = false }) => (
-  <button
-    onClick={onClick}
-    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all duration-200 relative border-t border-b-4 active:border-b-0 active:translate-y-1 ${
-      active 
-        ? variant === 'red' 
-          ? 'bg-gradient-to-b from-red-500 to-red-600 text-white border-red-400 border-b-red-800 shadow-[0_4px_12px_rgba(239,68,68,0.4)]'
-          : 'bg-gradient-to-b from-indigo-500/30 to-indigo-600/20 text-indigo-300 border-indigo-400/30 border-b-indigo-900/50 shadow-[0_4px_12px_rgba(99,102,241,0.2)]' 
-        : variant === 'red'
-          ? 'bg-gradient-to-b from-red-600 to-red-700 text-white border-red-500 border-b-red-900 hover:from-red-500 hover:to-red-600 shadow-[0_4px_8px_rgba(0,0,0,0.3)]'
-          : 'bg-gradient-to-b from-slate-800 to-slate-900 text-slate-300 border-white/10 border-b-black hover:from-slate-700 hover:to-slate-800 shadow-[0_4px_8px_rgba(0,0,0,0.3)]'
-    }`}
-  >
-    {icon}
-    <span className={variant === 'red' ? 'text-white font-black drop-shadow-sm' : 'drop-shadow-sm'}>{label}</span>
-    {locked && (
-        <div className="absolute -top-2 -right-2 bg-slate-900 rounded-full p-1 border border-white/10 shadow-lg">
-            <Lock className="w-3 h-3 text-amber-500" />
-        </div>
-    )}
-  </button>
-);
+const colorMap: Record<string, { active: string, inactive: string }> = {
+  indigo: {
+    active: 'bg-gradient-to-b from-indigo-500 to-indigo-600 text-white border-indigo-400 border-b-indigo-800 shadow-[0_0_15px_rgba(99,102,241,0.6)] translate-y-0.5 border-b-2',
+    inactive: 'bg-gradient-to-b from-indigo-500/10 to-slate-900/80 text-indigo-400 border-indigo-500/20 border-b-indigo-900/50 hover:from-indigo-500/20 hover:to-slate-800/80 hover:text-indigo-300 hover:border-indigo-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+  },
+  red: {
+    active: 'bg-gradient-to-b from-red-500 to-red-600 text-white border-red-400 border-b-red-800 shadow-[0_0_15px_rgba(239,68,68,0.6)] translate-y-0.5 border-b-2',
+    inactive: 'bg-gradient-to-b from-red-500/10 to-slate-900/80 text-red-400 border-red-500/20 border-b-red-900/50 hover:from-red-500/20 hover:to-slate-800/80 hover:text-red-300 hover:border-red-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+  },
+  emerald: {
+    active: 'bg-gradient-to-b from-emerald-500 to-emerald-600 text-white border-emerald-400 border-b-emerald-800 shadow-[0_0_15px_rgba(16,185,129,0.6)] translate-y-0.5 border-b-2',
+    inactive: 'bg-gradient-to-b from-emerald-500/10 to-slate-900/80 text-emerald-400 border-emerald-500/20 border-b-emerald-900/50 hover:from-emerald-500/20 hover:to-slate-800/80 hover:text-emerald-300 hover:border-emerald-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+  },
+  purple: {
+    active: 'bg-gradient-to-b from-purple-500 to-purple-600 text-white border-purple-400 border-b-purple-800 shadow-[0_0_15px_rgba(168,85,247,0.6)] translate-y-0.5 border-b-2',
+    inactive: 'bg-gradient-to-b from-purple-500/10 to-slate-900/80 text-purple-400 border-purple-500/20 border-b-purple-900/50 hover:from-purple-500/20 hover:to-slate-800/80 hover:text-purple-300 hover:border-purple-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+  },
+  pink: {
+    active: 'bg-gradient-to-b from-pink-500 to-pink-600 text-white border-pink-400 border-b-pink-800 shadow-[0_0_15px_rgba(236,72,153,0.6)] translate-y-0.5 border-b-2',
+    inactive: 'bg-gradient-to-b from-pink-500/10 to-slate-900/80 text-pink-400 border-pink-500/20 border-b-pink-900/50 hover:from-pink-500/20 hover:to-slate-800/80 hover:text-pink-300 hover:border-pink-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+  },
+  orange: {
+    active: 'bg-gradient-to-b from-orange-500 to-orange-600 text-white border-orange-400 border-b-orange-800 shadow-[0_0_15px_rgba(249,115,22,0.6)] translate-y-0.5 border-b-2',
+    inactive: 'bg-gradient-to-b from-orange-500/10 to-slate-900/80 text-orange-400 border-orange-500/20 border-b-orange-900/50 hover:from-orange-500/20 hover:to-slate-800/80 hover:text-orange-300 hover:border-orange-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+  },
+  amber: {
+    active: 'bg-gradient-to-b from-amber-500 to-amber-600 text-white border-amber-400 border-b-amber-800 shadow-[0_0_15px_rgba(245,158,11,0.6)] translate-y-0.5 border-b-2',
+    inactive: 'bg-gradient-to-b from-amber-500/10 to-slate-900/80 text-amber-400 border-amber-500/20 border-b-amber-900/50 hover:from-amber-500/20 hover:to-slate-800/80 hover:text-amber-300 hover:border-amber-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+  },
+  cyan: {
+    active: 'bg-gradient-to-b from-cyan-500 to-cyan-600 text-white border-cyan-400 border-b-cyan-800 shadow-[0_0_15px_rgba(6,182,212,0.6)] translate-y-0.5 border-b-2',
+    inactive: 'bg-gradient-to-b from-cyan-500/10 to-slate-900/80 text-cyan-400 border-cyan-500/20 border-b-cyan-900/50 hover:from-cyan-500/20 hover:to-slate-800/80 hover:text-cyan-300 hover:border-cyan-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+  },
+  blue: {
+    active: 'bg-gradient-to-b from-blue-500 to-blue-600 text-white border-blue-400 border-b-blue-800 shadow-[0_0_15px_rgba(59,130,246,0.6)] translate-y-0.5 border-b-2',
+    inactive: 'bg-gradient-to-b from-blue-500/10 to-slate-900/80 text-blue-400 border-blue-500/20 border-b-blue-900/50 hover:from-blue-500/20 hover:to-slate-800/80 hover:text-blue-300 hover:border-blue-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+  },
+  rose: {
+    active: 'bg-gradient-to-b from-rose-500 to-rose-600 text-white border-rose-400 border-b-rose-800 shadow-[0_0_15px_rgba(244,63,94,0.6)] translate-y-0.5 border-b-2',
+    inactive: 'bg-gradient-to-b from-rose-500/10 to-slate-900/80 text-rose-400 border-rose-500/20 border-b-rose-900/50 hover:from-rose-500/20 hover:to-slate-800/80 hover:text-rose-300 hover:border-rose-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+  },
+  fuchsia: {
+    active: 'bg-gradient-to-b from-fuchsia-500 to-fuchsia-600 text-white border-fuchsia-400 border-b-fuchsia-800 shadow-[0_0_15px_rgba(217,70,239,0.6)] translate-y-0.5 border-b-2',
+    inactive: 'bg-gradient-to-b from-fuchsia-500/10 to-slate-900/80 text-fuchsia-400 border-fuchsia-500/20 border-b-fuchsia-900/50 hover:from-fuchsia-500/20 hover:to-slate-800/80 hover:text-fuchsia-300 hover:border-fuchsia-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+  },
+  teal: {
+    active: 'bg-gradient-to-b from-teal-500 to-teal-600 text-white border-teal-400 border-b-teal-800 shadow-[0_0_15px_rgba(20,184,166,0.6)] translate-y-0.5 border-b-2',
+    inactive: 'bg-gradient-to-b from-teal-500/10 to-slate-900/80 text-teal-400 border-teal-500/20 border-b-teal-900/50 hover:from-teal-500/20 hover:to-slate-800/80 hover:text-teal-300 hover:border-teal-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+  },
+  default: {
+    active: 'bg-gradient-to-b from-slate-500 to-slate-600 text-white border-slate-400 border-b-slate-800 shadow-[0_0_15px_rgba(100,116,139,0.6)] translate-y-0.5 border-b-2',
+    inactive: 'bg-gradient-to-b from-slate-500/10 to-slate-900/80 text-slate-400 border-slate-500/20 border-b-slate-900/50 hover:from-slate-500/20 hover:to-slate-800/80 hover:text-slate-300 hover:border-slate-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+  }
+};
+
+const NavButton: React.FC<NavButtonProps> = ({ active, onClick, icon, label, color = 'default', locked = false }) => {
+  const styles = colorMap[color] || colorMap.default;
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all duration-200 relative border-t active:border-b-0 active:translate-y-1 ${
+        active ? styles.active : styles.inactive
+      }`}
+    >
+      {icon}
+      <span className="drop-shadow-sm">{label}</span>
+      {locked && (
+          <div className="absolute -top-2 -right-2 bg-slate-900 rounded-full p-1 border border-white/10 shadow-lg">
+              <Lock className="w-3 h-3 text-amber-500" />
+          </div>
+      )}
+    </button>
+  );
+};
