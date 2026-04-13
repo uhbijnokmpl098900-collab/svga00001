@@ -1616,46 +1616,40 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
       tempCanvas.height = vh;
       const tCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
 
-      const spriteFrames: any[] = [];
+      const emptyFrame = { alpha: 0 };
 
       for (let i = 0; i < totalFrames; i++) {
         await captureFrame(video, ctx, tCtx, actualWidth, actualHeight, startTime + (i / fps));
         
-        // Use UPNG for extreme lossy compression if quality is below 100
         let bytes: Uint8Array;
         if (compressionQuality < 100) {
-          const imageData = ctx.getImageData(0, 0, actualWidth, actualHeight);
-          const colors = Math.max(2, Math.round((compressionQuality / 100) * 256));
-          const apng = UPNG.encode([imageData.data.buffer], actualWidth, actualHeight, colors);
-          bytes = new Uint8Array(apng);
+          // Fast path for lower quality: use JPEG if no alpha needed, or just lower quality PNG if possible.
+          // Since SVGA usually needs alpha, we'll stick to PNG but use toBlob which is faster than UPNG.
+          // UPNG is too slow for real-time.
+          const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+          const arrayBuffer = await blob!.arrayBuffer();
+          bytes = new Uint8Array(arrayBuffer);
         } else {
-          const base64 = canvas.toDataURL('image/png');
-          try {
-            const response = await fetch(base64);
-            const blob = await response.blob();
-            const arrayBuffer = await blob.arrayBuffer();
-            bytes = new Uint8Array(arrayBuffer);
-          } catch (e) {
-            const binary = atob(base64.split(',')[1]);
-            bytes = new Uint8Array(binary.length);
-            for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
-          }
+          const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+          const arrayBuffer = await blob!.arrayBuffer();
+          bytes = new Uint8Array(arrayBuffer);
         }
         
         const currentKey = `img_${i}`;
         imagesData[currentKey] = bytes;
 
-        spriteFrames.push({
+        const activeFrame = {
           alpha: 1.0,
           layout: { x: 0, y: 0, width: actualWidth, height: actualHeight },
           transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
-        });
+        };
 
-        // In this optimized version, we create one sprite per frame to keep it simple but correct
-        // Actually, standard SVGA usually has one sprite per image key.
+        const framesArray = new Array(totalFrames).fill(emptyFrame);
+        framesArray[i] = activeFrame;
+
         finalSprites.push({
           imageKey: currentKey,
-          frames: new Array(totalFrames).fill({ alpha: 0 }).map((f, idx) => idx === i ? spriteFrames[i] : f)
+          frames: framesArray
         });
         
         if (i % 5 === 0) {
