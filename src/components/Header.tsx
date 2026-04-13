@@ -77,7 +77,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 h-20 bg-[#020617]/80 backdrop-blur-md border-b border-white/5 z-[1000] px-4 sm:px-6 flex items-center justify-between pointer-events-auto">
+      <header className="fixed top-0 left-0 right-0 h-20 bg-[#020617]/80 backdrop-blur-md border-b border-white/5 z-[1000] px-4 sm:px-6 flex items-center justify-between">
       {/* Left Side: Profile & New Tools Button (Mobile) or Logo (Desktop) */}
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Mobile Tools Button */}

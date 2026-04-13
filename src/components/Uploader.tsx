@@ -6,13 +6,11 @@ interface UploaderProps {
   isUploading: boolean;
   onConverterOpen?: () => void;
   onMultiSvgaOpen?: () => void;
-  onBatchImageOpen?: () => void;
-  onPagConverterOpen?: () => void;
   globalQuality?: 'low' | 'medium' | 'high';
   setGlobalQuality?: (q: 'low' | 'medium' | 'high') => void;
 }
 
-export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onConverterOpen, onMultiSvgaOpen, onBatchImageOpen, onPagConverterOpen, globalQuality = 'high', setGlobalQuality }) => {
+export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onConverterOpen, onMultiSvgaOpen, globalQuality = 'high', setGlobalQuality }) => {
   const [isDragOver, setIsDragOver] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -76,7 +74,7 @@ export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onCon
 
 
 
-      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 relative z-10 w-full sm:w-auto px-4 sm:px-0 flex-wrap justify-center">
+      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 relative z-10 w-full sm:w-auto px-4 sm:px-0">
         <div className="flex items-center justify-center gap-3 px-6 py-3 bg-white/5 rounded-xl sm:rounded-2xl border border-white/10">
            <div className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse"></div>
            <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">SVGA 1.0 / 2.0</span>
@@ -94,20 +92,6 @@ export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onCon
         >
            <span className="text-xl group-hover/btn:scale-110 transition-transform">🖼️</span>
            <span className="text-[10px] text-indigo-400 font-black uppercase tracking-widest">معاينة متعددة</span>
-        </button>
-        <button 
-          onClick={(e) => { e.stopPropagation(); onBatchImageOpen?.(); }}
-          className="flex items-center justify-center gap-3 px-6 py-3 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-xl sm:rounded-2xl border border-emerald-500/20 transition-all group/btn"
-        >
-           <span className="text-xl group-hover/btn:scale-110 transition-transform">🔄</span>
-           <span className="text-[10px] text-emerald-400 font-black uppercase tracking-widest">تحويل الصور الجماعي</span>
-        </button>
-        <button 
-          onClick={(e) => { e.stopPropagation(); onPagConverterOpen?.(); }}
-          className="flex items-center justify-center gap-3 px-6 py-3 bg-purple-500/10 hover:bg-purple-500/20 rounded-xl sm:rounded-2xl border border-purple-500/20 transition-all group/btn"
-        >
-           <span className="text-xl group-hover/btn:scale-110 transition-transform">✨</span>
-           <span className="text-[10px] text-purple-400 font-black uppercase tracking-widest">استخراج طبقات SVGA</span>
         </button>
       </div>
       

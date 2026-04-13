@@ -9,8 +9,6 @@ import { MultiSvgaViewer } from './components/MultiSvgaViewer';
 import { ImageToSvga } from './components/ImageToSvga';
 import { ImageProcessor } from './components/ImageProcessor';
 import { BatchImageProcessor } from './components/BatchImageProcessor';
-import { BatchImageConverter } from './components/BatchImageConverter';
-import { PagConverter } from './components/PagConverter';
 import { ImageEditor } from './components/ImageEditor';
 import { ImageMatcher } from './components/ImageMatcher';
 import { Store } from './components/Store';
@@ -51,37 +49,12 @@ const App: React.FC = () => {
   const [initialLottieFile, setInitialLottieFile] = useState<File | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
-  const [showBatchImage, setShowBatchImage] = useState(false);
-  const [showPagConverter, setShowPagConverter] = useState(false);
 
   useEffect(() => {
     // Check if user has seen onboarding
     const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
     if (!hasSeenOnboarding) {
       setShowOnboarding(true);
-    }
-
-    // Anti-debugging and anti-right-click protections
-    if (import.meta.env.PROD) {
-      const handleContextMenu = (e: MouseEvent) => e.preventDefault();
-      const handleKeyDown = (e: KeyboardEvent) => {
-        // Prevent F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+U
-        if (
-          e.key === 'F12' ||
-          (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J' || e.key === 'i' || e.key === 'j')) ||
-          (e.ctrlKey && (e.key === 'U' || e.key === 'u'))
-        ) {
-          e.preventDefault();
-        }
-      };
-
-      document.addEventListener('contextmenu', handleContextMenu);
-      document.addEventListener('keydown', handleKeyDown);
-
-      return () => {
-        document.removeEventListener('contextmenu', handleContextMenu);
-        document.removeEventListener('keydown', handleKeyDown);
-      };
     }
   }, []);
 
@@ -451,8 +424,6 @@ const App: React.FC = () => {
                   isUploading={false} 
                   onConverterOpen={() => handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter')}
                   onMultiSvgaOpen={() => handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview')}
-                  onBatchImageOpen={() => setShowBatchImage(true)}
-                  onPagConverterOpen={() => setShowPagConverter(true)}
                   globalQuality={globalQuality}
                   setGlobalQuality={setGlobalQuality}
                 />
@@ -590,16 +561,6 @@ const App: React.FC = () => {
         onClose={() => setShowSubscriptionModal(false)}
         settings={settings}
       />
-
-      {/* Batch Image Converter Modal */}
-      {showBatchImage && (
-        <BatchImageConverter onClose={() => setShowBatchImage(false)} />
-      )}
-
-      {/* PAG Converter Modal */}
-      {showPagConverter && (
-        <PagConverter onClose={() => setShowPagConverter(false)} />
-      )}
     </div>
   );
 };

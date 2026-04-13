@@ -532,14 +532,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
               setExportPhase('جاري تحضير الملف...');
 
               try {
-                  let file: File;
-                  if (metadata.originalFile) {
-                      file = metadata.originalFile;
-                  } else {
-                      const response = await fetch(metadata.fileUrl);
-                      const blob = await response.blob();
-                      file = new File([blob], metadata.name, { type: metadata.type === 'IMAGE_ANIM' ? 'image/gif' : 'video/mp4' });
-                  }
+                  const response = await fetch(metadata.fileUrl);
+                  const blob = await response.blob();
+                  const file = new File([blob], metadata.name, { type: metadata.type === 'IMAGE_ANIM' ? 'image/gif' : 'video/mp4' });
                   
                   let isVap = false;
                   let vapLayout = 'rgb_left';
@@ -764,16 +759,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         if (newLayerImages[key] === TRANSPARENT_PIXEL) continue;
         try {
             newLayerImages[key] = await compressAsset(newLayerImages[key], optimizeQuality);
-            if (svgaInstance && !deletedKeys.has(key)) {
-                const color = assetColors[key];
-                const mode = assetColorModes[key] || 'tint';
-                if (color && color !== '#ffffff') {
-                    const tinted = await tintImage(newLayerImages[key], color, mode);
-                    svgaInstance.setImage(tinted, key);
-                } else {
-                    svgaInstance.setImage(newLayerImages[key], key);
-                }
-            }
         } catch (e) {
             console.error(e);
         }
@@ -2861,6 +2846,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     setExportPhase('جاري إنشاء ملف GIF شفاف...');
 
     let workerUrl = '/gif.worker.js';
+    try {
+      const resp = await fetch('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');
+      const blob = await resp.blob();
+      workerUrl = URL.createObjectURL(blob);
+    } catch (e) { console.error("Failed to fetch GIF worker", e); }
 
     try {
         svgaInstance.pauseAnimation();
@@ -6966,34 +6956,7 @@ class _MyAppState extends State<MyApp> {
                                         type="number" 
                                         step="0.01"
                                         value={metadata.fps || 30}
-                                        onChange={(e) => {
-                                            const newFps = Math.min(120, Math.max(1, parseFloat(e.target.value) || 30));
-                                            const oldFps = metadata.fps || 30;
-                                            const oldFrames = metadata.frames || 1;
-                                            const duration = oldFrames / oldFps;
-                                            const newFrames = Math.max(1, Math.round(duration * newFps));
-                                            
-                                            let newVideoItem = null;
-                                            if (metadata.videoItem) {
-                                                const newSprites = (metadata.videoItem.sprites || []).map((sprite: any) => {
-                                                    const resampledFrames = [];
-                                                    const spriteFramesCount = sprite.frames.length;
-                                                    for (let i = 0; i < newFrames; i++) {
-                                                        const oldIndex = Math.min(spriteFramesCount - 1, Math.floor((i / newFrames) * spriteFramesCount));
-                                                        resampledFrames.push(sprite.frames[oldIndex]);
-                                                    }
-                                                    return { ...sprite, frames: resampledFrames };
-                                                });
-                                                const newAudios = (metadata.videoItem.audios || []).map((audio: any) => ({
-                                                    ...audio,
-                                                    startFrame: Math.round((audio.startFrame / oldFrames) * newFrames),
-                                                    endFrame: Math.round((audio.endFrame / oldFrames) * newFrames)
-                                                }));
-                                                newVideoItem = { ...metadata.videoItem, FPS: newFps, frames: newFrames, sprites: newSprites, audios: newAudios };
-                                            }
-                                            
-                                            setMetadata({...metadata, fps: newFps, frames: newFrames, videoItem: newVideoItem});
-                                        }}
+                                        onChange={(e) => setMetadata({...metadata, fps: Math.min(120, Math.max(1, parseFloat(e.target.value) || 30))})}
                                         className="w-16 bg-transparent text-center text-white font-mono font-bold text-lg outline-none"
                                     />
                                     <span className="text-purple-500 font-bold text-xs ml-1">FPS</span>
@@ -7012,31 +6975,11 @@ class _MyAppState extends State<MyApp> {
                                         step="0.1"
                                         value={((metadata.frames || 0) / (metadata.fps || 30)).toFixed(2)}
                                         onChange={(e) => {
-                                            const duration = Math.max(0.1, parseFloat(e.target.value) || 1);
-                                            const currentFps = metadata.fps || 30;
-                                            const oldFrames = metadata.frames || 1;
-                                            const newFrames = Math.max(1, Math.round(duration * currentFps));
-                                            
-                                            let newVideoItem = null;
-                                            if (metadata.videoItem) {
-                                                const newSprites = (metadata.videoItem.sprites || []).map((sprite: any) => {
-                                                    const resampledFrames = [];
-                                                    const spriteFramesCount = sprite.frames.length;
-                                                    for (let i = 0; i < newFrames; i++) {
-                                                        const oldIndex = Math.min(spriteFramesCount - 1, Math.floor((i / newFrames) * spriteFramesCount));
-                                                        resampledFrames.push(sprite.frames[oldIndex]);
-                                                    }
-                                                    return { ...sprite, frames: resampledFrames };
-                                                });
-                                                const newAudios = (metadata.videoItem.audios || []).map((audio: any) => ({
-                                                    ...audio,
-                                                    startFrame: Math.round((audio.startFrame / oldFrames) * newFrames),
-                                                    endFrame: Math.round((audio.endFrame / oldFrames) * newFrames)
-                                                }));
-                                                newVideoItem = { ...metadata.videoItem, frames: newFrames, sprites: newSprites, audios: newAudios };
+                                            const duration = parseFloat(e.target.value);
+                                            if (duration > 0 && metadata.frames) {
+                                                const newFps = metadata.frames / duration;
+                                                setMetadata({...metadata, fps: Math.min(120, Math.max(1, newFps))});
                                             }
-                                            
-                                            setMetadata({...metadata, frames: newFrames, videoItem: newVideoItem});
                                         }}
                                         className="w-16 bg-transparent text-center text-white font-mono font-bold text-lg outline-none"
                                     />

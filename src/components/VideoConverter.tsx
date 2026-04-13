@@ -72,6 +72,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
   const [removeBlack, setRemoveBlack] = useState(false);
   const [removeWhite, setRemoveWhite] = useState(false);
   const [isVapInput, setIsVapInput] = useState(false);
+  const [isAutoDuration, setIsAutoDuration] = useState(true);
   const [whiteTolerance, setWhiteTolerance] = useState(30);
   const [removeGreen, setRemoveGreen] = useState(false);
   const [removeBlue, setRemoveBlue] = useState(false);
@@ -436,8 +437,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
       let vw = safe.width;
       let vh = safe.height;
       
-      const effectiveStartTime = startTime;
-      const effectiveEndTime = endTime;
+      const effectiveStartTime = isAutoDuration ? 0 : startTime;
+      const effectiveEndTime = isAutoDuration ? video.duration : endTime;
       
       video.currentTime = effectiveStartTime;
       await new Promise(r => {
@@ -1172,17 +1173,14 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
         if (ctx && tCtx) {
             await captureFrame(video, ctx, tCtx, vw, vh, startTime + (i / fps));
             
-            const quality = globalQuality === 'high' ? 0.9 : globalQuality === 'medium' ? 0.75 : 0.5;
-            const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/webp', quality));
-            if (blob) {
-                const buffer = await blob.arrayBuffer();
-                frames.push({ data: new Uint8Array(buffer), duration: Math.round(1000 / fps) });
-            }
+            const base64 = canvas.toDataURL('image/webp', globalQuality === 'high' ? 0.9 : globalQuality === 'medium' ? 0.75 : 0.5);
+            const binary = atob(base64.split(',')[1]);
+            const bytes = new Uint8Array(binary.length);
+            for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
+            
+            frames.push({ data: bytes, duration: Math.round(1000 / fps) });
         }
-        if (i % 5 === 0) {
-            setProgress(Math.floor((i / totalFrames) * 80));
-            await new Promise(r => setTimeout(r, 0));
-        }
+        setProgress(Math.floor((i / totalFrames) * 80));
     }
 
     setPhase('جاري تجميع ملف WebP...');
@@ -1632,12 +1630,16 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
           const apng = UPNG.encode([imageData.data.buffer], actualWidth, actualHeight, colors);
           bytes = new Uint8Array(apng);
         } else {
-          const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
-          if (blob) {
+          const base64 = canvas.toDataURL('image/png');
+          try {
+            const response = await fetch(base64);
+            const blob = await response.blob();
             const arrayBuffer = await blob.arrayBuffer();
             bytes = new Uint8Array(arrayBuffer);
-          } else {
-            bytes = new Uint8Array(0);
+          } catch (e) {
+            const binary = atob(base64.split(',')[1]);
+            bytes = new Uint8Array(binary.length);
+            for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
           }
         }
         
@@ -1708,8 +1710,13 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
     if (isNaN(vw) || vw <= 0) vw = 1334;
     if (isNaN(vh) || vh <= 0) vh = 750;
 
-    // Use local worker to avoid server dependency
-    const workerUrl = '/gif.worker.js';
+    // Fetch worker to avoid path issues
+    let workerUrl = '/gif.worker.js';
+    try {
+      const resp = await fetch('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');
+      const blob = await resp.blob();
+      workerUrl = URL.createObjectURL(blob);
+    } catch (e) { console.error("Failed to fetch GIF worker", e); }
 
     const gif = new GIF({ 
       workers: 2, 
@@ -1734,10 +1741,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
         await captureFrame(video, ctx, tCtx, vw, vh, startTime + (i / fps));
         gif.addFrame(ctx, { copy: true, delay: 1000 / fps });
       }
-      if (i % 5 === 0) {
-        setProgress(Math.floor((i / totalFrames) * 50));
-        await new Promise(r => setTimeout(r, 0));
-      }
+      setProgress(Math.floor((i / totalFrames) * 50));
     }
     gif.on('finished', (blob: Blob) => {
       downloadBlob(blob, `${file?.name}.gif`);
@@ -1771,17 +1775,10 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
         framesData.push(ctx.getImageData(0, 0, vw, vh).data.buffer);
         delays.push(1000 / fps);
       }
-      if (i % 5 === 0) {
-        setProgress(Math.floor((i / totalFrames) * 100));
-        await new Promise(r => setTimeout(r, 0));
-      }
+      setProgress(Math.floor((i / totalFrames) * 100));
     }
-    setPhase('جاري تجميع ملف APNG...');
-    // Yield before heavy encoding
-    await new Promise(r => setTimeout(r, 10));
     const apngBuffer = UPNG.encode(framesData, vw, vh, 0, delays);
     downloadBlob(new Blob([apngBuffer]), `${file?.name}.png`);
-    setProgress(100);
   };
 
   const downloadBlob = (blob: Blob, name: string) => {
@@ -1842,8 +1839,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
                     className="max-h-40 rounded-xl mb-2 border border-white/10" 
                     onTimeUpdate={(e) => {
                       const v = e.currentTarget;
-                      const effectiveStart = startTime;
-                      const effectiveEnd = endTime;
+                      const effectiveStart = isAutoDuration ? 0 : startTime;
+                      const effectiveEnd = isAutoDuration ? v.duration : endTime;
                       if (v.currentTime > effectiveEnd) v.currentTime = effectiveStart;
                       if (v.currentTime < effectiveStart) v.currentTime = effectiveStart;
                     }}
@@ -2037,7 +2034,57 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
               </div>
             </div>
 
-
+            {/* Duration Settings */}
+            <div className="space-y-4 pb-4 border-b border-white/5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-3 h-3 text-amber-400" />
+                  <span className="text-slate-400 text-[10px] font-black uppercase tracking-widest">مدة الفيديو</span>
+                </div>
+                <div className="flex gap-1 bg-white/5 p-1 rounded-lg border border-white/10">
+                  <button 
+                    onClick={() => setIsAutoDuration(true)}
+                    className={`px-3 py-1 rounded-md text-[9px] font-black uppercase transition-all ${isAutoDuration ? 'bg-amber-500 text-white shadow-glow-amber' : 'text-slate-500 hover:text-white'}`}
+                  >
+                    تلقائي
+                  </button>
+                  <button 
+                    onClick={() => setIsAutoDuration(false)}
+                    className={`px-3 py-1 rounded-md text-[9px] font-black uppercase transition-all ${!isAutoDuration ? 'bg-amber-500 text-white shadow-glow-amber' : 'text-slate-500 hover:text-white'}`}
+                  >
+                    يدوي
+                  </button>
+                </div>
+              </div>
+              {!isAutoDuration && (
+                <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="space-y-2">
+                    <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest block">البداية (ثانية)</label>
+                    <input 
+                      type="number" 
+                      step="0.1"
+                      min="0"
+                      max={duration}
+                      value={startTime}
+                      onChange={(e) => setStartTime(Math.max(0, Math.min(duration, parseFloat(e.target.value) || 0)))}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-white text-xs focus:border-amber-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest block">النهاية (ثانية)</label>
+                    <input 
+                      type="number" 
+                      step="0.1"
+                      min="0"
+                      max={duration}
+                      value={endTime}
+                      onChange={(e) => setEndTime(Math.max(0, Math.min(duration, parseFloat(e.target.value) || duration)))}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-white text-xs focus:border-amber-500 outline-none transition-all"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="space-y-4 pb-4 border-b border-white/5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
