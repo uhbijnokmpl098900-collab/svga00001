@@ -430,10 +430,10 @@ export const PagConverter: React.FC<PagConverterProps> = ({ onClose }) => {
                 <button 
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isProcessing}
-                  className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 bg-gradient-to-b from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all border-t border-white/10 border-b-4 border-b-slate-900 active:border-b-0 active:translate-y-1 shadow-[0_4px_8px_rgba(0,0,0,0.3)] disabled:opacity-50"
                 >
-                  <Upload className="w-4 h-4" />
-                  إضافة ملفات SVGA
+                  <Upload className="w-4 h-4 drop-shadow-sm" />
+                  <span className="drop-shadow-sm">إضافة ملفات SVGA</span>
                 </button>
                 <input 
                   type="file" ref={fileInputRef} multiple 
@@ -447,10 +447,10 @@ export const PagConverter: React.FC<PagConverterProps> = ({ onClose }) => {
                 {queue.length > 0 && !isProcessing && queue.some(q => q.status === 'pending') && (
                   <button 
                     onClick={startProcessing}
-                    className="px-6 py-2 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-colors shadow-lg bg-blue-600 hover:bg-blue-500 shadow-blue-500/20"
+                    className="px-6 py-2 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-[0_4px_12px_rgba(37,99,235,0.3)] bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 border-t border-blue-400/50 border-b-4 border-b-blue-800 active:border-b-0 active:translate-y-1"
                   >
-                    <Play className="w-4 h-4 fill-white" />
-                    بدء الاستخراج
+                    <Play className="w-4 h-4 fill-white drop-shadow-sm" />
+                    <span className="drop-shadow-sm">بدء الاستخراج</span>
                   </button>
                 )}
                 <button 

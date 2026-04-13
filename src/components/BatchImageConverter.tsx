@@ -389,18 +389,18 @@ export const BatchImageConverter: React.FC<BatchImageConverterProps> = ({ onClos
                 <button 
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isProcessing}
-                  className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 bg-gradient-to-b from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all border-t border-white/10 border-b-4 border-b-slate-900 active:border-b-0 active:translate-y-1 shadow-[0_4px_8px_rgba(0,0,0,0.3)] disabled:opacity-50"
                 >
-                  <FileImage className="w-4 h-4" />
-                  إضافة صور
+                  <FileImage className="w-4 h-4 drop-shadow-sm" />
+                  <span className="drop-shadow-sm">إضافة صور</span>
                 </button>
                 <button 
                   onClick={() => folderInputRef.current?.click()}
                   disabled={isProcessing}
-                  className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 bg-gradient-to-b from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all border-t border-white/10 border-b-4 border-b-slate-900 active:border-b-0 active:translate-y-1 shadow-[0_4px_8px_rgba(0,0,0,0.3)] disabled:opacity-50"
                 >
-                  <FolderUp className="w-4 h-4" />
-                  إضافة مجلد
+                  <FolderUp className="w-4 h-4 drop-shadow-sm" />
+                  <span className="drop-shadow-sm">إضافة مجلد</span>
                 </button>
                 <input 
                   type="file" ref={fileInputRef} multiple accept="image/*" className="hidden"
@@ -418,28 +418,28 @@ export const BatchImageConverter: React.FC<BatchImageConverterProps> = ({ onClos
                 {stats.total > 0 && !isProcessing && stats.done < stats.total && (
                   <button 
                     onClick={startProcessing}
-                    className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-colors shadow-lg shadow-indigo-500/20"
+                    className="px-6 py-2 bg-gradient-to-b from-indigo-500 to-indigo-600 hover:from-indigo-400 hover:to-indigo-500 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-all border-t border-indigo-400/50 border-b-4 border-b-indigo-800 active:border-b-0 active:translate-y-1 shadow-[0_4px_12px_rgba(99,102,241,0.3)]"
                   >
-                    <Play className="w-4 h-4 fill-white" />
-                    بدء التحويل
+                    <Play className="w-4 h-4 fill-white drop-shadow-sm" />
+                    <span className="drop-shadow-sm">بدء التحويل</span>
                   </button>
                 )}
                 {isProcessing && (
                   <button 
                     onClick={togglePause}
-                    className="px-6 py-2 bg-amber-500 hover:bg-amber-400 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-colors shadow-lg shadow-amber-500/20"
+                    className="px-6 py-2 bg-gradient-to-b from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-all border-t border-amber-400/50 border-b-4 border-b-amber-800 active:border-b-0 active:translate-y-1 shadow-[0_4px_12px_rgba(245,158,11,0.3)]"
                   >
-                    {isPaused ? <Play className="w-4 h-4 fill-white" /> : <Pause className="w-4 h-4 fill-white" />}
-                    {isPaused ? 'استكمال' : 'إيقاف مؤقت'}
+                    {isPaused ? <Play className="w-4 h-4 fill-white drop-shadow-sm" /> : <Pause className="w-4 h-4 fill-white drop-shadow-sm" />}
+                    <span className="drop-shadow-sm">{isPaused ? 'استكمال' : 'إيقاف مؤقت'}</span>
                   </button>
                 )}
                 {stats.done > 0 && !isProcessing && (
                   <button 
                     onClick={downloadAll}
-                    className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-colors shadow-lg shadow-emerald-500/20"
+                    className="px-6 py-2 bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-all border-t border-emerald-400/50 border-b-4 border-b-emerald-800 active:border-b-0 active:translate-y-1 shadow-[0_4px_12px_rgba(16,185,129,0.3)]"
                   >
-                    <Download className="w-4 h-4" />
-                    تحميل الكل (ZIP)
+                    <Download className="w-4 h-4 drop-shadow-sm" />
+                    <span className="drop-shadow-sm">تحميل الكل (ZIP)</span>
                   </button>
                 )}
                 <button 

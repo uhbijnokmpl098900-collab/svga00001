@@ -310,21 +310,21 @@ interface NavButtonProps {
 const NavButton: React.FC<NavButtonProps> = ({ active, onClick, icon, label, variant = 'default', locked = false }) => (
   <button
     onClick={onClick}
-    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 relative ${
+    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all duration-200 relative border-t border-b-4 active:border-b-0 active:translate-y-1 ${
       active 
         ? variant === 'red' 
-          ? 'bg-[#ff0000] text-black shadow-glow-red'
-          : 'bg-indigo-500/10 text-indigo-400 ring-1 ring-indigo-500/20' 
+          ? 'bg-gradient-to-b from-red-500 to-red-600 text-white border-red-400 border-b-red-800 shadow-[0_4px_12px_rgba(239,68,68,0.4)]'
+          : 'bg-gradient-to-b from-indigo-500/30 to-indigo-600/20 text-indigo-300 border-indigo-400/30 border-b-indigo-900/50 shadow-[0_4px_12px_rgba(99,102,241,0.2)]' 
         : variant === 'red'
-          ? 'bg-[#ff0000] text-black hover:bg-red-600'
-          : 'text-slate-400 hover:text-white hover:bg-white/5'
+          ? 'bg-gradient-to-b from-red-600 to-red-700 text-white border-red-500 border-b-red-900 hover:from-red-500 hover:to-red-600 shadow-[0_4px_8px_rgba(0,0,0,0.3)]'
+          : 'bg-gradient-to-b from-slate-800 to-slate-900 text-slate-300 border-white/10 border-b-black hover:from-slate-700 hover:to-slate-800 shadow-[0_4px_8px_rgba(0,0,0,0.3)]'
     }`}
   >
     {icon}
-    <span className={variant === 'red' ? 'text-black font-black' : ''}>{label}</span>
+    <span className={variant === 'red' ? 'text-white font-black drop-shadow-sm' : 'drop-shadow-sm'}>{label}</span>
     {locked && (
-        <div className="absolute -top-1 -right-1 bg-slate-900 rounded-full p-0.5 border border-white/10">
-            <Lock className="w-2.5 h-2.5 text-amber-500" />
+        <div className="absolute -top-2 -right-2 bg-slate-900 rounded-full p-1 border border-white/10 shadow-lg">
+            <Lock className="w-3 h-3 text-amber-500" />
         </div>
     )}
   </button>

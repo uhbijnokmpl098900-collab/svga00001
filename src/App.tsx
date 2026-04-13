@@ -9,6 +9,8 @@ import { MultiSvgaViewer } from './components/MultiSvgaViewer';
 import { ImageToSvga } from './components/ImageToSvga';
 import { ImageProcessor } from './components/ImageProcessor';
 import { BatchImageProcessor } from './components/BatchImageProcessor';
+import { BatchImageConverter } from './components/BatchImageConverter';
+import { PagConverter } from './components/PagConverter';
 import { ImageEditor } from './components/ImageEditor';
 import { ImageMatcher } from './components/ImageMatcher';
 import { Store } from './components/Store';
@@ -45,6 +47,8 @@ const App: React.FC = () => {
   });
   const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showBatchImage, setShowBatchImage] = useState(false);
+  const [showPagConverter, setShowPagConverter] = useState(false);
   const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>('high');
   const [initialLottieFile, setInitialLottieFile] = useState<File | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
@@ -424,6 +428,8 @@ const App: React.FC = () => {
                   isUploading={false} 
                   onConverterOpen={() => handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter')}
                   onMultiSvgaOpen={() => handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview')}
+                  onBatchImageOpen={() => setShowBatchImage(true)}
+                  onPagConverterOpen={() => setShowPagConverter(true)}
                   globalQuality={globalQuality}
                   setGlobalQuality={setGlobalQuality}
                 />
@@ -548,6 +554,18 @@ const App: React.FC = () => {
       >
         <HelpCircle className="w-8 h-8" />
       </button>
+
+      {showBatchImage && (
+        <BatchImageConverter
+          onClose={() => setShowBatchImage(false)}
+        />
+      )}
+
+      {showPagConverter && (
+        <PagConverter
+          onClose={() => setShowPagConverter(false)}
+        />
+      )}
 
       {/* Onboarding Modal */}
       <OnboardingModal 
