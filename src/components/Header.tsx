@@ -307,58 +307,60 @@ interface NavButtonProps {
   locked?: boolean;
 }
 
+const uniformInactive = 'bg-gradient-to-b from-slate-800 to-slate-900 text-slate-400 border-slate-700 border-b-slate-950 hover:from-slate-700 hover:to-slate-800 hover:text-white shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4';
+
 const colorMap: Record<string, { active: string, inactive: string }> = {
   indigo: {
     active: 'bg-gradient-to-b from-indigo-500 to-indigo-600 text-white border-indigo-400 border-b-indigo-800 shadow-[0_0_15px_rgba(99,102,241,0.6)] translate-y-0.5 border-b-2',
-    inactive: 'bg-gradient-to-b from-indigo-500/10 to-slate-900/80 text-indigo-400 border-indigo-500/20 border-b-indigo-900/50 hover:from-indigo-500/20 hover:to-slate-800/80 hover:text-indigo-300 hover:border-indigo-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+    inactive: uniformInactive
   },
   red: {
     active: 'bg-gradient-to-b from-red-500 to-red-600 text-white border-red-400 border-b-red-800 shadow-[0_0_15px_rgba(239,68,68,0.6)] translate-y-0.5 border-b-2',
-    inactive: 'bg-gradient-to-b from-red-500/10 to-slate-900/80 text-red-400 border-red-500/20 border-b-red-900/50 hover:from-red-500/20 hover:to-slate-800/80 hover:text-red-300 hover:border-red-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+    inactive: uniformInactive
   },
   emerald: {
     active: 'bg-gradient-to-b from-emerald-500 to-emerald-600 text-white border-emerald-400 border-b-emerald-800 shadow-[0_0_15px_rgba(16,185,129,0.6)] translate-y-0.5 border-b-2',
-    inactive: 'bg-gradient-to-b from-emerald-500/10 to-slate-900/80 text-emerald-400 border-emerald-500/20 border-b-emerald-900/50 hover:from-emerald-500/20 hover:to-slate-800/80 hover:text-emerald-300 hover:border-emerald-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+    inactive: uniformInactive
   },
   purple: {
     active: 'bg-gradient-to-b from-purple-500 to-purple-600 text-white border-purple-400 border-b-purple-800 shadow-[0_0_15px_rgba(168,85,247,0.6)] translate-y-0.5 border-b-2',
-    inactive: 'bg-gradient-to-b from-purple-500/10 to-slate-900/80 text-purple-400 border-purple-500/20 border-b-purple-900/50 hover:from-purple-500/20 hover:to-slate-800/80 hover:text-purple-300 hover:border-purple-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+    inactive: uniformInactive
   },
   pink: {
     active: 'bg-gradient-to-b from-pink-500 to-pink-600 text-white border-pink-400 border-b-pink-800 shadow-[0_0_15px_rgba(236,72,153,0.6)] translate-y-0.5 border-b-2',
-    inactive: 'bg-gradient-to-b from-pink-500/10 to-slate-900/80 text-pink-400 border-pink-500/20 border-b-pink-900/50 hover:from-pink-500/20 hover:to-slate-800/80 hover:text-pink-300 hover:border-pink-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+    inactive: uniformInactive
   },
   orange: {
     active: 'bg-gradient-to-b from-orange-500 to-orange-600 text-white border-orange-400 border-b-orange-800 shadow-[0_0_15px_rgba(249,115,22,0.6)] translate-y-0.5 border-b-2',
-    inactive: 'bg-gradient-to-b from-orange-500/10 to-slate-900/80 text-orange-400 border-orange-500/20 border-b-orange-900/50 hover:from-orange-500/20 hover:to-slate-800/80 hover:text-orange-300 hover:border-orange-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+    inactive: uniformInactive
   },
   amber: {
     active: 'bg-gradient-to-b from-amber-500 to-amber-600 text-white border-amber-400 border-b-amber-800 shadow-[0_0_15px_rgba(245,158,11,0.6)] translate-y-0.5 border-b-2',
-    inactive: 'bg-gradient-to-b from-amber-500/10 to-slate-900/80 text-amber-400 border-amber-500/20 border-b-amber-900/50 hover:from-amber-500/20 hover:to-slate-800/80 hover:text-amber-300 hover:border-amber-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+    inactive: uniformInactive
   },
   cyan: {
     active: 'bg-gradient-to-b from-cyan-500 to-cyan-600 text-white border-cyan-400 border-b-cyan-800 shadow-[0_0_15px_rgba(6,182,212,0.6)] translate-y-0.5 border-b-2',
-    inactive: 'bg-gradient-to-b from-cyan-500/10 to-slate-900/80 text-cyan-400 border-cyan-500/20 border-b-cyan-900/50 hover:from-cyan-500/20 hover:to-slate-800/80 hover:text-cyan-300 hover:border-cyan-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+    inactive: uniformInactive
   },
   blue: {
     active: 'bg-gradient-to-b from-blue-500 to-blue-600 text-white border-blue-400 border-b-blue-800 shadow-[0_0_15px_rgba(59,130,246,0.6)] translate-y-0.5 border-b-2',
-    inactive: 'bg-gradient-to-b from-blue-500/10 to-slate-900/80 text-blue-400 border-blue-500/20 border-b-blue-900/50 hover:from-blue-500/20 hover:to-slate-800/80 hover:text-blue-300 hover:border-blue-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+    inactive: uniformInactive
   },
   rose: {
     active: 'bg-gradient-to-b from-rose-500 to-rose-600 text-white border-rose-400 border-b-rose-800 shadow-[0_0_15px_rgba(244,63,94,0.6)] translate-y-0.5 border-b-2',
-    inactive: 'bg-gradient-to-b from-rose-500/10 to-slate-900/80 text-rose-400 border-rose-500/20 border-b-rose-900/50 hover:from-rose-500/20 hover:to-slate-800/80 hover:text-rose-300 hover:border-rose-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+    inactive: uniformInactive
   },
   fuchsia: {
     active: 'bg-gradient-to-b from-fuchsia-500 to-fuchsia-600 text-white border-fuchsia-400 border-b-fuchsia-800 shadow-[0_0_15px_rgba(217,70,239,0.6)] translate-y-0.5 border-b-2',
-    inactive: 'bg-gradient-to-b from-fuchsia-500/10 to-slate-900/80 text-fuchsia-400 border-fuchsia-500/20 border-b-fuchsia-900/50 hover:from-fuchsia-500/20 hover:to-slate-800/80 hover:text-fuchsia-300 hover:border-fuchsia-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+    inactive: uniformInactive
   },
   teal: {
     active: 'bg-gradient-to-b from-teal-500 to-teal-600 text-white border-teal-400 border-b-teal-800 shadow-[0_0_15px_rgba(20,184,166,0.6)] translate-y-0.5 border-b-2',
-    inactive: 'bg-gradient-to-b from-teal-500/10 to-slate-900/80 text-teal-400 border-teal-500/20 border-b-teal-900/50 hover:from-teal-500/20 hover:to-slate-800/80 hover:text-teal-300 hover:border-teal-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+    inactive: uniformInactive
   },
   default: {
     active: 'bg-gradient-to-b from-slate-500 to-slate-600 text-white border-slate-400 border-b-slate-800 shadow-[0_0_15px_rgba(100,116,139,0.6)] translate-y-0.5 border-b-2',
-    inactive: 'bg-gradient-to-b from-slate-500/10 to-slate-900/80 text-slate-400 border-slate-500/20 border-b-slate-900/50 hover:from-slate-500/20 hover:to-slate-800/80 hover:text-slate-300 hover:border-slate-500/40 shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4'
+    inactive: uniformInactive
   }
 };
 
