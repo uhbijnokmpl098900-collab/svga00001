@@ -257,6 +257,15 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
     ctx.putImageData(imageData, 0, 0);
   };
 
+  const drawVideoCentered = (ctx: CanvasRenderingContext2D, video: HTMLVideoElement, targetWidth: number, targetHeight: number) => {
+    const scale = Math.min(targetWidth / video.videoWidth, targetHeight / video.videoHeight);
+    const drawW = video.videoWidth * scale;
+    const drawH = video.videoHeight * scale;
+    const drawX = (targetWidth - drawW) / 2;
+    const drawY = (targetHeight - drawH) / 2;
+    ctx.drawImage(video, drawX, drawY, drawW, drawH);
+  };
+
   const captureFrame = async (
     video: HTMLVideoElement, 
     ctx: CanvasRenderingContext2D, 
@@ -273,7 +282,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
 
     ctx.clearRect(0, 0, vw, vh);
     tCtx.clearRect(0, 0, tCtx.canvas.width, tCtx.canvas.height);
-    tCtx.drawImage(video, 0, 0, tCtx.canvas.width, tCtx.canvas.height);
+    drawVideoCentered(tCtx, video, tCtx.canvas.width, tCtx.canvas.height);
 
     if (isVapInput) {
       // VAP Input: Left half is Alpha, Right half is RGB
@@ -428,7 +437,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
       const parsedHeight = typeof customHeight === 'number' ? customHeight : parseInt(customHeight as string);
       const validScale = isNaN(exportScale) ? 1.0 : exportScale;
       
-      const rawWidth = (customWidth && !isNaN(parsedWidth) && parsedWidth > 0) ? parsedWidth : (video.videoWidth || 1334) * validScale;
+      const baseVideoWidth = isVapInput ? Math.floor(video.videoWidth / 2) : video.videoWidth;
+      const rawWidth = (customWidth && !isNaN(parsedWidth) && parsedWidth > 0) ? parsedWidth : (baseVideoWidth || 1334) * validScale;
       const rawHeight = (customHeight && !isNaN(parsedHeight) && parsedHeight > 0) ? parsedHeight : (video.videoHeight || 750) * validScale;
       
       const isVap = selectedFormat === 'VAP (MP4)' || selectedFormat === 'VAP 1.0.5';
@@ -492,7 +502,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
     const parsedHeight = typeof customHeight === 'number' ? customHeight : parseInt(customHeight as string);
     const validScale = isNaN(exportScale) ? 1.0 : exportScale;
     
-    const rawWidth = (customWidth && !isNaN(parsedWidth) && parsedWidth > 0) ? parsedWidth : (firstVideo.videoWidth || 1334) * validScale;
+    const baseVideoWidth = isVapInput ? Math.floor(firstVideo.videoWidth / 2) : firstVideo.videoWidth;
+    const rawWidth = (customWidth && !isNaN(parsedWidth) && parsedWidth > 0) ? parsedWidth : (baseVideoWidth || 1334) * validScale;
     const rawHeight = (customHeight && !isNaN(parsedHeight) && parsedHeight > 0) ? parsedHeight : (firstVideo.videoHeight || 750) * validScale;
     
     const safe = calculateSafeDimensions(rawWidth, rawHeight);
@@ -573,7 +584,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
               if (ctx) {
                   if (hasEncoderError) break;
                   ctx.clearRect(0, 0, safeWidth, safeHeight);
-                  ctx.drawImage(video, 0, 0, safeWidth, safeHeight);
+                  drawVideoCentered(ctx, video, safeWidth, safeHeight);
                   applyTransparencyEffects(ctx, safeWidth, safeHeight);
                   
                   const bitmap = await createImageBitmap(canvas);
@@ -959,7 +970,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
             
             // 1. Draw Source Frame
             tCtx.clearRect(0, 0, width, height);
-            tCtx.drawImage(video, 0, 0, width, height);
+            drawVideoCentered(tCtx, video, width, height);
             
             // Apply transparency effects
             applyTransparencyEffects(tCtx, width, height);
@@ -1454,7 +1465,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
       if (vCtx && tCtx) {
         // Clear temp canvas
         tCtx.clearRect(0, 0, safeWidth, safeHeight);
-        tCtx.drawImage(video, 0, 0, safeWidth, safeHeight);
+        drawVideoCentered(tCtx, video, safeWidth, safeHeight);
         
         // Apply transparency effects to the source before splitting
         applyTransparencyEffects(tCtx, safeWidth, safeHeight);

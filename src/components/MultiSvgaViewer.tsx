@@ -246,8 +246,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       } else {
         cols = gridCols;
         rows = Math.ceil(items.length / cols);
-        cardW = selectedPreset ? selectedPreset.width : 1334;
-        cardH = selectedPreset ? selectedPreset.height : 750;
+        cardW = selectedPreset ? selectedPreset.width : items[0].dimensions.width;
+        cardH = selectedPreset ? selectedPreset.height : items[0].dimensions.height;
         canvasWidth = cols * cardW + (cols + 1) * padding;
         canvasHeight = rows * cardH + (rows + 1) * padding;
       }
@@ -415,10 +415,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           if (internalCanvas) {
             const sw = item.dimensions.width;
             const sh = item.dimensions.height;
-            const preset = DEVICE_PRESETS.find(p => p.id === item.presetId);
             
-            // Manual AspectFill calculation for video export
-            const scale = preset ? Math.max(cardW / sw, cardH / sh) : 1;
+            // Always use AspectFit to match the preview behavior
+            const scale = Math.min(cardW / sw, cardH / sh);
             const finalW = sw * scale;
             const finalH = sh * scale;
             
@@ -529,8 +528,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         const sw = item.dimensions.width;
         const sh = item.dimensions.height;
 
-        // Manual AspectFill calculation
-        const scale = selectedPreset ? Math.max(dw / sw, dh / sh) : 1;
+        // Manual AspectFit calculation
+        const scale = Math.min(dw / sw, dh / sh);
         const finalW = sw * scale;
         const finalH = sh * scale;
         const x = (dw - finalW) / 2;
@@ -1138,7 +1137,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                     backgroundPosition: 'center'
                   }}
                 >
-                  <SvgaPlayer videoItem={selectedItem.videoItem} />
+                  <SvgaPlayer item={selectedItem} />
                   {watermark && (
                     <img 
                       src={watermark} 
@@ -1171,13 +1170,14 @@ const InfoItem: React.FC<{ label: string; value: string | number }> = ({ label, 
   </div>
 );
 
-const SvgaPlayer: React.FC<{ videoItem: any }> = ({ videoItem }) => {
+const SvgaPlayer: React.FC<{ item: any }> = ({ item }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
+  const selectedPreset = useMemo(() => DEVICE_PRESETS.find(p => p.id === item.presetId), [item.presetId]);
 
   useEffect(() => {
-    if (!containerRef.current || !wrapperRef.current) return;
+    if (!containerRef.current || !wrapperRef.current || !item.videoItem) return;
     
     // Clear container first
     containerRef.current.innerHTML = '';
@@ -1187,7 +1187,7 @@ const SvgaPlayer: React.FC<{ videoItem: any }> = ({ videoItem }) => {
     
     // We manually scale and center the container, so use Fill
     player.setContentMode('Fill');
-    player.setVideoItem(videoItem);
+    player.setVideoItem(item.videoItem);
     player.startAnimation();
 
     const updateCanvasStyles = () => {
@@ -1195,12 +1195,12 @@ const SvgaPlayer: React.FC<{ videoItem: any }> = ({ videoItem }) => {
       
       const wrapperWidth = wrapperRef.current.clientWidth;
       const wrapperHeight = wrapperRef.current.clientHeight;
-      const svgaWidth = videoItem.videoSize?.width || 1;
-      const svgaHeight = videoItem.videoSize?.height || 1;
+      const svgaWidth = item.videoItem.videoSize?.width || 1;
+      const svgaHeight = item.videoItem.videoSize?.height || 1;
 
       // Fixed container dimensions as requested
-      const containerWidth = 1334;
-      const containerHeight = 750;
+      const containerWidth = selectedPreset ? selectedPreset.width : item.dimensions.width;
+      const containerHeight = selectedPreset ? selectedPreset.height : item.dimensions.height;
 
       // 1. Scale the SVGA to fit inside the fixed 1334x750 container
       const svgaScale = Math.min(containerWidth / svgaWidth, containerHeight / svgaHeight);
@@ -1256,7 +1256,7 @@ const SvgaPlayer: React.FC<{ videoItem: any }> = ({ videoItem }) => {
       player.stopAnimation();
       player.clear();
     };
-  }, [videoItem]);
+  }, [item]);
 
   return (
     <div ref={wrapperRef} className="w-full h-full relative overflow-hidden flex items-center justify-center">
@@ -1330,8 +1330,8 @@ const SvgaCard: React.FC<{
         const svgaHeight = item.dimensions.height || 1;
   
         // Fixed container dimensions as requested
-        const containerWidth = 1334;
-        const containerHeight = 750;
+        const containerWidth = selectedPreset ? selectedPreset.width : item.dimensions.width;
+        const containerHeight = selectedPreset ? selectedPreset.height : item.dimensions.height;
   
         // 1. Scale the SVGA to fit inside the fixed 1334x750 container
         const svgaScale = Math.min(containerWidth / svgaWidth, containerHeight / svgaHeight);
@@ -1421,7 +1421,7 @@ const SvgaCard: React.FC<{
         ref={wrapperRef}
         className={`relative bg-slate-950/50 flex items-center justify-center overflow-hidden w-full`}
         style={{
-          height: selectedPreset ? `${(selectedPreset.height / selectedPreset.width) * 350}px` : `${(750 / 1334) * 400}px`,
+          height: selectedPreset ? `${(selectedPreset.height / selectedPreset.width) * 350}px` : `${(item.dimensions.height / item.dimensions.width) * 350}px`,
           backgroundImage: previewBg ? `url(${previewBg})` : 'none',
           backgroundSize: 'cover',
           backgroundPosition: 'center'
