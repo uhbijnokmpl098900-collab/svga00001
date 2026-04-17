@@ -36,6 +36,13 @@ export const getDefaultDimensions = (metadata: any): Dimensions => {
     };
   }
   
+  if (metadata?.videoItem?.videoSize?.width && metadata?.videoItem?.videoSize?.height) {
+      return {
+          width: metadata.videoItem.videoSize.width,
+          height: metadata.videoItem.videoSize.height
+      };
+  }
+  
   // Fallback to standard 1334x750 if no dimensions found
   return {
     width: 1334,

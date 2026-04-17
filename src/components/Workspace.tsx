@@ -72,6 +72,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const containerRef = useRef<HTMLDivElement>(null);
   
   const [isPlaying, setIsPlaying] = useState(true);
+  const [pauseOnManipulate, setPauseOnManipulate] = useState(true);
+  const isPlayingRef = useRef(isPlaying);
+  useEffect(() => {
+      isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
   const [currentFrame, setCurrentFrame] = useState(0);
   const [selectedFormat, setSelectedFormat] = useState('AE Project');
   const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>(initialGlobalQuality);
@@ -964,11 +969,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
       // Restore frame if we were playing/paused at a specific frame
       if (currentFrame > 0) {
-          player.stepToFrame(currentFrame, true);
+          player.stepToFrame(currentFrame, isPlayingRef.current);
       }
       
-      player.startAnimation();
-      setIsPlaying(true);
+      if (isPlayingRef.current) {
+          player.startAnimation();
+      }
+      
       player.onFrame((frame: number) => setCurrentFrame(frame));
       setSvgaInstance(player);
       return () => { 
@@ -1459,6 +1466,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     if (file) {
       ensureInteractionAccess('Add Layer').then(allowed => {
         if (!allowed) return;
+        if (isPlaying && pauseOnManipulate) {
+          setIsPlaying(false);
+          svgaInstance?.pauseAnimation();
+          audioRef.current?.pause();
+        }
         const reader = new FileReader();
         reader.onload = async (ev) => {
           const url = ev.target?.result as string;
@@ -1873,6 +1885,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const handleScaleSprite = (keys: string | string[] | Set<string>, factor: number) => {
       if (!metadata.videoItem) return;
+      
+      if (isPlaying && pauseOnManipulate) {
+          setIsPlaying(false);
+          svgaInstance?.pauseAnimation();
+          audioRef.current?.pause();
+      }
+      
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
 
       const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
@@ -1928,6 +1947,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const handleRotateSprite = (keys: string | string[] | Set<string>, angle: number) => {
       if (!metadata.videoItem) return;
+      
+      if (isPlaying && pauseOnManipulate) {
+          setIsPlaying(false);
+          svgaInstance?.pauseAnimation();
+          audioRef.current?.pause();
+      }
+      
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
 
       const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
@@ -2033,6 +2059,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const handleShiftSprite = (keys: string | string[] | Set<string>, delta: { x?: number, y?: number }) => {
       if (!metadata.videoItem) return;
+      
+      // Auto-pause during manipulation to prevent lag
+      if (isPlaying && pauseOnManipulate) {
+          setIsPlaying(false);
+          svgaInstance?.pauseAnimation();
+          audioRef.current?.pause();
+      }
+      
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
       
       const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
@@ -2064,6 +2098,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleUpdateSprite = (key: string, updates: { x?: number, y?: number, width?: number, height?: number, scale?: number }) => {
       if (!metadata.videoItem) return;
       
+      if (isPlaying && pauseOnManipulate) {
+          setIsPlaying(false);
+          svgaInstance?.pauseAnimation();
+          audioRef.current?.pause();
+      }
+      
       const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       let updated = false;
 
@@ -2094,6 +2134,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleMoveSprite = (key: string, direction: 'up' | 'down') => {
       if (!metadata.videoItem || !metadata.videoItem.sprites) return;
       
+      if (isPlaying && pauseOnManipulate) {
+          setIsPlaying(false);
+          svgaInstance?.pauseAnimation();
+          audioRef.current?.pause();
+      }
+      
       const newSprites = [...metadata.videoItem.sprites];
       const index = newSprites.findIndex((s: any) => s.imageKey === key);
       
@@ -2120,6 +2166,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const handleRemoveLayer = async (id: string) => {
     if (!(await ensureInteractionAccess('Remove Layer'))) return;
+    if (isPlaying && pauseOnManipulate) {
+      setIsPlaying(false);
+      svgaInstance?.pauseAnimation();
+      audioRef.current?.pause();
+    }
     if (confirm("حذف هذه الطبقة؟")) {
         setCustomLayers(prev => prev.filter(l => l.id !== id));
         if (selectedLayerId === id) setSelectedLayerId(null);
@@ -2128,6 +2179,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const handleMoveLayer = async (id: string, direction: 'up' | 'down') => {
     if (!(await ensureInteractionAccess('Move Layer'))) return;
+    if (isPlaying && pauseOnManipulate) {
+      setIsPlaying(false);
+      svgaInstance?.pauseAnimation();
+      audioRef.current?.pause();
+    }
     setCustomLayers(prev => {
       const index = prev.findIndex(l => l.id === id);
       if (index === -1) return prev;
@@ -2143,6 +2199,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const handleUpdateLayer = async (id: string, updates: Partial<CustomLayer>) => {
     if (!(await ensureInteractionAccess('Update Layer'))) return;
+    if (isPlaying && pauseOnManipulate) {
+      setIsPlaying(false);
+      svgaInstance?.pauseAnimation();
+      audioRef.current?.pause();
+    }
     setCustomLayers(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l));
   };
 
@@ -2689,7 +2750,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
     try {
       const videoItem = svgaInstance.videoItem || metadata.videoItem;
-      const { width, height } = videoItem.videoSize;
       const totalFrames = videoItem.frames;
       const fps = videoItem.FPS || 30;
 
@@ -2698,30 +2758,46 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       exportContainer.style.position = 'fixed';
       exportContainer.style.left = '-9999px';
       exportContainer.style.top = '-9999px';
-      exportContainer.style.width = `${width}px`;
-      exportContainer.style.height = `${height}px`;
+      exportContainer.style.width = `${videoItem.videoSize.width}px`;
+      exportContainer.style.height = `${videoItem.videoSize.height}px`;
       document.body.appendChild(exportContainer);
 
       const exportPlayer = new SVGA.Player(exportContainer);
-      exportPlayer.setContentMode('Fill');
+      exportPlayer.setContentMode('AspectFill');
       exportPlayer.setVideoItem(videoItem);
 
       const frames: { data: string; w: number; h: number }[] = [];
+
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = videoWidth;
+      tempCanvas.height = videoHeight;
+      const tCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
 
       for (let i = 0; i < totalFrames; i++) {
         setExportPhase(`جاري معالجة الإطار ${i + 1} من ${totalFrames}...`);
         exportPlayer.stepToFrame(i, false);
         
-        // Small delay to ensure rendering is complete
         await new Promise(r => setTimeout(r, 50));
         
         const canvas = exportContainer.querySelector('canvas');
-        if (canvas) {
-          const dataUrl = canvas.toDataURL('image/png', 1.0);
-          frames.push({ data: dataUrl, w: width, h: height });
+        if (canvas && tCtx) {
+          tCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+          
+          const s = Math.min(videoWidth / canvas.width, videoHeight / canvas.height);
+          const w = canvas.width * s;
+          const h = canvas.height * s;
+          const x = (videoWidth - w) / 2;
+          const y = (videoHeight - h) / 2;
+          
+          tCtx.drawImage(canvas, x, y, w, h);
+
+          const dataUrl = tempCanvas.toDataURL('image/png', 1.0);
+          frames.push({ data: dataUrl, w: videoWidth, h: videoHeight });
         }
         setProgress(Math.round(((i + 1) / totalFrames) * 100));
       }
+
+      document.body.removeChild(exportContainer);
 
       setExportPhase('جاري إنشاء ملف Lottie النهائي...');
       const lottieJson = await convertFramesToLottieSequence(frames, fps);
@@ -3454,8 +3530,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         const delay = Math.round(1000 / fps);
 
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = canvas.width;
-        tempCanvas.height = canvas.height;
+        tempCanvas.width = videoWidth;
+        tempCanvas.height = videoHeight;
         const tCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
 
         for (let i = 0; i < totalFrames; i++) {
@@ -3465,7 +3541,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             const currentCanvas = playerRef.current?.querySelector('canvas');
             if (currentCanvas && tCtx) {
                 tCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
-                tCtx.drawImage(currentCanvas, 0, 0);
+                
+                const s = Math.min(videoWidth / currentCanvas.width, videoHeight / currentCanvas.height);
+                const w = currentCanvas.width * s;
+                const h = currentCanvas.height * s;
+                const x = (videoWidth - w) / 2;
+                const y = (videoHeight - h) / 2;
+                
+                tCtx.drawImage(currentCanvas, x, y, w, h);
                 applyTransparencyEffects(tCtx, tempCanvas.width, tempCanvas.height);
 
                 const imageData = tCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
@@ -3482,7 +3565,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         if (globalQuality === 'medium') cnum = 256;
         if (globalQuality === 'low') cnum = 128;
 
-        const apngBuffer = UPNG.encode(framesData, canvas.width, canvas.height, cnum, delays);
+        const apngBuffer = UPNG.encode(framesData, tempCanvas.width, tempCanvas.height, cnum, delays);
         
         const blob = new Blob([apngBuffer], { type: 'image/png' });
         const link = document.createElement("a");
@@ -5896,12 +5979,22 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                         )}
                     </div>
                     
-                    {/* VAP Toggle */}
-                    <div className="flex items-center gap-2 mb-4 p-3 bg-white/5 rounded-xl border border-white/5">
-                        <div className="relative inline-flex items-center cursor-pointer" onClick={() => setIsVapMode(!isVapMode)}>
-                            <input type="checkbox" className="sr-only peer" checked={isVapMode} readOnly />
-                            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-500"></div>
-                            <span className="mr-3 text-xs font-bold text-slate-300">استيراد فيديو شفاف (VAP)</span>
+                    {/* Toggles */}
+                    <div className="flex flex-col gap-2 mb-4">
+                        <div className="flex items-center p-3 bg-white/5 rounded-xl border border-white/5">
+                            <div className="relative inline-flex items-center cursor-pointer" onClick={() => setIsVapMode(!isVapMode)}>
+                                <input type="checkbox" className="sr-only peer" checked={isVapMode} readOnly />
+                                <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-500"></div>
+                                <span className="mr-3 text-xs font-bold text-slate-300">استيراد فيديو شفاف (VAP)</span>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center p-3 bg-white/5 rounded-xl border border-white/5">
+                            <div className="relative inline-flex items-center cursor-pointer" onClick={() => setPauseOnManipulate(!pauseOnManipulate)}>
+                                <input type="checkbox" className="sr-only peer" checked={pauseOnManipulate} readOnly />
+                                <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-500"></div>
+                                <span className="mr-3 text-xs font-bold text-slate-300">إيقاف التشغيل عند التعديل والتحريك</span>
+                            </div>
                         </div>
                     </div>
                     
