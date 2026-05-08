@@ -77,6 +77,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
   const [removeGreen, setRemoveGreen] = useState(false);
   const [removeBlue, setRemoveBlue] = useState(false);
   const [fadeConfig, setFadeConfig] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
+  const [edgeMode, setEdgeMode] = useState<'fade' | 'crop'>('fade');
+  const [edgeFeather, setEdgeFeather] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
   
   const file = files[currentFileIndex] || null;
   const videoUrl = videoUrls[currentFileIndex] || null;
@@ -171,12 +173,36 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
       let b = data[i + 2];
       let a = data[i + 3];
 
-      // 1. Edge Fade Calculation
+      // 1. Edge Fade or Crop Calculation
       let edgeAlpha = 1.0;
-      if (currentFade.top > 0 && y < fadeTopLimit) edgeAlpha *= (y / fadeTopLimit);
-      if (currentFade.bottom > 0 && y > fadeBottomLimit) edgeAlpha *= ((height - y) / (height - fadeBottomLimit));
-      if (currentFade.left > 0 && x < fadeLeftLimit) edgeAlpha *= (x / fadeLeftLimit);
-      if (currentFade.right > 0 && x > fadeRightLimit) edgeAlpha *= ((width - x) / (width - fadeRightLimit));
+      if (edgeMode === 'fade') {
+          if (currentFade.top > 0 && y < fadeTopLimit) edgeAlpha *= (y / fadeTopLimit);
+          if (currentFade.bottom > 0 && y > fadeBottomLimit) edgeAlpha *= ((height - y) / (height - fadeBottomLimit));
+          if (currentFade.left > 0 && x < fadeLeftLimit) edgeAlpha *= (x / fadeLeftLimit);
+          if (currentFade.right > 0 && x > fadeRightLimit) edgeAlpha *= ((width - x) / (width - fadeRightLimit));
+      } else {
+          const fTopPixels = height * (edgeFeather.top / 100);
+          const fBottomPixels = height * (edgeFeather.bottom / 100);
+          const fLeftPixels = width * (edgeFeather.left / 100);
+          const fRightPixels = width * (edgeFeather.right / 100);
+
+          if (currentFade.top > 0) {
+              if (y <= fadeTopLimit) edgeAlpha = 0;
+              else if (edgeFeather.top > 0 && y < fadeTopLimit + fTopPixels) edgeAlpha *= ((y - fadeTopLimit) / fTopPixels);
+          }
+          if (currentFade.bottom > 0) {
+              if (y >= fadeBottomLimit) edgeAlpha = 0;
+              else if (edgeFeather.bottom > 0 && y > fadeBottomLimit - fBottomPixels) edgeAlpha *= ((fadeBottomLimit - y) / fBottomPixels);
+          }
+          if (currentFade.left > 0) {
+              if (x <= fadeLeftLimit) edgeAlpha = 0;
+              else if (edgeFeather.left > 0 && x < fadeLeftLimit + fLeftPixels) edgeAlpha *= ((x - fadeLeftLimit) / fLeftPixels);
+          }
+          if (currentFade.right > 0) {
+              if (x >= fadeRightLimit) edgeAlpha = 0;
+              else if (edgeFeather.right > 0 && x > fadeRightLimit - fRightPixels) edgeAlpha *= ((fadeRightLimit - x) / fRightPixels);
+          }
+      }
 
       // 2. Remove Black Logic (Enhanced with Tolerance)
       if (removeBlack) {
@@ -2366,22 +2392,50 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
 
             {/* Edge Fade Sliders */}
             <div className="space-y-6 pt-4 border-t border-white/5">
-              <h5 className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-4 flex items-center gap-2">
-                <Layers className="w-3 h-3" />
-                تدرج الشفافية (Edge Fade)
-              </h5>
-              <div className="grid grid-cols-2 gap-6">
+              <div className="flex items-center justify-between mb-4">
+                  <h5 className="text-slate-400 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 m-0">
+                      <Layers className="w-3 h-3" />
+                      {edgeMode === 'fade' ? 'تدرج الشفافية (Edge Fade)' : 'قص الحواف (Edge Crop)'}
+                  </h5>
+                  <button
+                      onClick={() => setEdgeMode(edgeMode === 'fade' ? 'crop' : 'fade')}
+                      className={`text-[8px] px-3 py-1.5 rounded-lg border transition-all font-black uppercase ${edgeMode === 'crop' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-white/5 text-slate-500 border-white/10 hover:bg-white/10'}`}
+                  >
+                      {edgeMode === 'fade' ? 'تبديل إلى قص' : 'تبديل إلى تدرج'}
+                  </button>
+              </div>
+              <div className="grid grid-cols-2 gap-6 mt-0">
                 {['top', 'bottom', 'left', 'right'].map((dir) => (
-                  <div key={dir} className="space-y-3">
+                  <div key={dir} className="space-y-3 bg-black/20 p-3 rounded-xl border border-white/5">
                     <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase">
                       <span>{dir === 'top' ? 'أعلى' : dir === 'bottom' ? 'أسفل' : dir === 'left' ? 'يسار' : 'يمين'}</span>
-                      <span className="text-sky-400">{fadeConfig[dir as keyof typeof fadeConfig]}%</span>
                     </div>
-                    <input 
-                      type="range" min="0" max="50" value={fadeConfig[dir as keyof typeof fadeConfig]} 
-                      onChange={(e) => setFadeConfig({...fadeConfig, [dir]: parseInt(e.target.value)})}
-                      className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-sky-500"
-                    />
+                    
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-[8px] text-slate-400">
+                            <span>{edgeMode === 'fade' ? 'الشفافية' : 'القص'}</span>
+                            <span className="text-sky-400 font-mono">{fadeConfig[dir as keyof typeof fadeConfig]}%</span>
+                        </div>
+                        <input 
+                          type="range" min="0" max="50" value={fadeConfig[dir as keyof typeof fadeConfig]} 
+                          onChange={(e) => setFadeConfig({...fadeConfig, [dir]: parseInt(e.target.value)})}
+                          className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-sky-500"
+                        />
+                    </div>
+
+                    {edgeMode === 'crop' && (
+                        <div className="space-y-1 pt-1">
+                            <div className="flex justify-between text-[8px] text-slate-400">
+                                <span>النعومة (Feather)</span>
+                                <span className="text-purple-400 font-mono">{edgeFeather[dir as keyof typeof edgeFeather]}%</span>
+                            </div>
+                            <input 
+                                type="range" min="0" max="50" value={edgeFeather[dir as keyof typeof edgeFeather]} 
+                                onChange={(e) => setEdgeFeather({...edgeFeather, [dir]: parseInt(e.target.value)})}
+                                className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                            />
+                        </div>
+                    )}
                   </div>
                 ))}
               </div>
