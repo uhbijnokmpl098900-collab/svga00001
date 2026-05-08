@@ -155,54 +155,112 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
   }, [formats, selectedFormat]);
 
   const applyTransparencyEffects = (ctx: CanvasRenderingContext2D, width: number, height: number, configOverride?: typeof fadeConfig) => {
-    const imageData = ctx.getImageData(0, 0, width, height);
-    const data = imageData.data;
     const currentFade = configOverride || fadeConfig;
 
-    const fadeTopLimit = (height * currentFade.top) / 100;
-    const fadeBottomLimit = height - (height * currentFade.bottom) / 100;
-    const fadeLeftLimit = (width * currentFade.left) / 100;
-    const fadeRightLimit = width - (width * currentFade.right) / 100;
+    if (currentFade.top > 0 || currentFade.bottom > 0 || currentFade.left > 0 || currentFade.right > 0) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+
+        const fadeTopLimit = height * (currentFade.top / 100);
+        const fadeBottomLimit = height * (currentFade.bottom / 100);
+        const fadeLeftLimit = width * (currentFade.left / 100);
+        const fadeRightLimit = width * (currentFade.right / 100);
+
+        if (edgeMode === 'fade') {
+            if (currentFade.top > 0) {
+                const grad = ctx.createLinearGradient(0, 0, 0, fadeTopLimit);
+                grad.addColorStop(0, 'rgba(0,0,0,1)');
+                grad.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, width, fadeTopLimit);
+            }
+            if (currentFade.bottom > 0) {
+                const grad = ctx.createLinearGradient(0, height, 0, height - fadeBottomLimit);
+                grad.addColorStop(0, 'rgba(0,0,0,1)');
+                grad.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, height - fadeBottomLimit, width, fadeBottomLimit);
+            }
+            if (currentFade.left > 0) {
+                const grad = ctx.createLinearGradient(0, 0, fadeLeftLimit, 0);
+                grad.addColorStop(0, 'rgba(0,0,0,1)');
+                grad.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, fadeLeftLimit, height);
+            }
+            if (currentFade.right > 0) {
+                const grad = ctx.createLinearGradient(width, 0, width - fadeRightLimit, 0);
+                grad.addColorStop(0, 'rgba(0,0,0,1)');
+                grad.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = grad;
+                ctx.fillRect(width - fadeRightLimit, 0, fadeRightLimit, height);
+            }
+        } else {
+            const fTopPixels = height * (edgeFeather.top / 100);
+            const fBottomPixels = height * (edgeFeather.bottom / 100);
+            const fLeftPixels = width * (edgeFeather.left / 100);
+            const fRightPixels = width * (edgeFeather.right / 100);
+
+            if (currentFade.top > 0) {
+                ctx.fillStyle = 'rgba(0,0,0,1)';
+                ctx.fillRect(0, 0, width, fadeTopLimit);
+                if (fTopPixels > 0) {
+                    const grad = ctx.createLinearGradient(0, fadeTopLimit, 0, fadeTopLimit + fTopPixels);
+                    grad.addColorStop(0, 'rgba(0,0,0,1)');
+                    grad.addColorStop(1, 'rgba(0,0,0,0)');
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(0, fadeTopLimit, width, fTopPixels);
+                }
+            }
+            if (currentFade.bottom > 0) {
+                ctx.fillStyle = 'rgba(0,0,0,1)';
+                ctx.fillRect(0, height - fadeBottomLimit, width, fadeBottomLimit);
+                if (fBottomPixels > 0) {
+                    const grad = ctx.createLinearGradient(0, height - fadeBottomLimit, 0, height - fadeBottomLimit - fBottomPixels);
+                    grad.addColorStop(0, 'rgba(0,0,0,1)');
+                    grad.addColorStop(1, 'rgba(0,0,0,0)');
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(0, height - fadeBottomLimit - fBottomPixels, width, fBottomPixels);
+                }
+            }
+            if (currentFade.left > 0) {
+                ctx.fillStyle = 'rgba(0,0,0,1)';
+                ctx.fillRect(0, 0, fadeLeftLimit, height);
+                if (fLeftPixels > 0) {
+                    const grad = ctx.createLinearGradient(fadeLeftLimit, 0, fadeLeftLimit + fLeftPixels, 0);
+                    grad.addColorStop(0, 'rgba(0,0,0,1)');
+                    grad.addColorStop(1, 'rgba(0,0,0,0)');
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(fadeLeftLimit, 0, fLeftPixels, height);
+                }
+            }
+            if (currentFade.right > 0) {
+                ctx.fillStyle = 'rgba(0,0,0,1)';
+                ctx.fillRect(width - fadeRightLimit, 0, fadeRightLimit, height);
+                if (fRightPixels > 0) {
+                    const grad = ctx.createLinearGradient(width - fadeRightLimit, 0, width - fadeRightLimit - fRightPixels, 0);
+                    grad.addColorStop(0, 'rgba(0,0,0,1)');
+                    grad.addColorStop(1, 'rgba(0,0,0,0)');
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(width - fadeRightLimit - fRightPixels, 0, fRightPixels, height);
+                }
+            }
+        }
+        ctx.restore();
+    }
+
+    if (!removeBlack && !removeGreen && !removeBlue && !removeWhite) {
+        return;
+    }
+
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
 
     for (let i = 0; i < data.length; i += 4) {
-      const x = (i / 4) % width;
-      const y = Math.floor((i / 4) / width);
-
       let r = data[i];
       let g = data[i + 1];
       let b = data[i + 2];
       let a = data[i + 3];
-
-      // 1. Edge Fade or Crop Calculation
-      let edgeAlpha = 1.0;
-      if (edgeMode === 'fade') {
-          if (currentFade.top > 0 && y < fadeTopLimit) edgeAlpha *= (y / fadeTopLimit);
-          if (currentFade.bottom > 0 && y > fadeBottomLimit) edgeAlpha *= ((height - y) / (height - fadeBottomLimit));
-          if (currentFade.left > 0 && x < fadeLeftLimit) edgeAlpha *= (x / fadeLeftLimit);
-          if (currentFade.right > 0 && x > fadeRightLimit) edgeAlpha *= ((width - x) / (width - fadeRightLimit));
-      } else {
-          const fTopPixels = height * (edgeFeather.top / 100);
-          const fBottomPixels = height * (edgeFeather.bottom / 100);
-          const fLeftPixels = width * (edgeFeather.left / 100);
-          const fRightPixels = width * (edgeFeather.right / 100);
-
-          if (currentFade.top > 0) {
-              if (y <= fadeTopLimit) edgeAlpha = 0;
-              else if (edgeFeather.top > 0 && y < fadeTopLimit + fTopPixels) edgeAlpha *= ((y - fadeTopLimit) / fTopPixels);
-          }
-          if (currentFade.bottom > 0) {
-              if (y >= fadeBottomLimit) edgeAlpha = 0;
-              else if (edgeFeather.bottom > 0 && y > fadeBottomLimit - fBottomPixels) edgeAlpha *= ((fadeBottomLimit - y) / fBottomPixels);
-          }
-          if (currentFade.left > 0) {
-              if (x <= fadeLeftLimit) edgeAlpha = 0;
-              else if (edgeFeather.left > 0 && x < fadeLeftLimit + fLeftPixels) edgeAlpha *= ((x - fadeLeftLimit) / fLeftPixels);
-          }
-          if (currentFade.right > 0) {
-              if (x >= fadeRightLimit) edgeAlpha = 0;
-              else if (edgeFeather.right > 0 && x > fadeRightLimit - fRightPixels) edgeAlpha *= ((fadeRightLimit - x) / fRightPixels);
-          }
-      }
 
       // 2. Remove Black Logic (Enhanced with Tolerance)
       if (removeBlack) {
@@ -274,11 +332,10 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
         }
       }
 
-      const finalAlpha = (a / 255) * edgeAlpha;
       data[i] = r;
       data[i + 1] = g;
       data[i + 2] = b;
-      data[i + 3] = Math.round(finalAlpha * 255);
+      data[i + 3] = a;
     }
     ctx.putImageData(imageData, 0, 0);
   };
