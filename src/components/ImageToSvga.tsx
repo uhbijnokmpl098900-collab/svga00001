@@ -217,7 +217,6 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
       }
 
       if (chromaKeyEnabled) processChromaKey(ctx, width, height);
-      processEdgeFade(ctx, width, height);
       if (backgroundImage) drawOverlays(ctx, width, height, true);
       if (watermarkImage) drawOverlays(ctx, width, height, false);
   };
@@ -295,7 +294,6 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
             }
 
             if (chromaKeyEnabled) processChromaKey(ctx, canvas.width, canvas.height);
-            processEdgeFade(ctx, canvas.width, canvas.height);
             if (backgroundImage) drawOverlays(ctx, canvas.width, canvas.height, true);
             if (watermarkImage) drawOverlays(ctx, canvas.width, canvas.height, false);
 
@@ -413,7 +411,6 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
             }
 
             if (chromaKeyEnabled) processChromaKey(ctx, canvas.width, canvas.height);
-            processEdgeFade(ctx, canvas.width, canvas.height);
             if (backgroundImage) drawOverlays(ctx, canvas.width, canvas.height, true);
             if (watermarkImage) drawOverlays(ctx, canvas.width, canvas.height, false);
 
@@ -541,7 +538,6 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
             }
 
             if (chromaKeyEnabled) processChromaKey(fctx, frameCanvas.width, frameCanvas.height);
-            processEdgeFade(fctx, frameCanvas.width, frameCanvas.height);
             if (backgroundImage) drawOverlays(fctx, frameCanvas.width, frameCanvas.height, true);
             if (watermarkImage) drawOverlays(fctx, frameCanvas.width, frameCanvas.height, false);
 
@@ -918,11 +914,6 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
   const [chromaKeyColor, setChromaKeyColor] = useState('#00FF00'); // Default Green
   const [chromaKeyThreshold, setChromaKeyThreshold] = useState(0.35);
   const [chromaKeyFeather, setChromaKeyFeather] = useState(0.15);
-
-  // Edge Fade Config
-  const [fadeConfig, setFadeConfig] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
-  const [edgeMode, setEdgeMode] = useState<'fade' | 'crop'>('fade');
-  const [edgeFeather, setEdgeFeather] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -1387,101 +1378,6 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
     }
   };
 
-  // Helper function for Edge Fade
-  const processEdgeFade = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    if (fadeConfig.top === 0 && fadeConfig.bottom === 0 && fadeConfig.left === 0 && fadeConfig.right === 0) return;
-
-    ctx.save();
-    ctx.globalCompositeOperation = 'destination-out';
-
-    const fadeTopLimit = height * (fadeConfig.top / 100);
-    const fadeBottomLimit = height * (fadeConfig.bottom / 100);
-    const fadeLeftLimit = width * (fadeConfig.left / 100);
-    const fadeRightLimit = width * (fadeConfig.right / 100);
-
-    if (edgeMode === 'fade') {
-        if (fadeConfig.top > 0) {
-            const grad = ctx.createLinearGradient(0, 0, 0, fadeTopLimit);
-            grad.addColorStop(0, 'rgba(0,0,0,1)');
-            grad.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, width, fadeTopLimit);
-        }
-        if (fadeConfig.bottom > 0) {
-            const grad = ctx.createLinearGradient(0, height, 0, height - fadeBottomLimit);
-            grad.addColorStop(0, 'rgba(0,0,0,1)');
-            grad.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, height - fadeBottomLimit, width, fadeBottomLimit);
-        }
-        if (fadeConfig.left > 0) {
-            const grad = ctx.createLinearGradient(0, 0, fadeLeftLimit, 0);
-            grad.addColorStop(0, 'rgba(0,0,0,1)');
-            grad.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, fadeLeftLimit, height);
-        }
-        if (fadeConfig.right > 0) {
-            const grad = ctx.createLinearGradient(width, 0, width - fadeRightLimit, 0);
-            grad.addColorStop(0, 'rgba(0,0,0,1)');
-            grad.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = grad;
-            ctx.fillRect(width - fadeRightLimit, 0, fadeRightLimit, height);
-        }
-    } else {
-        const fTopPixels = height * (edgeFeather.top / 100);
-        const fBottomPixels = height * (edgeFeather.bottom / 100);
-        const fLeftPixels = width * (edgeFeather.left / 100);
-        const fRightPixels = width * (edgeFeather.right / 100);
-
-        if (fadeConfig.top > 0) {
-            ctx.fillStyle = 'rgba(0,0,0,1)';
-            ctx.fillRect(0, 0, width, fadeTopLimit);
-            if (fTopPixels > 0) {
-                const grad = ctx.createLinearGradient(0, fadeTopLimit, 0, fadeTopLimit + fTopPixels);
-                grad.addColorStop(0, 'rgba(0,0,0,1)');
-                grad.addColorStop(1, 'rgba(0,0,0,0)');
-                ctx.fillStyle = grad;
-                ctx.fillRect(0, fadeTopLimit, width, fTopPixels);
-            }
-        }
-        if (fadeConfig.bottom > 0) {
-            ctx.fillStyle = 'rgba(0,0,0,1)';
-            ctx.fillRect(0, height - fadeBottomLimit, width, fadeBottomLimit);
-            if (fBottomPixels > 0) {
-                const grad = ctx.createLinearGradient(0, height - fadeBottomLimit, 0, height - fadeBottomLimit - fBottomPixels);
-                grad.addColorStop(0, 'rgba(0,0,0,1)');
-                grad.addColorStop(1, 'rgba(0,0,0,0)');
-                ctx.fillStyle = grad;
-                ctx.fillRect(0, height - fadeBottomLimit - fBottomPixels, width, fBottomPixels);
-            }
-        }
-        if (fadeConfig.left > 0) {
-            ctx.fillStyle = 'rgba(0,0,0,1)';
-            ctx.fillRect(0, 0, fadeLeftLimit, height);
-            if (fLeftPixels > 0) {
-                const grad = ctx.createLinearGradient(fadeLeftLimit, 0, fadeLeftLimit + fLeftPixels, 0);
-                grad.addColorStop(0, 'rgba(0,0,0,1)');
-                grad.addColorStop(1, 'rgba(0,0,0,0)');
-                ctx.fillStyle = grad;
-                ctx.fillRect(fadeLeftLimit, 0, fLeftPixels, height);
-            }
-        }
-        if (fadeConfig.right > 0) {
-            ctx.fillStyle = 'rgba(0,0,0,1)';
-            ctx.fillRect(width - fadeRightLimit, 0, fadeRightLimit, height);
-            if (fRightPixels > 0) {
-                const grad = ctx.createLinearGradient(width - fadeRightLimit, 0, width - fadeRightLimit - fRightPixels, 0);
-                grad.addColorStop(0, 'rgba(0,0,0,1)');
-                grad.addColorStop(1, 'rgba(0,0,0,0)');
-                ctx.fillStyle = grad;
-                ctx.fillRect(width - fadeRightLimit - fRightPixels, 0, fRightPixels, height);
-            }
-        }
-    }
-    ctx.restore();
-  };
-
   // Helper function for Chroma Key (Green Screen Removal)
   const processChromaKey = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     if (!chromaKeyEnabled) return;
@@ -1652,7 +1548,6 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
         if (chromaKeyEnabled) {
             processChromaKey(ctx, canvas.width, canvas.height);
         }
-        processEdgeFade(ctx, canvas.width, canvas.height);
 
         // Draw Overlay Effects (Sparkles / Shine)
         if (effectType === 'sparkles') {
@@ -1681,13 +1576,12 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
         if (chromaKeyEnabled) {
             processChromaKey(ctx, canvas.width, canvas.height);
         }
-        processEdgeFade(ctx, canvas.width, canvas.height);
 
         // Apply Overlays
         if (backgroundImage) drawOverlays(ctx, canvas.width, canvas.height, true);
         if (watermarkImage) drawOverlays(ctx, canvas.width, canvas.height, false);
     }
-  }, [currentPreviewFrame, frames, canvasSize, effectType, effectDuration, effectIntensity, chromaKeyEnabled, chromaKeyColor, chromaKeyThreshold, chromaKeyFeather, fadeConfig, edgeMode, edgeFeather, backgroundImage, watermarkImage, watermarkOpacity, watermarkPosition, watermarkSize]);
+  }, [currentPreviewFrame, frames, canvasSize, effectType, effectDuration, effectIntensity, chromaKeyEnabled, chromaKeyColor, chromaKeyThreshold, chromaKeyFeather, backgroundImage, watermarkImage, watermarkOpacity, watermarkPosition, watermarkSize]);
 
   const generateSVGA = async () => {
     if (frames.length === 0) return;
@@ -1753,7 +1647,6 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
 
                         // Apply Chroma Key
                         processChromaKey(ctx, canvas.width, canvas.height);
-            processEdgeFade(ctx, canvas.width, canvas.height);
 
                         // Draw Watermark
                         if (watermarkImage) drawOverlays(ctx, canvas.width, canvas.height, false);
@@ -1843,7 +1736,6 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
                     
                     // Apply Chroma Key
                     processChromaKey(ctx, canvas.width, canvas.height);
-            processEdgeFade(ctx, canvas.width, canvas.height);
 
                     // Draw Watermark
                     if (watermarkImage) drawOverlays(ctx, canvas.width, canvas.height, false);
@@ -1924,7 +1816,6 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
 
                     // Apply Chroma Key
                     processChromaKey(ctx, canvas.width, canvas.height);
-            processEdgeFade(ctx, canvas.width, canvas.height);
 
                     // Draw Watermark
                     if (watermarkImage) drawOverlays(ctx, canvas.width, canvas.height, false);
@@ -2074,7 +1965,6 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
           if (chromaKeyEnabled) {
               processChromaKey(ctx, canvas.width, canvas.height);
           }
-          processEdgeFade(ctx, canvas.width, canvas.height);
 
           // Apply Overlays
           if (backgroundImage) drawOverlays(ctx, canvas.width, canvas.height, true);
@@ -2467,56 +2357,6 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
                             </div>
                         </div>
                     )}
-                </div>
-
-                {/* Edge Fade Settings */}
-                <div className="space-y-4 pt-4 border-t border-white/5">
-                    <div className="flex items-center justify-between mb-2">
-                        <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
-                            <div className={`w-2 h-2 rounded-full ${(fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0) ? 'bg-sky-500 shadow-[0_0_10px_rgba(14,165,233,0.5)]' : 'bg-slate-600'}`}></div>
-                            {edgeMode === 'fade' ? 'تدرج الشفافية (Edge Fade)' : 'قص الحواف (Edge Crop)'}
-                        </label>
-                        <button
-                            onClick={() => setEdgeMode(edgeMode === 'fade' ? 'crop' : 'fade')}
-                            className={`text-[8px] px-3 py-1.5 rounded-lg border transition-all font-black uppercase ${edgeMode === 'crop' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-white/5 text-slate-500 border-white/10 hover:bg-white/10'}`}
-                        >
-                            {edgeMode === 'fade' ? 'تبديل إلى قص' : 'تبديل إلى تدرج'}
-                        </button>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-6 bg-black/20 p-4 rounded-2xl border border-white/5">
-                        {['top', 'bottom', 'left', 'right'].map((dir) => (
-                            <div key={dir} className="space-y-3 bg-white/5 p-3 rounded-xl border border-white/10">
-                                <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase mb-2">
-                                    <span>{dir === 'top' ? 'أعلى (Top)' : dir === 'bottom' ? 'أسفل (Bottom)' : dir === 'left' ? 'يسار (Left)' : 'يمين (Right)'}</span>
-                                </div>
-                                <div className="space-y-1">
-                                    <div className="flex justify-between text-[8px] text-slate-400">
-                                        <span>{edgeMode === 'fade' ? 'الشفافية' : 'القص'}</span>
-                                        <span className="text-sky-400 font-mono">{fadeConfig[dir as keyof typeof fadeConfig]}%</span>
-                                    </div>
-                                    <input 
-                                        type="range" min="0" max="100" value={fadeConfig[dir as keyof typeof fadeConfig]} 
-                                        onChange={(e) => setFadeConfig(p => ({...p, [dir]: parseInt(e.target.value)}))}
-                                        className="w-full h-1.5 bg-black/50 rounded-lg appearance-none cursor-pointer accent-sky-500"
-                                    />
-                                </div>
-                                {edgeMode === 'crop' && (
-                                    <div className="space-y-1 pt-2">
-                                        <div className="flex justify-between text-[8px] text-slate-400">
-                                            <span>النعومة (Feather)</span>
-                                            <span className="text-purple-400 font-mono">{edgeFeather[dir as keyof typeof edgeFeather]}%</span>
-                                        </div>
-                                        <input 
-                                            type="range" min="0" max="50" value={edgeFeather[dir as keyof typeof edgeFeather]} 
-                                            onChange={(e) => setEdgeFeather(p => ({...p, [dir]: parseInt(e.target.value)}))}
-                                            className="w-full h-1.5 bg-black/50 rounded-lg appearance-none cursor-pointer accent-purple-500"
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
                 </div>
 
                 {/* Single Image Effects Controls */}

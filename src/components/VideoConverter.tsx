@@ -77,8 +77,6 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
   const [removeGreen, setRemoveGreen] = useState(false);
   const [removeBlue, setRemoveBlue] = useState(false);
   const [fadeConfig, setFadeConfig] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
-  const [edgeMode, setEdgeMode] = useState<'fade' | 'crop'>('fade');
-  const [edgeFeather, setEdgeFeather] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
   
   const file = files[currentFileIndex] || null;
   const videoUrl = videoUrls[currentFileIndex] || null;
@@ -155,112 +153,30 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
   }, [formats, selectedFormat]);
 
   const applyTransparencyEffects = (ctx: CanvasRenderingContext2D, width: number, height: number, configOverride?: typeof fadeConfig) => {
-    const currentFade = configOverride || fadeConfig;
-
-    if (currentFade.top > 0 || currentFade.bottom > 0 || currentFade.left > 0 || currentFade.right > 0) {
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-out';
-
-        const fadeTopLimit = height * (currentFade.top / 100);
-        const fadeBottomLimit = height * (currentFade.bottom / 100);
-        const fadeLeftLimit = width * (currentFade.left / 100);
-        const fadeRightLimit = width * (currentFade.right / 100);
-
-        if (edgeMode === 'fade') {
-            if (currentFade.top > 0) {
-                const grad = ctx.createLinearGradient(0, 0, 0, fadeTopLimit);
-                grad.addColorStop(0, 'rgba(0,0,0,1)');
-                grad.addColorStop(1, 'rgba(0,0,0,0)');
-                ctx.fillStyle = grad;
-                ctx.fillRect(0, 0, width, fadeTopLimit);
-            }
-            if (currentFade.bottom > 0) {
-                const grad = ctx.createLinearGradient(0, height, 0, height - fadeBottomLimit);
-                grad.addColorStop(0, 'rgba(0,0,0,1)');
-                grad.addColorStop(1, 'rgba(0,0,0,0)');
-                ctx.fillStyle = grad;
-                ctx.fillRect(0, height - fadeBottomLimit, width, fadeBottomLimit);
-            }
-            if (currentFade.left > 0) {
-                const grad = ctx.createLinearGradient(0, 0, fadeLeftLimit, 0);
-                grad.addColorStop(0, 'rgba(0,0,0,1)');
-                grad.addColorStop(1, 'rgba(0,0,0,0)');
-                ctx.fillStyle = grad;
-                ctx.fillRect(0, 0, fadeLeftLimit, height);
-            }
-            if (currentFade.right > 0) {
-                const grad = ctx.createLinearGradient(width, 0, width - fadeRightLimit, 0);
-                grad.addColorStop(0, 'rgba(0,0,0,1)');
-                grad.addColorStop(1, 'rgba(0,0,0,0)');
-                ctx.fillStyle = grad;
-                ctx.fillRect(width - fadeRightLimit, 0, fadeRightLimit, height);
-            }
-        } else {
-            const fTopPixels = height * (edgeFeather.top / 100);
-            const fBottomPixels = height * (edgeFeather.bottom / 100);
-            const fLeftPixels = width * (edgeFeather.left / 100);
-            const fRightPixels = width * (edgeFeather.right / 100);
-
-            if (currentFade.top > 0) {
-                ctx.fillStyle = 'rgba(0,0,0,1)';
-                ctx.fillRect(0, 0, width, fadeTopLimit);
-                if (fTopPixels > 0) {
-                    const grad = ctx.createLinearGradient(0, fadeTopLimit, 0, fadeTopLimit + fTopPixels);
-                    grad.addColorStop(0, 'rgba(0,0,0,1)');
-                    grad.addColorStop(1, 'rgba(0,0,0,0)');
-                    ctx.fillStyle = grad;
-                    ctx.fillRect(0, fadeTopLimit, width, fTopPixels);
-                }
-            }
-            if (currentFade.bottom > 0) {
-                ctx.fillStyle = 'rgba(0,0,0,1)';
-                ctx.fillRect(0, height - fadeBottomLimit, width, fadeBottomLimit);
-                if (fBottomPixels > 0) {
-                    const grad = ctx.createLinearGradient(0, height - fadeBottomLimit, 0, height - fadeBottomLimit - fBottomPixels);
-                    grad.addColorStop(0, 'rgba(0,0,0,1)');
-                    grad.addColorStop(1, 'rgba(0,0,0,0)');
-                    ctx.fillStyle = grad;
-                    ctx.fillRect(0, height - fadeBottomLimit - fBottomPixels, width, fBottomPixels);
-                }
-            }
-            if (currentFade.left > 0) {
-                ctx.fillStyle = 'rgba(0,0,0,1)';
-                ctx.fillRect(0, 0, fadeLeftLimit, height);
-                if (fLeftPixels > 0) {
-                    const grad = ctx.createLinearGradient(fadeLeftLimit, 0, fadeLeftLimit + fLeftPixels, 0);
-                    grad.addColorStop(0, 'rgba(0,0,0,1)');
-                    grad.addColorStop(1, 'rgba(0,0,0,0)');
-                    ctx.fillStyle = grad;
-                    ctx.fillRect(fadeLeftLimit, 0, fLeftPixels, height);
-                }
-            }
-            if (currentFade.right > 0) {
-                ctx.fillStyle = 'rgba(0,0,0,1)';
-                ctx.fillRect(width - fadeRightLimit, 0, fadeRightLimit, height);
-                if (fRightPixels > 0) {
-                    const grad = ctx.createLinearGradient(width - fadeRightLimit, 0, width - fadeRightLimit - fRightPixels, 0);
-                    grad.addColorStop(0, 'rgba(0,0,0,1)');
-                    grad.addColorStop(1, 'rgba(0,0,0,0)');
-                    ctx.fillStyle = grad;
-                    ctx.fillRect(width - fadeRightLimit - fRightPixels, 0, fRightPixels, height);
-                }
-            }
-        }
-        ctx.restore();
-    }
-
-    if (!removeBlack && !removeGreen && !removeBlue && !removeWhite) {
-        return;
-    }
-
     const imageData = ctx.getImageData(0, 0, width, height);
     const data = imageData.data;
+    const currentFade = configOverride || fadeConfig;
+
+    const fadeTopLimit = (height * currentFade.top) / 100;
+    const fadeBottomLimit = height - (height * currentFade.bottom) / 100;
+    const fadeLeftLimit = (width * currentFade.left) / 100;
+    const fadeRightLimit = width - (width * currentFade.right) / 100;
 
     for (let i = 0; i < data.length; i += 4) {
+      const x = (i / 4) % width;
+      const y = Math.floor((i / 4) / width);
+
       let r = data[i];
       let g = data[i + 1];
       let b = data[i + 2];
       let a = data[i + 3];
+
+      // 1. Edge Fade Calculation
+      let edgeAlpha = 1.0;
+      if (currentFade.top > 0 && y < fadeTopLimit) edgeAlpha *= (y / fadeTopLimit);
+      if (currentFade.bottom > 0 && y > fadeBottomLimit) edgeAlpha *= ((height - y) / (height - fadeBottomLimit));
+      if (currentFade.left > 0 && x < fadeLeftLimit) edgeAlpha *= (x / fadeLeftLimit);
+      if (currentFade.right > 0 && x > fadeRightLimit) edgeAlpha *= ((width - x) / (width - fadeRightLimit));
 
       // 2. Remove Black Logic (Enhanced with Tolerance)
       if (removeBlack) {
@@ -332,10 +248,11 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
         }
       }
 
+      const finalAlpha = (a / 255) * edgeAlpha;
       data[i] = r;
       data[i + 1] = g;
       data[i + 2] = b;
-      data[i + 3] = a;
+      data[i + 3] = Math.round(finalAlpha * 255);
     }
     ctx.putImageData(imageData, 0, 0);
   };
@@ -2449,50 +2366,22 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
 
             {/* Edge Fade Sliders */}
             <div className="space-y-6 pt-4 border-t border-white/5">
-              <div className="flex items-center justify-between mb-4">
-                  <h5 className="text-slate-400 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 m-0">
-                      <Layers className="w-3 h-3" />
-                      {edgeMode === 'fade' ? 'تدرج الشفافية (Edge Fade)' : 'قص الحواف (Edge Crop)'}
-                  </h5>
-                  <button
-                      onClick={() => setEdgeMode(edgeMode === 'fade' ? 'crop' : 'fade')}
-                      className={`text-[8px] px-3 py-1.5 rounded-lg border transition-all font-black uppercase ${edgeMode === 'crop' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-white/5 text-slate-500 border-white/10 hover:bg-white/10'}`}
-                  >
-                      {edgeMode === 'fade' ? 'تبديل إلى قص' : 'تبديل إلى تدرج'}
-                  </button>
-              </div>
-              <div className="grid grid-cols-2 gap-6 mt-0">
+              <h5 className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-4 flex items-center gap-2">
+                <Layers className="w-3 h-3" />
+                تدرج الشفافية (Edge Fade)
+              </h5>
+              <div className="grid grid-cols-2 gap-6">
                 {['top', 'bottom', 'left', 'right'].map((dir) => (
-                  <div key={dir} className="space-y-3 bg-black/20 p-3 rounded-xl border border-white/5">
+                  <div key={dir} className="space-y-3">
                     <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase">
                       <span>{dir === 'top' ? 'أعلى' : dir === 'bottom' ? 'أسفل' : dir === 'left' ? 'يسار' : 'يمين'}</span>
+                      <span className="text-sky-400">{fadeConfig[dir as keyof typeof fadeConfig]}%</span>
                     </div>
-                    
-                    <div className="space-y-1">
-                        <div className="flex justify-between text-[8px] text-slate-400">
-                            <span>{edgeMode === 'fade' ? 'الشفافية' : 'القص'}</span>
-                            <span className="text-sky-400 font-mono">{fadeConfig[dir as keyof typeof fadeConfig]}%</span>
-                        </div>
-                        <input 
-                          type="range" min="0" max="50" value={fadeConfig[dir as keyof typeof fadeConfig]} 
-                          onChange={(e) => setFadeConfig({...fadeConfig, [dir]: parseInt(e.target.value)})}
-                          className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-sky-500"
-                        />
-                    </div>
-
-                    {edgeMode === 'crop' && (
-                        <div className="space-y-1 pt-1">
-                            <div className="flex justify-between text-[8px] text-slate-400">
-                                <span>النعومة (Feather)</span>
-                                <span className="text-purple-400 font-mono">{edgeFeather[dir as keyof typeof edgeFeather]}%</span>
-                            </div>
-                            <input 
-                                type="range" min="0" max="50" value={edgeFeather[dir as keyof typeof edgeFeather]} 
-                                onChange={(e) => setEdgeFeather({...edgeFeather, [dir]: parseInt(e.target.value)})}
-                                className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-purple-500"
-                            />
-                        </div>
-                    )}
+                    <input 
+                      type="range" min="0" max="50" value={fadeConfig[dir as keyof typeof fadeConfig]} 
+                      onChange={(e) => setFadeConfig({...fadeConfig, [dir]: parseInt(e.target.value)})}
+                      className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-sky-500"
+                    />
                   </div>
                 ))}
               </div>
