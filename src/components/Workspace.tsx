@@ -138,7 +138,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [originalAudioUrl, setOriginalAudioUrl] = useState<string | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
-  const [fadeConfig, setFadeConfig] = useState({ top: 0, bottom: 0, left: 0, right: 0 }); // Percentages 0-50
+  const [fadeConfig, setFadeConfig] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
+  const [cropConfig, setCropConfig] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
+  const [cropFeather, setCropFeather] = useState({ top: 0, bottom: 0, left: 0, right: 0 }); // Percentages 0-50
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [exportScale, setExportScale] = useState(1.0); // 0.1 to 1.0 for file size control
@@ -676,7 +678,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   }, [videoWidth, videoHeight]);
 
   const applyTransparencyEffects = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    if (fadeConfig.top === 0 && fadeConfig.bottom === 0 && fadeConfig.left === 0 && fadeConfig.right === 0) return;
+    const hasFade = fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0;
+    const hasCrop = cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0;
+    
+    if (!hasFade && !hasCrop) return;
 
     const imageData = ctx.getImageData(0, 0, width, height);
     const data = imageData.data;
@@ -686,24 +691,52 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     const fadeLeftLimit = (width * fadeConfig.left) / 100;
     const fadeRightLimit = width - (width * fadeConfig.right) / 100;
 
+    const cropTopLimit = (height * cropConfig.top) / 100;
+    const cropBottomLimit = height - (height * cropConfig.bottom) / 100;
+    const cropLeftLimit = (width * cropConfig.left) / 100;
+    const cropRightLimit = width - (width * cropConfig.right) / 100;
+
+    const featherTop = (height * cropFeather.top) / 100;
+    const featherBottom = (height * cropFeather.bottom) / 100;
+    const featherLeft = (width * cropFeather.left) / 100;
+    const featherRight = (width * cropFeather.right) / 100;
+
     for (let i = 0; i < data.length; i += 4) {
       const x = (i / 4) % width;
       const y = Math.floor((i / 4) / width);
 
       let a = data[i + 3];
 
-      // Edge Fade Calculation
-      let edgeAlpha = 1.0;
-      if (fadeConfig.top > 0 && y < fadeTopLimit) edgeAlpha *= (y / fadeTopLimit);
-      if (fadeConfig.bottom > 0 && y > fadeBottomLimit) edgeAlpha *= ((height - y) / (height - fadeBottomLimit));
-      if (fadeConfig.left > 0 && x < fadeLeftLimit) edgeAlpha *= (x / fadeLeftLimit);
-      if (fadeConfig.right > 0 && x > fadeRightLimit) edgeAlpha *= ((width - x) / (width - fadeRightLimit));
+      let alphaMult = 1.0;
 
-      const finalAlpha = (a / 255) * edgeAlpha;
+      // 1. Crop + Feather
+      if (hasCrop) {
+          if (y <= cropTopLimit) alphaMult = 0;
+          else if (cropFeather.top > 0 && y < cropTopLimit + featherTop) alphaMult *= ((y - cropTopLimit) / featherTop);
+          
+          if (y >= cropBottomLimit) alphaMult = 0;
+          else if (cropFeather.bottom > 0 && y > cropBottomLimit - featherBottom) alphaMult *= ((cropBottomLimit - y) / featherBottom);
+
+          if (x <= cropLeftLimit) alphaMult = 0;
+          else if (cropFeather.left > 0 && x < cropLeftLimit + featherLeft) alphaMult *= ((x - cropLeftLimit) / featherLeft);
+
+          if (x >= cropRightLimit) alphaMult = 0;
+          else if (cropFeather.right > 0 && x > cropRightLimit - featherRight) alphaMult *= ((cropRightLimit - x) / featherRight);
+      }
+
+      // 2. Edge Fade
+      if (hasFade && alphaMult > 0) {
+          if (fadeConfig.top > 0 && y < fadeTopLimit) alphaMult *= (y / fadeTopLimit);
+          if (fadeConfig.bottom > 0 && y > fadeBottomLimit) alphaMult *= ((height - y) / (height - fadeBottomLimit));
+          if (fadeConfig.left > 0 && x < fadeLeftLimit) alphaMult *= (x / fadeLeftLimit);
+          if (fadeConfig.right > 0 && x > fadeRightLimit) alphaMult *= ((width - x) / (width - fadeRightLimit));
+      }
+
+      const finalAlpha = (a / 255) * alphaMult;
       data[i + 3] = Math.round(finalAlpha * 255);
     }
     ctx.putImageData(imageData, 0, 0);
-  }, [fadeConfig]);
+  }, [fadeConfig, cropConfig, cropFeather]);
 
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizeQuality, setOptimizeQuality] = useState(80);
@@ -2208,7 +2241,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   };
 
   const getProcessedSVGAData = async (isAEExport = false) => {
-      const isEdgeFadeActive = fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0;
+      const isEdgeFadeActive = fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0 || cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0;
       const root = protobuf.parse(svgaSchema).root;
       const MovieEntity = root.lookupType("com.opensource.svga.MovieEntity");
       let message: any;
@@ -4588,7 +4621,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         await handleSvgaExExport({
             metadata, videoWidth, videoHeight, exportScale, svgaScale, svgaPos,
             layerImages, assetColors, assetColorModes, assetBlurs, deletedKeys, layerDisplayNames, customLayers, watermark,
-            wmScale, wmPos, audioUrl, audioFile, originalAudioUrl, fadeConfig,
+            wmScale, wmPos, audioUrl, audioFile, originalAudioUrl, fadeConfig, cropConfig, cropFeather,
             applyTransparencyEffects, setProgress, setExportPhase, setIsExporting,
             protobuf, globalQuality
         });
@@ -5040,7 +5073,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         }
     }
     else if (currentFormat === 'SVGA 2.0' && typeof protobuf !== 'undefined') {
-        const isEdgeFadeActive = fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0;
+        const isEdgeFadeActive = fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0 || cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0;
 
         // If user is exporting SVGA 2.0 but hasn't uploaded the AE JSON yet, prompt them
         if (!aeJsonData) {
@@ -5837,9 +5870,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                       backgroundColor: previewBg ? 'transparent' : '#0f172a',
                       boxShadow: '0 0 100px rgba(0,0,0,0.5), inset 0 0 50px rgba(0,0,0,0.5)', 
                       border: previewBg ? 'none' : '2px solid rgba(255,255,255,0.05)',
-                      maskImage: (fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0) ? `
-                        linear-gradient(to right, transparent, black ${fadeConfig.left}%, black ${100-fadeConfig.right}%, transparent), 
-                        linear-gradient(to bottom, transparent, black ${fadeConfig.top}%, black ${100-fadeConfig.bottom}%, transparent)
+                      maskImage: (fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0 || cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0) ? `
+                        linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100-fadeConfig.right}%, transparent 100%), 
+                        linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100-fadeConfig.bottom}%, transparent 100%),
+                        linear-gradient(to right, transparent 0%, transparent ${cropConfig.left}%, black ${cropConfig.left + cropFeather.left}%, black ${100 - cropConfig.right - cropFeather.right}%, transparent ${100 - cropConfig.right}%, transparent 100%),
+                        linear-gradient(to bottom, transparent 0%, transparent ${cropConfig.top}%, black ${cropConfig.top + cropFeather.top}%, black ${100 - cropConfig.bottom - cropFeather.bottom}%, transparent ${100 - cropConfig.bottom}%, transparent 100%)
                       ` : 'none',
                       maskComposite: 'intersect'
                   }}>
@@ -5871,8 +5906,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                             id="svga-player-container" 
                             className="w-full h-full relative flex items-center justify-center overflow-visible"
                             style={{
-                                WebkitMaskImage: `linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100 - fadeConfig.bottom}%, transparent 100%), linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100 - fadeConfig.right}%, transparent 100%)`,
-                                maskImage: `linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100 - fadeConfig.bottom}%, transparent 100%), linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100 - fadeConfig.right}%, transparent 100%)`,
+                                WebkitMaskImage: (fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0 || cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0) ? `
+                                    linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100 - fadeConfig.bottom}%, transparent 100%), 
+                                    linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100 - fadeConfig.right}%, transparent 100%),
+                                    linear-gradient(to right, transparent 0%, transparent ${cropConfig.left}%, black ${cropConfig.left + cropFeather.left}%, black ${100 - cropConfig.right - cropFeather.right}%, transparent ${100 - cropConfig.right}%, transparent 100%),
+                                    linear-gradient(to bottom, transparent 0%, transparent ${cropConfig.top}%, black ${cropConfig.top + cropFeather.top}%, black ${100 - cropConfig.bottom - cropFeather.bottom}%, transparent ${100 - cropConfig.bottom}%, transparent 100%)
+                                ` : 'none',
+                                maskImage: (fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0 || cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0) ? `
+                                    linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100 - fadeConfig.bottom}%, transparent 100%), 
+                                    linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100 - fadeConfig.right}%, transparent 100%),
+                                    linear-gradient(to right, transparent 0%, transparent ${cropConfig.left}%, black ${cropConfig.left + cropFeather.left}%, black ${100 - cropConfig.right - cropFeather.right}%, transparent ${100 - cropConfig.right}%, transparent 100%),
+                                    linear-gradient(to bottom, transparent 0%, transparent ${cropConfig.top}%, black ${cropConfig.top + cropFeather.top}%, black ${100 - cropConfig.bottom - cropFeather.bottom}%, transparent ${100 - cropConfig.bottom}%, transparent 100%)
+                                ` : 'none',
                                 WebkitMaskComposite: 'source-in',
                                 maskComposite: 'intersect'
                             }}
@@ -6936,6 +6981,44 @@ class _MyAppState extends State<MyApp> {
                                         onChange={(e) => setFadeConfig(p => ({...p, [dir]: parseInt(e.target.value)}))}
                                         className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-sky-500"
                                     />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="space-y-6 pt-4 border-t border-white/5">
+                        <h5 className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-4 flex items-center gap-2">
+                            <Layers className="w-3 h-3" />
+                            قص الحواف المتقدم (Advanced Edge Crop)
+                        </h5>
+                        <div className="grid grid-cols-2 gap-6">
+                            {(['top', 'bottom', 'left', 'right'] as (keyof typeof cropConfig)[]).map((dir) => (
+                                <div key={`crop-${dir}`} className="space-y-3 bg-black/20 p-3 rounded-xl border border-white/5">
+                                    <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase">
+                                        <span>{dir === 'top' ? 'أعلى (Top)' : dir === 'bottom' ? 'أسفل (Bottom)' : dir === 'left' ? 'يسار (Left)' : 'يمين (Right)'}</span>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="flex justify-between text-[8px] text-slate-400">
+                                            <span>القص (Crop)</span>
+                                            <span className="text-emerald-400">{cropConfig[dir]}%</span>
+                                        </div>
+                                        <input 
+                                            type="range" min="0" max="50" value={cropConfig[dir]} 
+                                            onChange={(e) => setCropConfig(p => ({...p, [dir]: parseInt(e.target.value, 10)}))}
+                                            className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                                        />
+                                    </div>
+                                    <div className="space-y-1 pt-1">
+                                        <div className="flex justify-between text-[8px] text-slate-400">
+                                            <span>النعومة (Feather)</span>
+                                            <span className="text-fuchsia-400">{cropFeather[dir]}%</span>
+                                        </div>
+                                        <input 
+                                            type="range" min="0" max="50" value={cropFeather[dir]} 
+                                            onChange={(e) => setCropFeather(p => ({...p, [dir]: parseInt(e.target.value, 10)}))}
+                                            className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-fuchsia-500"
+                                        />
+                                    </div>
                                 </div>
                             ))}
                         </div>
