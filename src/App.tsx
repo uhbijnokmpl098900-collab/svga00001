@@ -8,6 +8,7 @@ import { VideoConverter } from './components/VideoConverter';
 import { MultiSvgaViewer } from './components/MultiSvgaViewer';
 import { ImageToSvga } from './components/ImageToSvga';
 import { ImageProcessor } from './components/ImageProcessor';
+import { ImageEnhancer } from './components/ImageEnhancer';
 import { BatchImageProcessor } from './components/BatchImageProcessor';
 import { BatchImageConverter } from './components/BatchImageConverter';
 import { PagConverter } from './components/PagConverter';
@@ -399,6 +400,7 @@ const App: React.FC = () => {
         onSvgaExOpen={() => handleFeatureAccess(AppState.SVGA_EDITOR_EX, 'SVGA Editor EX')}
         onMultiSvgaOpen={() => handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview')}
         onImageProcessorOpen={() => handleFeatureAccess(AppState.IMAGE_PROCESSOR, 'Image Processor')}
+        onImageEnhancerOpen={() => handleFeatureAccess(AppState.IMAGE_ENHANCER, 'AI Image Enhancer')}
         onBatchImageProcessorOpen={() => handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor')}
         onLoginClick={() => {}}
         onProfileClick={() => {}}
@@ -408,6 +410,7 @@ const App: React.FC = () => {
           state === AppState.VIDEO_CONVERTER ? 'converter' : 
           state === AppState.IMAGE_CONVERTER ? 'image-converter' :
           state === AppState.IMAGE_PROCESSOR ? 'image-processor' :
+          state === AppState.IMAGE_ENHANCER ? 'image-enhancer' :
           state === AppState.BATCH_IMAGE_PROCESSOR ? 'batch-image-processor' :
           state === AppState.IMAGE_EDITOR ? 'image-editor' :
           state === AppState.IMAGE_MATCHER ? 'image-matcher' :
@@ -482,6 +485,13 @@ const App: React.FC = () => {
             )}
             {state === AppState.IMAGE_PROCESSOR && (
               <ImageProcessor 
+                currentUser={currentUser} 
+                onCancel={handleReset} 
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.IMAGE_ENHANCER && (
+              <ImageEnhancer 
                 currentUser={currentUser} 
                 onCancel={handleReset} 
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}

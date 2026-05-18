@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserRecord, AppSettings } from '../types';
-import { LogOut, Settings, ShoppingBag, Image, Video, Layers, Wand2, BadgeCheck, Maximize, Lock, Scissors, Menu, X as CloseIcon, Zap } from 'lucide-react';
+import { LogOut, Settings, ShoppingBag, Image, Video, Layers, Wand2, BadgeCheck, Maximize, Lock, Scissors, Menu, X as CloseIcon, Zap, Sparkles } from 'lucide-react';
 
 interface HeaderProps {
   onLogoClick: () => void;
@@ -21,6 +21,7 @@ interface HeaderProps {
   onSvgaExOpen: () => void;
   onMultiSvgaOpen: () => void;
   onImageProcessorOpen: () => void;
+  onImageEnhancerOpen: () => void;
   onBatchImageProcessorOpen: () => void;
   onLoginClick: () => void;
   onProfileClick: () => void;
@@ -45,6 +46,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSvgaExOpen,
   onMultiSvgaOpen,
   onImageProcessorOpen,
+  onImageEnhancerOpen,
   onBatchImageProcessorOpen,
   onLoginClick,
   onProfileClick,
@@ -64,6 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
       show: true
     },
     { id: 'image-processor', label: 'Image Processor', icon: <Wand2 className="w-4 h-4" />, onClick: onImageProcessorOpen, color: 'emerald' },
+    { id: 'image-enhancer', label: 'AI Image Enhancer', icon: <Sparkles className="w-4 h-4" />, onClick: onImageEnhancerOpen, color: 'blue', isNew: true },
     { id: 'batch-image-processor', label: 'Batch Image Processor', icon: <Image className="w-4 h-4" />, onClick: onBatchImageProcessorOpen, color: 'teal' },
     { id: 'multi-svga', label: 'Multi SVGA Preview', icon: <Layers className="w-4 h-4" />, onClick: onMultiSvgaOpen, color: 'purple' },
     { id: 'converter', label: 'Video Converter', icon: <Video className="w-4 h-4" />, onClick: onConverterOpen, color: 'pink' },
@@ -226,7 +229,7 @@ export const Header: React.FC<HeaderProps> = ({
                       }}
                       className={`flex items-center gap-5 p-6 rounded-[2rem] text-xl font-black transition-all active:scale-95 shadow-xl ${
                         currentTab === item.id 
-                          ? item.variant === 'red'
+                          ? (item as any).variant === 'red' || (item as any).color === 'red'
                             ? 'bg-[#ff0000] text-black shadow-red-500/30'
                             : 'bg-indigo-600 text-white shadow-indigo-600/30'
                           : 'bg-white/5 text-slate-300 border border-white/10'
