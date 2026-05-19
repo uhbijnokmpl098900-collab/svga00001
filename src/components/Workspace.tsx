@@ -148,6 +148,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [exportResult, setExportResult] = useState<{ url: string; filename: string } | null>(null);
   const [fadeModalTarget, setFadeModalTarget] = useState<string | null>(null);
   const [fadeModalValues, setFadeModalValues] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
+  
+  const [textReplaceTarget, setTextReplaceTarget] = useState<string | null>(null);
+  const [textOptions, setTextOptions] = useState({
+      text: "", font: "Arial", size: 40, color: "#ffffff", offsetX: 0, offsetY: 0, width: 0, height: 0, originalImage: ""
+  });
+  const [textReplaceOriginalImages, setTextReplaceOriginalImages] = useState<Record<string, string[]>>({});
+
+
   const [recordingDuration, setRecordingDuration] = useState<number>(10);
   const ffmpegRef = useRef(new FFmpeg());
   const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
@@ -1021,6 +1029,119 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleOpenFadeModal = (key: string) => {
     setFadeModalTarget(key);
     setFadeModalValues({ top: 0, bottom: 0, left: 0, right: 0 });
+  };
+
+  const handleOpenTextReplaceModal = async (key: string) => {
+      const originalImage = layerImages[key];
+      if (!originalImage) return;
+      
+      const imgInfo = await new Promise<{ color: string, w: number, h: number }>((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const w = img.width || 100;
+              const h = img.height || 100;
+              canvas.width = w;
+              canvas.height = h;
+              const ctx = canvas.getContext('2d', { willReadFrequently: true });
+              if (!ctx) return resolve({ color: '#ffffff', w, h });
+              ctx.drawImage(img, 0, 0);
+              const imgData = ctx.getImageData(0, 0, w, h).data;
+              let r = 0, g = 0, b = 0, count = 0;
+              for (let i = 0; i < imgData.length; i += 4) {
+                  if (imgData[i+3] > 50) { // non-transparent
+                      r += imgData[i]; g += imgData[i+1]; b += imgData[i+2]; count++;
+                  }
+              }
+              if (count === 0) return resolve({ color: '#ffffff', w, h });
+              const hex = '#' + Math.round(r/count).toString(16).padStart(2,'0') + Math.round(g/count).toString(16).padStart(2,'0') + Math.round(b/count).toString(16).padStart(2,'0');
+              resolve({ color: hex, w, h });
+          };
+          img.onerror = () => resolve({ color: '#ffffff', w: 100, h: 100 });
+          img.src = originalImage;
+      });
+
+      setTextOptions({
+          text: "", font: "Arial", size: Math.max(16, Math.floor(imgInfo.h / 1.5)), color: imgInfo.color, offsetX: 0, offsetY: 0, width: imgInfo.w, height: imgInfo.h, originalImage
+      });
+      setTextReplaceTarget(key);
+  };
+
+  const handlePreviewTextGenerate = (): string => {
+      const canvas = document.createElement('canvas');
+      canvas.width = textOptions.width;
+      canvas.height = textOptions.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return textOptions.originalImage;
+      
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = `bold ${textOptions.size}px ${textOptions.font}, sans-serif`;
+      ctx.fillStyle = textOptions.color;
+      
+      const x = (canvas.width / 2) + textOptions.offsetX;
+      const y = (canvas.height / 2) + textOptions.offsetY;
+      
+      // Basic text wrapping/stroke can be added, but fill is enough for now
+      ctx.fillText(textOptions.text, x, y);
+      return canvas.toDataURL('image/png');
+  };
+
+  const handleApplyTextReplace = async () => {
+    if (!textReplaceTarget || !textOptions.text.trim()) return;
+    try {
+        const base64 = handlePreviewTextGenerate();
+        
+        // Push to Undo stack
+        setTextReplaceOriginalImages(p => {
+            const stack = p[textReplaceTarget] || [];
+            return { ...p, [textReplaceTarget]: [...stack, layerImages[textReplaceTarget]] };
+        });
+
+        setLayerImages(p => ({ ...p, [textReplaceTarget]: base64 }));
+        
+        if (metadata.videoItem) {
+            const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+            if (!newVideoItem.images) newVideoItem.images = {};
+            newVideoItem.images[textReplaceTarget] = base64;
+            
+            setMetadata({
+                ...metadata,
+                videoItem: newVideoItem
+            });
+        }
+        svgaInstance?.setImage(base64, textReplaceTarget);
+        setTextReplaceTarget(null);
+    } catch (e) {
+        console.error(e);
+        alert('فشل في إنشاء النص، يرجى المحاولة مرة أخرى.');
+    }
+  };
+
+  const handleUndoTextReplace = (key: string) => {
+      setTextReplaceOriginalImages(p => {
+          const stack = p[key] || [];
+          if (stack.length === 0) return p;
+          
+          const newStack = [...stack];
+          const previousBase64 = newStack.pop();
+          
+          if (previousBase64) {
+              setLayerImages(prev => ({ ...prev, [key]: previousBase64 }));
+              
+              if (metadata.videoItem) {
+                  const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+                  if (!newVideoItem.images) newVideoItem.images = {};
+                  newVideoItem.images[key] = previousBase64;
+                  setMetadata({ ...metadata, videoItem: newVideoItem });
+              }
+              
+              svgaInstance?.setImage(previousBase64, key);
+          }
+          
+          return { ...p, [key]: newStack };
+      });
   };
 
   // Background Removal State
@@ -6188,10 +6309,22 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                                                 <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'down'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬇️ خلف</button>
                                                 <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'up'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬆️ أمام</button>
                                             </div>
-                                             <button onClick={() => {
-                                                 setReplacingAssetKey(key);
-                                                 fileInputRef.current?.click();
-                                             }} className="w-full py-1 bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-md text-[8px] font-black uppercase hover:bg-sky-500/30">تغيير الصورة</button>
+                                            <div className="flex gap-1 w-full flex-wrap">
+                                                 <button onClick={() => {
+                                                     setReplacingAssetKey(key);
+                                                     fileInputRef.current?.click();
+                                                 }} className="flex-1 py-1 bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-md text-[8px] font-black uppercase hover:bg-sky-500/30 h-10">تغيير الصورة</button>
+
+                                                 <button onClick={() => handleOpenTextReplaceModal(key)} className="flex-1 py-1 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-md text-[8px] font-black uppercase hover:bg-yellow-500/30 h-10 flex items-center justify-center gap-1">
+                                                    ✨ استبدال بنص
+                                                 </button>
+                                            </div>
+
+                                            {textReplaceOriginalImages[key] && textReplaceOriginalImages[key].length > 0 && (
+                                               <button onClick={() => handleUndoTextReplace(key)} className="w-full py-1.5 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-orange-500/30 flex items-center justify-center gap-1">
+                                                  ↩️ استعادة الأصلي (Undo)
+                                               </button>
+                                            )}
 
                                             <button onClick={() => handleOpenFadeModal(key)} className="w-full py-1.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-purple-500/30">تلاشي الحواف (Fade)</button>
                                           </div>
@@ -7405,6 +7538,115 @@ class _MyAppState extends State<MyApp> {
                     </button>
                     <button onClick={() => setBgRemoveTarget(null)} className="px-6 py-3 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl font-bold text-sm transition-colors">
                         إلغاء
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {textReplaceTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col">
+                <div className="flex items-center justify-between p-4 border-b border-white/10 bg-white/5">
+                    <div className="flex items-center gap-2">
+                        <span className="text-yellow-400">✨</span>
+                        <h3 className="text-white font-bold text-sm">استبدال الصورة بنص</h3>
+                    </div>
+                    <button onClick={() => setTextReplaceTarget(null)} className="text-white/50 hover:text-white transition-colors">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+                <div className="p-6 space-y-4">
+                    <p className="text-xs text-slate-400">بحسب طلبك، يتم استخدام أبعاد الصورة الأصلية وتحديد لونها التقريبي، ويمكنك تغيير الإعدادات وتطبيقها باحترافية.</p>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="col-span-2 space-y-1">
+                            <label className="text-[10px] text-slate-400 uppercase font-black">النص (Text)</label>
+                            <input 
+                                type="text"
+                                value={textOptions.text}
+                                onChange={(e) => setTextOptions(p => ({ ...p, text: e.target.value }))}
+                                placeholder="اكتب النص هنا..."
+                                className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-yellow-500/50 outline-none"
+                            />
+                        </div>
+                        
+                        <div className="space-y-1">
+                            <label className="text-[10px] text-slate-400 uppercase font-black">الخط (Font)</label>
+                            <select
+                                value={textOptions.font}
+                                onChange={(e) => setTextOptions(p => ({ ...p, font: e.target.value }))}
+                                className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none"
+                            >
+                                <option value="Arial">Arial</option>
+                                <option value="Helvetica">Helvetica</option>
+                                <option value="Times New Roman">Times New Roman</option>
+                                <option value="Courier New">Courier New</option>
+                                <option value="Verdana">Verdana</option>
+                                <option value="Tahoma">Tahoma</option>
+                            </select>
+                        </div>
+
+                        <div className="space-y-1">
+                            <label className="text-[10px] text-slate-400 uppercase font-black">حجم الخط (Size)</label>
+                            <input 
+                                type="number"
+                                value={textOptions.size}
+                                onChange={(e) => setTextOptions(p => ({ ...p, size: Number(e.target.value) }))}
+                                className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none"
+                            />
+                        </div>
+
+                        <div className="space-y-1">
+                            <label className="text-[10px] text-slate-400 uppercase font-black">لون النص (Color)</label>
+                            <div className="flex gap-2 items-center">
+                                <input 
+                                    type="color"
+                                    value={textOptions.color}
+                                    onChange={(e) => setTextOptions(p => ({ ...p, color: e.target.value }))}
+                                    className="w-8 h-8 rounded border border-white/10 bg-transparent cursor-pointer"
+                                />
+                                <span className="text-white text-xs">{textOptions.color}</span>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                             <div className="space-y-1">
+                                <label className="text-[10px] text-slate-400 uppercase font-black">إزاحة س (X Offset)</label>
+                                <input 
+                                    type="number"
+                                    value={textOptions.offsetX}
+                                    onChange={(e) => setTextOptions(p => ({ ...p, offsetX: Number(e.target.value) }))}
+                                    className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] text-slate-400 uppercase font-black">إزاحة ص (Y Offset)</label>
+                                <input 
+                                    type="number"
+                                    value={textOptions.offsetY}
+                                    onChange={(e) => setTextOptions(p => ({ ...p, offsetY: Number(e.target.value) }))}
+                                    className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="mt-4 aspect-video bg-black/50 border border-white/10 rounded-xl overflow-hidden flex items-center justify-center relative bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+CjxyZWN0IHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjA1Ii8+CjxwYXRoIGQ9Ik0wIDEwaDIwdk0xMCAwdjIwIiBzdHJva2U9IiNmZmYiIHN0cm9rZS1vcGFjaXR5PSIwLjAyIi8+Cjwvc3ZnPg==')]">
+                         {textOptions.text.trim() ? (
+                             <img src={handlePreviewTextGenerate()} alt="preview" className="max-w-full max-h-full object-contain" />
+                         ) : (
+                             <span className="text-white/20 text-xs">معاينة النص</span>
+                         )}
+                    </div>
+                </div>
+                <div className="p-4 border-t border-white/10 bg-white/5 flex justify-end gap-2">
+                    <button onClick={() => setTextReplaceTarget(null)} className="px-4 py-2 bg-white/10 text-white rounded-lg text-xs font-bold hover:bg-white/20 transition-colors">إلغاء</button>
+                    <button 
+                        onClick={handleApplyTextReplace}
+                        className="px-6 py-2 bg-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.5)] hover:bg-yellow-400 text-black rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-2 min-w-[120px]"
+                    >
+                        استبدال الصورة
                     </button>
                 </div>
             </div>
