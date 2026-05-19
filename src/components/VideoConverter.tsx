@@ -331,8 +331,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
     if (files.length === 0) return;
     const currentFile = files[currentFileIndex];
     setIsProcessing(true);
-    setPhase('جاري استخراج الصوت...');
-    setProgress(0);
+    setPhase('جاري استخراج الصوت (MP3)...');
+    setProgress(10);
 
     try {
       const ffmpeg = ffmpegRef.current;
@@ -341,32 +341,24 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
       const uint8 = new Uint8Array(await currentFile.arrayBuffer());
       await ffmpeg.writeFile('input.mp4', uint8);
 
-      // Instant extraction: use '-c:a copy' to extract the audio stream without re-encoding.
-      await ffmpeg.exec(['-i', 'input.mp4', '-vn', '-c:a', 'copy', 'output.m4a']);
+      // Force encoding as MP3
+      await ffmpeg.exec(['-i', 'input.mp4', '-vn', '-acodec', 'libmp3lame', '-q:a', '2', 'output.mp3']);
 
-      const data = await ffmpeg.readFile('output.m4a');
-      const blob = new Blob([data], { type: 'audio/mp4' });
-      downloadBlob(blob, `${currentFile.name.replace('.mp4', '')}.m4a`);
+      const data = await ffmpeg.readFile('output.mp3');
+      const blob = new Blob([data], { type: 'audio/mpeg' });
+      downloadBlob(blob, `${currentFile.name.replace(/\.[^/.]+$/, "")}.mp3`);
       
-      setPhase('تم استخراج الصوت فوراً!');
+      setPhase('تم استخراج الصوت كـ MP3 بنجاح!');
       setProgress(100);
     } catch (e) {
-      console.warn("Fast extraction failed, falling back to encoding:", e);
-      // Fallback to mp3 encoding if copy fails (rare for mp4)
-      try {
-        const ffmpeg = ffmpegRef.current!;
-        await ffmpeg.exec(['-i', 'input.mp4', '-vn', '-acodec', 'libmp3lame', '-q:a', '4', 'output.mp3']);
-        const data = await ffmpeg.readFile('output.mp3');
-        const blob = new Blob([data], { type: 'audio/mpeg' });
-        downloadBlob(blob, `${files[currentFileIndex].name.replace('.mp4', '')}.mp3`);
-        setPhase('تم استخراج الصوت بنجاح!');
-        setProgress(100);
-      } catch (err) {
-        console.error(err);
-        setPhase('فشل استخراج الصوت');
-      }
+      console.error("Audio extraction failed:", e);
+      setPhase('فشل استخراج الصوت');
     } finally {
-      setIsProcessing(false);
+      setTimeout(() => {
+        setIsProcessing(false);
+        setPhase('');
+        setProgress(0);
+      }, 2000);
     }
   };
 
