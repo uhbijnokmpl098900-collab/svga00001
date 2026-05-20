@@ -151,9 +151,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   
   const [textReplaceTarget, setTextReplaceTarget] = useState<string | null>(null);
   const [textOptions, setTextOptions] = useState({
-      text: "", font: "Arial", size: 40, color: "#ffffff", offsetX: 0, offsetY: 0, width: 0, height: 0, originalImage: ""
+      text: "", font: "Arial", size: 40, color: "#ffffff", offsetX: 0, offsetY: 0, width: 0, height: 0, originalImage: "", is3D: false, color3D: "#000000"
   });
   const [textReplaceOriginalImages, setTextReplaceOriginalImages] = useState<Record<string, string[]>>({});
+  const [layerTextOptions, setLayerTextOptions] = useState<Record<string, any>>({});
 
 
   const [recordingDuration, setRecordingDuration] = useState<number>(10);
@@ -1032,6 +1033,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   };
 
   const handleOpenTextReplaceModal = async (key: string) => {
+      if (layerTextOptions[key]) {
+          setTextOptions(layerTextOptions[key]);
+          setTextReplaceTarget(key);
+          return;
+      }
+
       const originalImage = layerImages[key];
       if (!originalImage) return;
       
@@ -1062,7 +1069,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       });
 
       setTextOptions({
-          text: "", font: "Arial", size: Math.max(16, Math.floor(imgInfo.h / 1.5)), color: imgInfo.color, offsetX: 0, offsetY: 0, width: imgInfo.w, height: imgInfo.h, originalImage
+          text: "", font: "Arial", size: Math.max(16, Math.floor(imgInfo.h / 1.5)), color: imgInfo.color, offsetX: 0, offsetY: 0, width: imgInfo.w, height: imgInfo.h, originalImage, is3D: false, color3D: "#000000"
       });
       setTextReplaceTarget(key);
   };
@@ -1078,10 +1085,19 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.font = `bold ${textOptions.size}px ${textOptions.font}, sans-serif`;
-      ctx.fillStyle = textOptions.color;
       
       const x = (canvas.width / 2) + textOptions.offsetX;
       const y = (canvas.height / 2) + textOptions.offsetY;
+      
+      if (textOptions.is3D) {
+          ctx.fillStyle = textOptions.color3D;
+          const depth = Math.max(1, Math.floor(textOptions.size / 15));
+          for (let i = depth; i > 0; i--) {
+              ctx.fillText(textOptions.text, x + i, y + i);
+          }
+      }
+
+      ctx.fillStyle = textOptions.color;
       
       // Basic text wrapping/stroke can be added, but fill is enough for now
       ctx.fillText(textOptions.text, x, y);
@@ -1098,6 +1114,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             const stack = p[textReplaceTarget] || [];
             return { ...p, [textReplaceTarget]: [...stack, layerImages[textReplaceTarget]] };
         });
+
+        setLayerTextOptions(p => ({ ...p, [textReplaceTarget]: textOptions }));
 
         setLayerImages(p => ({ ...p, [textReplaceTarget]: base64 }));
         
@@ -7610,7 +7628,34 @@ class _MyAppState extends State<MyApp> {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="col-span-2 space-y-2 mt-2">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    checked={textOptions.is3D}
+                                    onChange={(e) => setTextOptions(p => ({ ...p, is3D: e.target.checked }))}
+                                    className="w-4 h-4 rounded bg-black/50 border-white/10 text-yellow-500 focus:ring-yellow-500 focus:ring-offset-0"
+                                />
+                                <span className="text-xs text-white font-bold">تفعيل تأثير 3D للنص</span>
+                            </label>
+
+                            {textOptions.is3D && (
+                                <div className="space-y-1 pl-6">
+                                    <label className="text-[10px] text-slate-400 uppercase font-black">لون الظل 3D (3D Color)</label>
+                                    <div className="flex gap-2 items-center">
+                                        <input 
+                                            type="color"
+                                            value={textOptions.color3D}
+                                            onChange={(e) => setTextOptions(p => ({ ...p, color3D: e.target.value }))}
+                                            className="w-8 h-8 rounded border border-white/10 bg-transparent cursor-pointer"
+                                        />
+                                        <span className="text-white text-xs">{textOptions.color3D}</span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="col-span-2 grid grid-cols-2 gap-2 mt-2">
                              <div className="space-y-1">
                                 <label className="text-[10px] text-slate-400 uppercase font-black">إزاحة س (X Offset)</label>
                                 <input 
