@@ -292,60 +292,17 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           }
         }
 
-        const mainComp = compositions.find(c => c.id === 'main');
-        const mainWidth = mainComp?.metadata?.dimensions?.width || 750;
-        const mainHeight = mainComp?.metadata?.dimensions?.height || 1334;
-
-        const origW = (videoItem.videoSize && videoItem.videoSize.width) ? videoItem.videoSize.width : 750;
-        const origH = (videoItem.videoSize && videoItem.videoSize.height) ? videoItem.videoSize.height : 1334;
-
-        const scaleX = mainWidth / origW;
-        const scaleY = mainHeight / origH;
-        const scalingRequired = (origW !== mainWidth) || (origH !== mainHeight);
-
         setProgress(70);
         const newSprites = (videoItem.sprites || []).map((sprite: any) => {
-          let mappedFrames = sprite.frames || [];
-          if (scalingRequired && mappedFrames.length > 0) {
-            mappedFrames = mappedFrames.map((frame: any) => {
-              if (!frame) return frame;
-              const frameCopy = {
-                ...frame,
-                layout: frame.layout ? { ...frame.layout } : undefined,
-                transform: frame.transform ? { ...frame.transform } : undefined
-              };
-              if (frameCopy.layout) {
-                frameCopy.layout.x = widthCheck((frameCopy.layout.x !== undefined ? frameCopy.layout.x : 0) * scaleX);
-                frameCopy.layout.y = heightCheck((frameCopy.layout.y !== undefined ? frameCopy.layout.y : 0) * scaleY);
-                frameCopy.layout.width = widthCheck((frameCopy.layout.width !== undefined ? frameCopy.layout.width : 100) * scaleX);
-                frameCopy.layout.height = heightCheck((frameCopy.layout.height !== undefined ? frameCopy.layout.height : 100) * scaleY);
-              }
-              if (frameCopy.transform) {
-                frameCopy.transform.tx = widthCheck((frameCopy.transform.tx !== undefined ? frameCopy.transform.tx : 0) * scaleX);
-                frameCopy.transform.ty = heightCheck((frameCopy.transform.ty !== undefined ? frameCopy.transform.ty : 0) * scaleY);
-                
-                if (frameCopy.transform.a !== undefined) frameCopy.transform.a = frameCopy.transform.a;
-                if (frameCopy.transform.b !== undefined) frameCopy.transform.b = frameCopy.transform.b * (scaleY / scaleX);
-                if (frameCopy.transform.c !== undefined) frameCopy.transform.c = frameCopy.transform.c * (scaleX / scaleY);
-                if (frameCopy.transform.d !== undefined) frameCopy.transform.d = frameCopy.transform.d;
-              }
-              return frameCopy;
-            });
-          }
           return {
             ...sprite,
             imageKey: `${prefix}${sprite.imageKey}`,
-            name: sprite.name ? `${prefix}${sprite.name}` : undefined,
-            frames: mappedFrames
+            name: sprite.name ? `${prefix}${sprite.name}` : undefined
           };
         });
 
         const newVideoItem = {
           ...videoItem,
-          videoSize: {
-            width: mainWidth,
-            height: mainHeight
-          },
           images: newImages,
           sprites: newSprites
         };
@@ -354,7 +311,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           name: compName,
           size: file.size,
           type: 'SVGA',
-          dimensions: { width: mainWidth, height: mainHeight },
+          dimensions: { width: videoItem.videoSize.width, height: videoItem.videoSize.height },
           fps: extractedFps,
           frames: videoItem.frames,
           assets: [],
@@ -485,8 +442,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       return;
     }
 
-    let targetFramesCount = Math.max(1, parseInt(mainComp.metadata.frames as any) || 1);
-    if (targetFramesCount > 2000) targetFramesCount = 2000;
+    const targetFramesCount = mainComp.metadata.frames || 1;
     const mainImages = { ...(mainVideoItem.images || {}) };
     let spritesToMerge = [...(sourceVideoItem.sprites || [])];
 
@@ -541,11 +497,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
         };
 
-        const frameCopy = {
-          ...originalFrameObj,
-          layout: originalFrameObj.layout ? { ...originalFrameObj.layout } : undefined,
-          transform: originalFrameObj.transform ? { ...originalFrameObj.transform } : undefined
-        };
+        const frameCopy = JSON.parse(JSON.stringify(originalFrameObj));
 
         // Multiply opacity
         frameCopy.alpha = widthCheck((originalFrameObj.alpha !== undefined ? originalFrameObj.alpha : 1.0) * alphaMultiplier);
