@@ -1714,7 +1714,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       updateBgCanvas();
       const timer = setTimeout(updateBgCanvas, 100);
 
-      if (currentFrame > 0) {
+      if (currentFrame >= 0) {
         bgPlayer.stepToFrame(currentFrame % (mainComp?.metadata?.frames || 1), isPlaying);
       }
       if (isPlaying) {
@@ -1735,6 +1735,19 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       setBackgroundPlayerInstance(null);
     }
   }, [activeCompositionId, compositions, videoWidth, videoHeight, isPlaying]);
+
+  // Real-time synchronization of background player frame to main player frame in secondary edit mode
+  useEffect(() => {
+    if (activeCompositionId !== 'main' && backgroundPlayerInstance) {
+      const mainComp = compositions.find(c => c.id === 'main');
+      const maxFrames = mainComp?.metadata?.frames || 1;
+      try {
+        backgroundPlayerInstance.stepToFrame(currentFrame % maxFrames, isPlaying);
+      } catch (e) {
+        console.warn("Soft fail in syncing background player:", e);
+      }
+    }
+  }, [currentFrame, backgroundPlayerInstance, activeCompositionId, compositions, isPlaying]);
 
   // Drag and reposition mouse / touch mechanics
   const handleDragStart = (e: React.MouseEvent) => {
@@ -6983,6 +6996,22 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 sm:gap-8 overflow-visible">
         <div className="xl:col-span-7 flex flex-col gap-4 sm:gap-0 overflow-visible">
+          {activeCompositionId !== 'main' && (
+            <div className="mb-4 p-4 rounded-2xl bg-gradient-to-r from-sky-500/20 via-sky-500/10 to-indigo-500/10 border border-sky-400/30 text-right shadow-2xl relative overflow-hidden flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <div className="absolute top-0 left-0 w-24 h-24 bg-sky-500/10 blur-2xl rounded-full" />
+              <div className="relative z-10">
+                <span className="text-white text-[11px] font-black flex items-center gap-1.5 justify-end">
+                  <span>✨</span> وضع محاكاة وتحرير الطبقات المضافة (تراكب متزامن)
+                </span>
+                <p className="text-[10px] text-slate-300 font-bold mt-1 leading-relaxed">
+                  أنت الآن ترى الملف الأساسي في الخلفية والملف المضاف "<span className="text-sky-400 font-mono">{metadata.name}</span>" متحركاً فوقه تماماً! اسحب الملف المضاف، كَبِّره، أو صَغِّره لملاءمة التصميم.
+                </p>
+              </div>
+              <span className="px-3 py-1.5 rounded-lg bg-sky-500/20 text-sky-400 text-[10px] font-black tracking-wide border border-sky-500/30 whitespace-nowrap relative z-10 self-stretch sm:self-auto flex items-center justify-center">
+                👁️ تراكب مرئي نشط
+              </span>
+            </div>
+          )}
           <div 
               onDragOver={handleDragOverSvga}
               onDrop={handleDropSvgaFile}
