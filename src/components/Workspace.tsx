@@ -154,6 +154,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [activeCompPosStart, setActiveCompPosStart] = useState({ x: 0, y: 0 });
   const [nudgeStep, setNudgeStep] = useState<number>(10);
+  const [isHudCollapsed, setIsHudCollapsed] = useState(false);
 
   const backgroundPlayerRef = useRef<HTMLDivElement>(null);
   const [backgroundPlayerInstance, setBackgroundPlayerInstance] = useState<any>(null);
@@ -1808,6 +1809,64 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       window.removeEventListener('touchend', handleTouchEnd);
     };
   }, [isDragging, handleDragMove, handleDragEnd, handleTouchMove, handleTouchEnd]);
+
+  // Global arrow keys listener for precise keyboard-driven positioning & scaling
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (activeCompositionId === 'main') return;
+      
+      // Ignore key events if the user is currently typing in input boxes or textareas
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (
+        activeEl?.tagName === 'INPUT' || 
+        activeEl?.tagName === 'TEXTAREA' || 
+        activeEl?.isContentEditable
+      ) {
+        return;
+      }
+      
+      let step = nudgeStep;
+      if (e.shiftKey) step *= 5; // Shift to accelerate movement
+      if (e.altKey) step = 1;     // Alt for pixel-perfect microscopic edits
+      
+      let handled = false;
+      switch (e.key) {
+        case 'ArrowUp':
+          setSvgaPos(prev => ({ ...prev, y: prev.y - step }));
+          handled = true;
+          break;
+        case 'ArrowDown':
+          setSvgaPos(prev => ({ ...prev, y: prev.y + step }));
+          handled = true;
+          break;
+        case 'ArrowLeft':
+          setSvgaPos(prev => ({ ...prev, x: prev.x - step }));
+          handled = true;
+          break;
+        case 'ArrowRight':
+          setSvgaPos(prev => ({ ...prev, x: prev.x + step }));
+          handled = true;
+          break;
+        case '+':
+        case '=':
+          setSvgaScale(prev => Math.min(3, parseFloat((prev + 0.05).toFixed(2))));
+          handled = true;
+          break;
+        case '-':
+        case '_':
+          setSvgaScale(prev => Math.max(0.1, parseFloat((prev - 0.05).toFixed(2))));
+          handled = true;
+          break;
+      }
+      
+      if (handled) {
+        e.preventDefault();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeCompositionId, nudgeStep]);
 
   const handleOpenFadeModal = (key: string) => {
     setFadeModalTarget(key);
@@ -7146,6 +7205,239 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                       ))}
                   </div>
               </div>
+
+              {/* SPECTACULAR FLOATING WORKSPACE HUD CONTROLLER (Front & Immediate) */}
+              {activeCompositionId !== 'main' && (
+                <div className="absolute top-4 left-4 z-40 pointer-events-auto flex items-start gap-2 select-none">
+                  {isHudCollapsed ? (
+                    <button 
+                      onClick={() => setIsHudCollapsed(false)}
+                      className="px-4 py-2.5 bg-slate-900/95 backdrop-blur-md border border-sky-500/50 hover:border-sky-400 text-sky-400 rounded-xl text-xs font-black shadow-glow-sky flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                    >
+                      🎮 إظهار أداة التحكم السريع ◀
+                    </button>
+                  ) : (
+                    <div className="w-[300px] bg-slate-950/90 backdrop-blur-xl border border-sky-500/30 rounded-2xl p-4 flex flex-col gap-3.5 shadow-2xl text-right max-h-[440px] overflow-y-auto">
+                      {/* HUD Title & Minimize Tab */}
+                      <div className="flex justify-between items-center border-b border-white/10 pb-2 font-black">
+                        <button 
+                          onClick={() => setIsHudCollapsed(true)}
+                          className="p-1 px-2 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg text-[10px] font-bold transition-all cursor-pointer"
+                        >
+                          ▶ إخفاء
+                        </button>
+                        <span className="text-white text-xs font-black flex items-center gap-1.5 font-bold">
+                          <span className="animate-pulse">✨</span> لوحة التحكم السلوكية للملف
+                        </span>
+                      </div>
+
+                      {/* Info / Quick Indicators */}
+                      <div className="bg-sky-500/5 border border-sky-500/50 p-2.5 rounded-lg">
+                        <p className="text-[10px] text-slate-400 font-bold">
+                          الملف الحالي: <span className="text-sky-400 font-mono font-extrabold">{metadata.name || 'تركيبة مضافة'}</span>
+                        </p>
+                        <p className="text-[9px] text-slate-500 font-medium mt-1">
+                          💡 حرك بـ <span className="text-slate-300 font-bold">الماوس / السحب</span> أو <span className="text-slate-300 font-bold">الأسهم ⬅️ ➡️ ⬆️ ⬇️</span> بلوحة المفاتيح لدقة فائقة!
+                        </p>
+                      </div>
+
+                      {/* 1. Precise Joystick & Position controls */}
+                      <div>
+                        <span className="text-slate-400 font-bold text-[10px] block mb-2">🎯 التحكم بالتحريك والموقع:</span>
+                        <div className="flex gap-3 items-center justify-between">
+                          {/* Mini D-Pad Grid */}
+                          <div className="relative w-24 h-24 flex items-center justify-center bg-slate-950/60 rounded-full border border-white/5 p-1 flex-shrink-0">
+                            <div className="w-6 h-6 rounded-full bg-sky-500/20 text-sky-400 text-[8px] font-mono font-bold flex items-center justify-center">
+                              POS
+                            </div>
+                            {/* Up */}
+                            <button 
+                              onClick={() => setSvgaPos(prev => ({ ...prev, y: prev.y - nudgeStep }))}
+                              className="absolute top-1 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-[9px] flex items-center justify-center border border-white/5 cursor-pointer active:scale-90"
+                              title="تحريك لأعلى"
+                            >
+                              ▲
+                            </button>
+                            {/* Down */}
+                            <button 
+                              onClick={() => setSvgaPos(prev => ({ ...prev, y: prev.y + nudgeStep }))}
+                              className="absolute bottom-1 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-[9px] flex items-center justify-center border border-white/5 cursor-pointer active:scale-90"
+                              title="تحريك لأسفل"
+                            >
+                              ▼
+                            </button>
+                            {/* Left */}
+                            <button 
+                              onClick={() => setSvgaPos(prev => ({ ...prev, x: prev.x - nudgeStep }))}
+                              className="absolute left-1 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-[9px] flex items-center justify-center border border-white/5 cursor-pointer active:scale-90"
+                              title="تحريك لليسار"
+                            >
+                              ◀
+                            </button>
+                            {/* Right */}
+                            <button 
+                              onClick={() => setSvgaPos(prev => ({ ...prev, x: prev.x + nudgeStep }))}
+                              className="absolute right-1 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-[9px] flex items-center justify-center border border-white/5 cursor-pointer active:scale-90"
+                              title="تحريك لليمين"
+                            >
+                              ▶
+                            </button>
+                          </div>
+
+                          {/* Quick Coordinates display & Reset Center */}
+                          <div className="flex-1 flex flex-col gap-2">
+                            <div className="grid grid-cols-2 gap-1 text-[10px] font-mono font-bold">
+                              <div className="bg-slate-900/50 p-1.5 rounded border border-white/5">
+                                <span className="text-slate-500 font-bold">X:</span> <span className="text-sky-400 font-bold">{svgaPos.x}px</span>
+                              </div>
+                              <div className="bg-slate-900/50 p-1.5 rounded border border-white/5">
+                                <span className="text-slate-500 font-bold">Y:</span> <span className="text-sky-400 font-bold">{svgaPos.y}px</span>
+                              </div>
+                            </div>
+                            
+                            <button 
+                              onClick={() => setSvgaPos({ x: 0, y: 0 })}
+                              className="py-1 bg-white/5 hover:bg-white/10 text-white border border-white/10 text-[9px] font-black rounded-lg transition-all cursor-pointer"
+                            >
+                              🔁 إعادة الموضع للمنتصف
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Nudge steps inside HUD */}
+                        <div className="flex gap-1 mt-2.5">
+                          {([1, 10, 50, 100] as number[]).map(step => (
+                            <button
+                              key={`hud-nudge-${step}`}
+                              onClick={() => setNudgeStep(step)}
+                              className={`flex-1 py-1 text-[8px] font-mono font-bold rounded-md transition-all ${nudgeStep === step ? 'bg-sky-500 text-white shadow-glow-sky' : 'bg-white/5 text-slate-400 hover:bg-white/10'}`}
+                            >
+                              {step}px
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* 2. Scale Controls (In Front of Eyes) */}
+                      <div className="space-y-1.5 border-t border-white/5 pt-2.5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400 font-bold text-[10px]">🔎 التحكم بالـحـجـم (Scale):</span>
+                          <span className="text-sky-400 font-mono text-[10px] font-extrabold">{svgaScale.toFixed(2)}x</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => setSvgaScale(prev => Math.max(0.1, parseFloat((prev - 0.05).toFixed(2))))}
+                            className="w-8 h-7 bg-slate-900 hover:bg-slate-800 rounded-lg text-slate-300 font-bold text-xs flex items-center justify-center cursor-pointer active:scale-95 border border-white/5 select-none"
+                            title="تصغير"
+                          >
+                            ➖
+                          </button>
+                          <input 
+                            type="range" 
+                            min="0.1" 
+                            max="3" 
+                            step="0.01" 
+                            value={svgaScale} 
+                            onChange={(e) => setSvgaScale(parseFloat(e.target.value))} 
+                            className="flex-1 h-1 accent-sky-500 rounded bg-slate-800 cursor-pointer"
+                          />
+                          <button 
+                            onClick={() => setSvgaScale(prev => Math.min(3, parseFloat((prev + 0.05).toFixed(2))))}
+                            className="w-8 h-7 bg-slate-900 hover:bg-slate-800 rounded-lg text-slate-300 font-bold text-xs flex items-center justify-center cursor-pointer active:scale-95 border border-white/5 select-none"
+                            title="تكبير"
+                          >
+                            ➕
+                          </button>
+                        </div>
+                        {/* Quick preset sizes */}
+                        <div className="flex gap-1.5 mt-1">
+                          {([0.5, 1.0, 1.5, 2.0] as number[]).map(sc => (
+                            <button
+                              key={`hud-preset-sc-${sc}`}
+                              onClick={() => setSvgaScale(sc)}
+                              className={`flex-1 py-1 text-[8px] font-mono font-bold rounded-md transition-all ${Math.abs(svgaScale - sc) < 0.01 ? 'bg-sky-500 text-white' : 'bg-white/5 text-slate-400 hover:bg-white/10'}`}
+                            >
+                              {sc * 100}%
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* 3. Rotation & Opacity Controls */}
+                      <div className="space-y-2 border-t border-white/5 pt-2.5">
+                        {/* Rotation */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400 font-bold text-[10px]">🔄 الدوران والزاوية (Rotation):</span>
+                            <span className="text-pink-400 font-mono text-[10px] font-extrabold">{svgaRotation}°</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button 
+                              onClick={() => setSvgaRotation(prev => (prev - 15 + 360) % 360)}
+                              className="px-2 py-1 bg-slate-900 hover:bg-slate-800 rounded-md text-[9px] text-slate-300 font-bold border border-white/5 cursor-pointer active:scale-90 select-none flex-1"
+                            >
+                              ↩️ -15°
+                            </button>
+                            <input 
+                              type="range" 
+                              min="0" 
+                              max="360" 
+                              value={svgaRotation} 
+                              onChange={(e) => setSvgaRotation(parseInt(e.target.value))} 
+                              className="w-24 h-1 accent-pink-500 rounded bg-slate-800 cursor-pointer"
+                            />
+                            <button 
+                              onClick={() => setSvgaRotation(prev => (prev + 15) % 360)}
+                              className="px-2 py-1 bg-slate-900 hover:bg-slate-800 rounded-md text-[9px] text-slate-300 font-bold border border-white/5 cursor-pointer active:scale-90 select-none flex-1"
+                            >
+                              ↪️ +15°
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Opacity */}
+                        <div className="space-y-1">
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400 font-bold text-[10px]">🌗 مستوى الشفافية (Opacity):</span>
+                            <span className="text-teal-400 font-mono text-[10px] font-extrabold">{Math.round(svgaOpacity * 100)}%</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="range" 
+                              min="0.1" 
+                              max="1" 
+                              step="0.05" 
+                              value={svgaOpacity} 
+                              onChange={(e) => setSvgaOpacity(parseFloat(e.target.value))} 
+                              className="flex-1 h-1 accent-teal-500 rounded bg-slate-800 cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 4. Action buttons */}
+                      <div className="space-y-1.5 border-t border-white/10 pt-3">
+                        <button 
+                          onClick={() => {
+                            if (confirm(`هل أنت متأكد من رغبتك في دمج التركيبة المضافة "${metadata.name}" بالكامل بموضعها الحالي كـ "دفعة واحدة" داخل المشهد الرئيسي؟`)) {
+                              handleMergeCompositionIntoMain(activeCompositionId, false);
+                            }
+                          }}
+                          className="w-full py-2 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white rounded-xl text-[10px] font-black shadow-lg shadow-sky-500/20 border border-sky-400/30 transition-all select-none cursor-pointer active:scale-95 flex items-center justify-center gap-1.5"
+                        >
+                          🚀 دمج كامل الطبقات بالوضع الحالي
+                        </button>
+                        <button 
+                          onClick={() => handleSwitchComposition('main')}
+                          className="w-full py-2 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl text-[10px] font-black border border-white/5 transition-all select-none cursor-pointer active:scale-95 flex items-center justify-center gap-1"
+                        >
+                          🏠 حفظ والرجوع للمشهد الرئيسي
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
           </div>
 
           {/* Quick Unified Controller Panel for Secondary Composition Group */}
