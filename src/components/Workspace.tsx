@@ -442,7 +442,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       return;
     }
 
-    const targetFramesCount = mainComp.metadata.frames || 1;
+    let targetFramesCount = Math.max(1, parseInt(mainComp.metadata.frames as any) || 1);
+    if (targetFramesCount > 2000) targetFramesCount = 2000;
     const mainImages = { ...(mainVideoItem.images || {}) };
     let spritesToMerge = [...(sourceVideoItem.sprites || [])];
 
@@ -497,7 +498,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
         };
 
-        const frameCopy = JSON.parse(JSON.stringify(originalFrameObj));
+        const frameCopy = {
+          ...originalFrameObj,
+          layout: originalFrameObj.layout ? { ...originalFrameObj.layout } : undefined,
+          transform: originalFrameObj.transform ? { ...originalFrameObj.transform } : undefined
+        };
 
         // Multiply opacity
         frameCopy.alpha = widthCheck((originalFrameObj.alpha !== undefined ? originalFrameObj.alpha : 1.0) * alphaMultiplier);
