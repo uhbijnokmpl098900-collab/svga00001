@@ -57,6 +57,28 @@ interface CustomLayer {
   zIndexMode: 'front' | 'back';
 }
 
+interface SVGAComposition {
+  id: string;
+  name: string;
+  metadata: FileMetadata;
+  layerImages: Record<string, string>;
+  assetColors: Record<string, string>;
+  assetColorModes: Record<string, 'tint' | 'fill'>;
+  assetBlurs: Record<string, number>;
+  deletedKeys: Set<string>;
+  customLayers: CustomLayer[];
+  layerDisplayNames: Record<string, string>;
+  layerTextOptions: Record<string, any>;
+  currentFrame: number;
+  isPlaying: boolean;
+  svgaPos: { x: number; y: number };
+  svgaScale: number;
+  svgaRotation?: number;
+  svgaOpacity?: number;
+  selectedKeys?: Set<string>;
+  playbackSpeed?: number;
+}
+
 const TRANSPARENT_PIXEL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
 export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata, onCancel, settings, currentUser, onLoginRequired, onSubscriptionRequired, globalQuality: initialGlobalQuality = 'high', onFileReplace, mode = 'normal', onImageConverterOpen }) => {
@@ -126,6 +148,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [bgScale, setBgScale] = useState(100);
   const [svgaPos, setSvgaPos] = useState({ x: 0, y: 0 });
   const [svgaScale, setSvgaScale] = useState(1);
+  const [svgaRotation, setSvgaRotation] = useState<number>(0);
+  const [svgaOpacity, setSvgaOpacity] = useState<number>(1);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [activeCompPosStart, setActiveCompPosStart] = useState({ x: 0, y: 0 });
+  const [nudgeStep, setNudgeStep] = useState<number>(10);
+
+  const backgroundPlayerRef = useRef<HTMLDivElement>(null);
+  const [backgroundPlayerInstance, setBackgroundPlayerInstance] = useState<any>(null);
+
   const [wmPos, setWmPos] = useState({ x: 0, y: 0 });
   const [wmScale, setWmScale] = useState(0.3);
   const [customDimensions, setCustomDimensions] = useState<{width: number, height: number} | null>(null);
@@ -156,12 +188,598 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [textReplaceOriginalImages, setTextReplaceOriginalImages] = useState<Record<string, string[]>>({});
   const [layerTextOptions, setLayerTextOptions] = useState<Record<string, any>>({});
 
+  // SVGA Composition Workspace State
+  const [compositions, setCompositions] = useState<SVGAComposition[]>([]);
+  const [activeCompositionId, setActiveCompositionId] = useState<string>('main');
+  const [copiedLayer, setCopiedLayer] = useState<any | null>(null);
+  const importCompInputRef = useRef<HTMLInputElement>(null);
+
 
   const [recordingDuration, setRecordingDuration] = useState<number>(10);
   const ffmpegRef = useRef(new FFmpeg());
   const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
   const [aeJsonData, setAeJsonData] = useState<any>(null);
   const aeJsonInputRef = useRef<HTMLInputElement>(null);
+
+  const widthCheck = (val: number) => isNaN(val) ? 0 : parseFloat(val.toFixed(1));
+  const heightCheck = (val: number) => isNaN(val) ? 0 : parseFloat(val.toFixed(1));
+
+  const handleSwitchComposition = (targetId: string) => {
+    if (targetId === activeCompositionId) return;
+
+    setCompositions(prev => {
+      const updated = prev.map(c => {
+        if (c.id === activeCompositionId) {
+          return {
+            ...c,
+            metadata,
+            layerImages,
+            assetColors,
+            assetColorModes,
+            assetBlurs,
+            deletedKeys,
+            customLayers,
+            layerDisplayNames,
+            layerTextOptions,
+            currentFrame,
+            isPlaying,
+            svgaPos,
+            svgaScale,
+            svgaRotation,
+            svgaOpacity,
+            selectedKeys
+          };
+        }
+        return c;
+      });
+
+      const target = updated.find(c => c.id === targetId);
+      if (target) {
+        setActiveCompositionId(targetId);
+        setMetadata(target.metadata);
+        setLayerImages(target.layerImages);
+        setAssetColors(target.assetColors);
+        setAssetColorModes(target.assetColorModes);
+        setAssetBlurs(target.assetBlurs);
+        setDeletedKeys(target.deletedKeys);
+        setCustomLayers(target.customLayers);
+        setLayerDisplayNames(target.layerDisplayNames);
+        setLayerTextOptions(target.layerTextOptions);
+        setCurrentFrame(target.currentFrame);
+        setIsPlaying(target.isPlaying);
+        setSvgaPos(target.svgaPos);
+        setSvgaScale(target.svgaScale);
+        setSvgaRotation(target.svgaRotation || 0);
+        setSvgaOpacity(target.svgaOpacity !== undefined ? target.svgaOpacity : 1);
+        setSelectedKeys(target.selectedKeys || new Set());
+      }
+      return updated;
+    });
+  };
+
+  const handleImportCompositionFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    setIsExporting(true);
+    setExportPhase('جاري استيراد وتحليل التركيبة المضافة...');
+    setProgress(20);
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const parser = new SVGA.Parser();
+
+      parser.load(URL.createObjectURL(new Blob([arrayBuffer])), async (videoItem: any) => {
+        let extractedFps = videoItem.FPS || videoItem.fps || 30;
+        if (typeof extractedFps === 'string') extractedFps = parseFloat(extractedFps);
+        if (!extractedFps || extractedFps <= 0) extractedFps = 30;
+
+        const prefix = `comp_${Date.now()}_`;
+        const compName = file.name;
+
+        setProgress(50);
+        const newImages: Record<string, any> = {};
+        const sourceImages = videoItem.images || {};
+        const extractedImages: Record<string, string> = {};
+
+        for (const key of Object.keys(sourceImages)) {
+          const data = await extractImageData(sourceImages[key]);
+          if (data) {
+            const newKey = `${prefix}${key}`;
+            newImages[newKey] = sourceImages[key];
+            extractedImages[newKey] = data;
+          }
+        }
+
+        setProgress(70);
+        const newSprites = (videoItem.sprites || []).map((sprite: any) => {
+          return {
+            ...sprite,
+            imageKey: `${prefix}${sprite.imageKey}`,
+            name: sprite.name ? `${prefix}${sprite.name}` : undefined
+          };
+        });
+
+        const newVideoItem = {
+          ...videoItem,
+          images: newImages,
+          sprites: newSprites
+        };
+
+        const newMeta: FileMetadata = {
+          name: compName,
+          size: file.size,
+          type: 'SVGA',
+          dimensions: { width: videoItem.videoSize.width, height: videoItem.videoSize.height },
+          fps: extractedFps,
+          frames: videoItem.frames,
+          assets: [],
+          videoItem: newVideoItem,
+          fileUrl: URL.createObjectURL(new Blob([arrayBuffer])),
+          originalFile: file
+        };
+
+        const compId = `comp_${Date.now()}`;
+        const newComp: SVGAComposition = {
+          id: compId,
+          name: compName,
+          metadata: newMeta,
+          layerImages: extractedImages,
+          assetColors: {},
+          assetColorModes: {},
+          assetBlurs: {},
+          deletedKeys: new Set(),
+          customLayers: [],
+          layerDisplayNames: {},
+          layerTextOptions: {},
+          currentFrame: 0,
+          isPlaying: false,
+          svgaPos: { x: 0, y: 0 },
+          svgaScale: 1,
+          selectedKeys: new Set(),
+          playbackSpeed: 1.0
+        };
+
+        setCompositions(prev => {
+          const updated = prev.map(c => {
+            if (c.id === activeCompositionId) {
+              return {
+                ...c,
+                metadata,
+                layerImages,
+                assetColors,
+                assetColorModes,
+                assetBlurs,
+                deletedKeys,
+                customLayers,
+                layerDisplayNames,
+                layerTextOptions,
+                currentFrame,
+                isPlaying,
+                svgaPos,
+                svgaScale,
+                selectedKeys
+              };
+            }
+            return c;
+          });
+
+          setActiveCompositionId(compId);
+          setMetadata(newMeta);
+          setLayerImages(extractedImages);
+          setAssetColors({});
+          setAssetColorModes({});
+          setAssetBlurs({});
+          setDeletedKeys(new Set());
+          setCustomLayers([]);
+          setLayerDisplayNames({});
+          setLayerTextOptions({});
+          setCurrentFrame(0);
+          setIsPlaying(false);
+          setSvgaPos({ x: 0, y: 0 });
+          setSvgaScale(1);
+          setSelectedKeys(new Set());
+
+          return [...updated, newComp];
+        });
+
+        setIsExporting(false);
+        setProgress(100);
+        alert(`✅ تم استيراد وتكوين التركيبة "${compName}" بنجاح!`);
+      }, (err: Error) => {
+        console.error(err);
+        setIsExporting(false);
+        alert("خطأ: ملف SVGA غير صالح للتركيب والدمج.");
+      });
+    } catch (error) {
+      console.error(error);
+      setIsExporting(false);
+      alert("حدث خطأ أثناء تحميل الملف.");
+    }
+  };
+
+  const handleMergeCompositionIntoMain = (compId: string, mergeSelectedOnly: boolean = false) => {
+    let activeCompList = compositions;
+    const currentActive = activeCompList.map(c => {
+      if (c.id === activeCompositionId) {
+        return {
+          ...c,
+          metadata,
+          layerImages,
+          assetColors,
+          assetColorModes,
+          assetBlurs,
+          deletedKeys,
+          customLayers,
+          layerDisplayNames,
+          layerTextOptions,
+          currentFrame,
+          isPlaying,
+          svgaPos,
+          svgaScale,
+          svgaRotation,
+          svgaOpacity,
+          selectedKeys
+        };
+      }
+      return c;
+    });
+
+    const mainComp = currentActive.find(c => c.id === 'main');
+    const sourceComp = currentActive.find(c => c.id === compId);
+
+    if (!mainComp || !sourceComp) {
+      alert("فشل في تحديد التركيبات المطلوبة للدمج.");
+      return;
+    }
+
+    const mainVideoItem = mainComp.metadata.videoItem;
+    const sourceVideoItem = sourceComp.metadata.videoItem;
+
+    if (!mainVideoItem || !sourceVideoItem) {
+      alert("البيانات الرسومية لملفات SVGA غير صالحة.");
+      return;
+    }
+
+    const targetFramesCount = mainComp.metadata.frames || 1;
+    const mainImages = { ...(mainVideoItem.images || {}) };
+    let spritesToMerge = [...(sourceVideoItem.sprites || [])];
+
+    if (mergeSelectedOnly) {
+      const selected = sourceComp.selectedKeys || new Set();
+      if (selected.size === 0) {
+        alert("⚠️ يرجى تحديد بعض الطبقات أولاً لدمجها.");
+        return;
+      }
+      spritesToMerge = spritesToMerge.filter((s: any) => selected.has(s.imageKey));
+    } else {
+      spritesToMerge = spritesToMerge.filter((s: any) => !sourceComp.deletedKeys.has(s.imageKey));
+    }
+
+    if (spritesToMerge.length === 0) {
+      alert("لا يوجد طبقات نشطة للدمج.");
+      return;
+    }
+
+    const newSprites = [...(mainVideoItem.sprites || [])];
+
+    // Compute transformation variables based on scale, position and rotation
+    const S = sourceComp.svgaScale || 1;
+    const rad = ((sourceComp.svgaRotation || 0) * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    // Parent affine variables
+    const ap = S * cos;
+    const bp = S * sin;
+    const cp = -S * sin;
+    const dp = S * cos;
+    const txp = sourceComp.svgaPos.x || 0;
+    const typ = sourceComp.svgaPos.y || 0;
+    const alphaMultiplier = sourceComp.svgaOpacity !== undefined ? sourceComp.svgaOpacity : 1;
+
+    spritesToMerge.forEach((sprite: any) => {
+      const key = sprite.imageKey;
+      if (sourceVideoItem.images[key]) {
+        mainImages[key] = sourceVideoItem.images[key];
+      }
+
+      const sourceFrames = sprite.frames || [];
+      const sourceLength = sourceFrames.length;
+      const finalFrames = [];
+
+      for (let i = 0; i < targetFramesCount; i++) {
+        const sourceFrameIndex = sourceLength > 0 ? (i % sourceLength) : 0;
+        const originalFrameObj = sourceFrames[sourceFrameIndex] || {
+          alpha: 1.0,
+          layout: { x: 0, y: 0, width: 200, height: 200 },
+          transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
+        };
+
+        const frameCopy = JSON.parse(JSON.stringify(originalFrameObj));
+
+        // Multiply opacity
+        frameCopy.alpha = widthCheck((originalFrameObj.alpha !== undefined ? originalFrameObj.alpha : 1.0) * alphaMultiplier);
+
+        if (frameCopy.layout) {
+          const lx = frameCopy.layout.x !== undefined ? frameCopy.layout.x : 0;
+          const ly = frameCopy.layout.y !== undefined ? frameCopy.layout.y : 0;
+          const lw = frameCopy.layout.width !== undefined ? frameCopy.layout.width : 100;
+          const lh = frameCopy.layout.height !== undefined ? frameCopy.layout.height : 100;
+
+          // Compute transformed layout
+          frameCopy.layout.x = widthCheck(ap * lx + cp * ly + txp);
+          frameCopy.layout.y = heightCheck(bp * lx + dp * ly + typ);
+          frameCopy.layout.width = widthCheck(lw * S);
+          frameCopy.layout.height = heightCheck(lh * S);
+
+          if (frameCopy.transform) {
+            const ac = frameCopy.transform.a !== undefined ? frameCopy.transform.a : 1;
+            const bc = frameCopy.transform.b !== undefined ? frameCopy.transform.b : 0;
+            const cc = frameCopy.transform.c !== undefined ? frameCopy.transform.c : 0;
+            const dc = frameCopy.transform.d !== undefined ? frameCopy.transform.d : 1;
+            const txc = frameCopy.transform.tx !== undefined ? frameCopy.transform.tx : 0;
+            const tyc = frameCopy.transform.ty !== undefined ? frameCopy.transform.ty : 0;
+
+            // Compute exact composed 2D affine matrix multiplication
+            frameCopy.transform.a = ap * ac + cp * bc;
+            frameCopy.transform.b = bp * ac + dp * bc;
+            frameCopy.transform.c = ap * cc + cp * dc;
+            frameCopy.transform.d = bp * cc + dp * dc;
+            frameCopy.transform.tx = widthCheck(ap * txc + cp * tyc + txp);
+            frameCopy.transform.ty = heightCheck(bp * txc + dp * tyc + typ);
+          } else {
+            frameCopy.transform = {
+              a: ap,
+              b: bp,
+              c: cp,
+              d: dp,
+              tx: widthCheck(txp),
+              ty: heightCheck(typ)
+            };
+          }
+        }
+        finalFrames.push(frameCopy);
+      }
+
+      newSprites.push({
+        ...sprite,
+        frames: finalFrames
+      });
+    });
+
+    const updatedMainVideoItem = {
+      ...mainVideoItem,
+      images: mainImages,
+      sprites: newSprites
+    };
+
+    const updatedMainLayerImages = { ...mainComp.layerImages };
+    const updatedMainDisplayNames = { ...mainComp.layerDisplayNames };
+    const updatedMainColors = { ...mainComp.assetColors };
+    const updatedMainColorModes = { ...mainComp.assetColorModes };
+    const updatedMainBlurs = { ...mainComp.assetBlurs };
+    const updatedMainTextOptions = { ...mainComp.layerTextOptions };
+
+    spritesToMerge.forEach((sprite: any) => {
+      const key = sprite.imageKey;
+      if (sourceComp.layerImages[key]) {
+        updatedMainLayerImages[key] = sourceComp.layerImages[key];
+      }
+      updatedMainDisplayNames[key] = sourceComp.layerDisplayNames[key] || key;
+      if (sourceComp.assetColors[key]) updatedMainColors[key] = sourceComp.assetColors[key];
+      if (sourceComp.assetColorModes[key]) updatedMainColorModes[key] = sourceComp.assetColorModes[key];
+      if (sourceComp.assetBlurs[key]) updatedMainBlurs[key] = sourceComp.assetBlurs[key];
+      if (sourceComp.layerTextOptions[key]) updatedMainTextOptions[key] = sourceComp.layerTextOptions[key];
+    });
+
+    const finalCompositions = currentActive.map(c => {
+      if (c.id === 'main') {
+        return {
+          ...c,
+          metadata: {
+            ...c.metadata,
+            videoItem: updatedMainVideoItem
+          },
+          layerImages: updatedMainLayerImages,
+          layerDisplayNames: updatedMainDisplayNames,
+          assetColors: updatedMainColors,
+          assetColorModes: updatedMainColorModes,
+          assetBlurs: updatedMainBlurs,
+          layerTextOptions: updatedMainTextOptions
+        };
+      }
+      return c;
+    });
+
+    setCompositions(finalCompositions);
+
+    // Handle workspace view state updates
+    if (activeCompositionId !== 'main') {
+      setActiveCompositionId('main');
+      setMetadata({
+        ...mainComp.metadata,
+        videoItem: updatedMainVideoItem
+      });
+      setLayerImages(updatedMainLayerImages);
+      setLayerDisplayNames(updatedMainDisplayNames);
+      setAssetColors(updatedMainColors);
+      setAssetColorModes(updatedMainColorModes);
+      setAssetBlurs(updatedMainBlurs);
+      setLayerTextOptions(updatedMainTextOptions);
+      setSvgaPos({ x: 0, y: 0 });
+      setSvgaScale(1);
+      setSvgaRotation(0);
+      setSvgaOpacity(1);
+    } else {
+      setMetadata(prev => ({ ...prev, videoItem: updatedMainVideoItem }));
+      setLayerImages(updatedMainLayerImages);
+      setLayerDisplayNames(updatedMainDisplayNames);
+      setAssetColors(updatedMainColors);
+      setAssetColorModes(updatedMainColorModes);
+      setAssetBlurs(updatedMainBlurs);
+      setLayerTextOptions(updatedMainTextOptions);
+    }
+
+    alert(`✅ تم دمج كامل طبقات التركيبة المضافة "${sourceComp.name}" داخل المشهد الرئيسي بنجاح! وتم إقران الحركة والموضع والشفافية بدقة.`);
+  };
+
+  const handleCopyLayer = (key: string) => {
+    if (!metadata.videoItem) return;
+    const sprite = metadata.videoItem.sprites?.find((s: any) => s.imageKey === key);
+    if (!sprite) return;
+
+    setCopiedLayer({
+      key,
+      sprite: JSON.parse(JSON.stringify(sprite)),
+      image: layerImages[key] || TRANSPARENT_PIXEL,
+      displayName: layerDisplayNames[key],
+      color: assetColors[key],
+      colorMode: assetColorModes[key],
+      blur: assetBlurs[key],
+      textOption: layerTextOptions[key]
+    });
+    alert(`📋 تم نسخ الطبقة "${layerDisplayNames[key] || key}" بنجاح!`);
+  };
+
+  const handlePasteLayer = () => {
+    if (!copiedLayer || !metadata.videoItem) return;
+
+    const newKey = `pasted_${Date.now()}_${copiedLayer.key.split('_').pop()}`;
+    const newSprite = { ...copiedLayer.sprite, imageKey: newKey };
+
+    const compFrames = metadata.frames || 1;
+    if (newSprite.frames.length !== compFrames) {
+      if (newSprite.frames.length < compFrames) {
+        const lastFrame = newSprite.frames[newSprite.frames.length - 1] || {
+          alpha: 1.0,
+          layout: { x: 0, y: 0, width: 200, height: 200 },
+          transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
+        };
+        const pads = Array(compFrames - newSprite.frames.length).fill(null).map(() => JSON.parse(JSON.stringify(lastFrame)));
+        newSprite.frames = [...newSprite.frames, ...pads];
+      } else {
+        newSprite.frames = newSprite.frames.slice(0, compFrames);
+      }
+    }
+
+    const updatedVideoItem = {
+      ...metadata.videoItem,
+      images: {
+        ...metadata.videoItem.images,
+        [newKey]: copiedLayer.image
+      },
+      sprites: [
+        ...(metadata.videoItem.sprites || []),
+        newSprite
+      ]
+    };
+
+    setMetadata(prev => ({ ...prev, videoItem: updatedVideoItem }));
+    setLayerImages(prev => ({ ...prev, [newKey]: copiedLayer.image }));
+    if (copiedLayer.displayName) setLayerDisplayNames(prev => ({ ...prev, [newKey]: `${copiedLayer.displayName} (نسخة)` }));
+    if (copiedLayer.color) setAssetColors(prev => ({ ...prev, [newKey]: copiedLayer.color }));
+    if (copiedLayer.colorMode) setAssetColorModes(prev => ({ ...prev, [newKey]: copiedLayer.colorMode }));
+    if (copiedLayer.blur) setAssetBlurs(prev => ({ ...prev, [newKey]: copiedLayer.blur }));
+    if (copiedLayer.textOption) setLayerTextOptions(prev => ({ ...prev, [newKey]: copiedLayer.textOption }));
+
+    alert(`✅ تم لصق الطبقة بنجاح!`);
+  };
+
+  const handleMoveLayerToComposition = (key: string, targetCompId: string) => {
+    if (!metadata.videoItem) return;
+    const sprite = metadata.videoItem.sprites?.find((s: any) => s.imageKey === key);
+    if (!sprite) return;
+
+    const currentSprites = (metadata.videoItem.sprites || []).filter((s: any) => s.imageKey !== key);
+    const currentImages = { ...metadata.videoItem.images };
+    delete currentImages[key];
+
+    const updatedCurrentVideoItem = {
+      ...metadata.videoItem,
+      sprites: currentSprites,
+      images: currentImages
+    };
+
+    setMetadata(prev => ({ ...prev, videoItem: updatedCurrentVideoItem }));
+    setLayerImages(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+
+    const exportedObj = {
+      sprite: JSON.parse(JSON.stringify(sprite)),
+      image: layerImages[key] || TRANSPARENT_PIXEL,
+      displayName: layerDisplayNames[key],
+      color: assetColors[key],
+      colorMode: assetColorModes[key],
+      blur: assetBlurs[key],
+      textOption: layerTextOptions[key]
+    };
+
+    setCompositions(prev => prev.map(c => {
+      if (c.id === targetCompId) {
+        const compFrames = c.metadata.frames || 1;
+        const targetSprite = { ...exportedObj.sprite };
+        if (targetSprite.frames.length !== compFrames) {
+          if (targetSprite.frames.length < compFrames) {
+            const lastFrame = targetSprite.frames[targetSprite.frames.length - 1] || {
+              alpha: 1.0,
+              layout: { x: 0, y: 0, width: 200, height: 200 },
+              transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
+            };
+            const pads = Array(compFrames - targetSprite.frames.length).fill(null).map(() => JSON.parse(JSON.stringify(lastFrame)));
+            targetSprite.frames = [...targetSprite.frames, ...pads];
+          } else {
+            targetSprite.frames = targetSprite.frames.slice(0, compFrames);
+          }
+        }
+
+        const targetVideoItem = {
+          ...c.metadata.videoItem,
+          images: {
+            ...c.metadata.videoItem.images,
+            [key]: exportedObj.image
+          },
+          sprites: [
+            ...(c.metadata.videoItem.sprites || []),
+            targetSprite
+          ]
+        };
+
+        return {
+          ...c,
+          metadata: { ...c.metadata, videoItem: targetVideoItem },
+          layerImages: { ...c.layerImages, [key]: exportedObj.image },
+          layerDisplayNames: exportedObj.displayName ? { ...c.layerDisplayNames, [key]: exportedObj.displayName } : c.layerDisplayNames,
+          assetColors: exportedObj.color ? { ...c.assetColors, [key]: exportedObj.color } : c.assetColors,
+          assetColorModes: exportedObj.colorMode ? { ...c.assetColorModes, [key]: exportedObj.colorMode } : c.assetColorModes,
+          assetBlurs: exportedObj.blur ? { ...c.assetBlurs, [key]: exportedObj.blur } : c.assetBlurs,
+          layerTextOptions: exportedObj.textOption ? { ...c.layerTextOptions, [key]: exportedObj.textOption } : c.layerTextOptions
+        };
+      }
+      return c;
+    }));
+
+    alert(`✈️ تم نقل الطبقة بنجاح إلى التركيبة المحددة!`);
+  };
+
+  const handleDeleteComposition = (compId: string) => {
+    if (compId === 'main') {
+      alert("لا يمكن حذف المشهد الرئيسي!");
+      return;
+    }
+    if (!confirm("هل أنت متأكد من رغبتك في حذف هذه التركيبة كلياً؟")) return;
+
+    if (activeCompositionId === compId) {
+      handleSwitchComposition('main');
+    }
+
+    setCompositions(prev => prev.filter(c => c.id !== compId));
+    alert("🗑️ تم حذف التركيبة بنجاح.");
+  };
 
   const handleImportAEJson = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -958,6 +1576,30 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           setOriginalAudioUrl(metadata.fileUrl);
       }
 
+      setCompositions(prev => {
+        const hasMain = prev.some(c => c.id === 'main');
+        if (hasMain) return prev;
+        return [
+          {
+            id: 'main',
+            name: 'المشهد الرئيسي (Main Scene)',
+            metadata: metadata,
+            layerImages: extractedImages,
+            assetColors: {},
+            assetColorModes: {},
+            assetBlurs: {},
+            deletedKeys: new Set(),
+            customLayers: [],
+            layerDisplayNames: {},
+            layerTextOptions: {},
+            currentFrame: 0,
+            isPlaying: true,
+            svgaPos: { x: 0, y: 0 },
+            svgaScale: 1
+          }
+        ];
+      });
+
       setAssetsLoading(false);
     };
     fetchAssets();
@@ -1026,6 +1668,133 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       };
     }
   }, [metadata.videoItem, videoWidth, videoHeight, metadata.dimensions]);
+
+  // Coordination and effect for background player overlay
+  useEffect(() => {
+    let bgPlayer: any = null;
+    const mainComp = compositions.find(c => c.id === 'main');
+    const mainVideoItem = mainComp?.metadata?.videoItem;
+
+    if (activeCompositionId !== 'main' && backgroundPlayerRef.current && mainVideoItem && typeof SVGA !== 'undefined') {
+      backgroundPlayerRef.current.innerHTML = '';
+      bgPlayer = new SVGA.Player(backgroundPlayerRef.current);
+      bgPlayer.loops = 0;
+      bgPlayer.clearsAfterStop = false;
+      bgPlayer.setContentMode('Fill');
+      bgPlayer.setVideoItem(mainVideoItem);
+
+      const svgaWidth = mainComp?.metadata?.dimensions?.width || 1;
+      const svgaHeight = mainComp?.metadata?.dimensions?.height || 1;
+      const scale = Math.min(videoWidth / svgaWidth, videoHeight / svgaHeight);
+      const finalWidth = svgaWidth * scale;
+      const finalHeight = svgaHeight * scale;
+
+      Object.assign(backgroundPlayerRef.current.style, {
+        width: `${finalWidth}px`,
+        height: `${finalHeight}px`,
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: `translate(-50%, -50%)`,
+        transformOrigin: 'center center'
+      });
+
+      const updateBgCanvas = () => {
+        const canvas = backgroundPlayerRef.current?.querySelector('canvas');
+        if (canvas) {
+          Object.assign(canvas.style, {
+            width: '100%',
+            height: '100%',
+            display: 'block',
+            objectFit: 'fill'
+          });
+        }
+      };
+
+      updateBgCanvas();
+      const timer = setTimeout(updateBgCanvas, 100);
+
+      if (currentFrame > 0) {
+        bgPlayer.stepToFrame(currentFrame % (mainComp?.metadata?.frames || 1), isPlaying);
+      }
+      if (isPlaying) {
+        bgPlayer.startAnimation();
+      }
+
+      setBackgroundPlayerInstance(bgPlayer);
+
+      return () => {
+        clearTimeout(timer);
+        if (bgPlayer) {
+          bgPlayer.stopAnimation();
+          bgPlayer.clear();
+        }
+        setBackgroundPlayerInstance(null);
+      };
+    } else {
+      setBackgroundPlayerInstance(null);
+    }
+  }, [activeCompositionId, compositions, videoWidth, videoHeight, isPlaying]);
+
+  // Drag and reposition mouse / touch mechanics
+  const handleDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    setDragStart({ x: e.clientX, y: e.clientY });
+    setActiveCompPosStart({ x: svgaPos.x, y: svgaPos.y });
+  };
+
+  const handleDragMove = useCallback((e: MouseEvent) => {
+    if (!isDragging) return;
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+    setSvgaPos({
+      x: Math.round(activeCompPosStart.x + dx),
+      y: Math.round(activeCompPosStart.y + dy)
+    });
+  }, [isDragging, dragStart, activeCompPosStart]);
+
+  const handleDragEnd = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    setIsDragging(true);
+    setDragStart({ x: touch.clientX, y: touch.clientY });
+    setActiveCompPosStart({ x: svgaPos.x, y: svgaPos.y });
+  };
+
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    if (!isDragging || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - dragStart.x;
+    const dy = touch.clientY - dragStart.y;
+    setSvgaPos({
+      x: Math.round(activeCompPosStart.x + dx),
+      y: Math.round(activeCompPosStart.y + dy)
+    });
+  }, [isDragging, dragStart, activeCompPosStart]);
+
+  const handleTouchEnd = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleDragMove);
+      window.addEventListener('mouseup', handleDragEnd);
+      window.addEventListener('touchmove', handleTouchMove, { passive: false });
+      window.addEventListener('touchend', handleTouchEnd);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleDragMove);
+      window.removeEventListener('mouseup', handleDragEnd);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [isDragging, handleDragMove, handleDragEnd, handleTouchMove, handleTouchEnd]);
 
   const handleOpenFadeModal = (key: string) => {
     setFadeModalTarget(key);
@@ -1447,9 +2216,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     if (!svgaInstance) return;
     if (isPlaying) {
         svgaInstance.pauseAnimation();
+        backgroundPlayerInstance?.pauseAnimation();
         audioRef.current?.pause();
     } else {
         svgaInstance.startAnimation();
+        backgroundPlayerInstance?.startAnimation();
         if (audioRef.current) {
             // Sync audio to current frame before playing
             if (metadata.fps) {
@@ -1466,6 +2237,26 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       .filter(key => (key || '').toLowerCase().includes((searchQuery || '').toLowerCase()))
       .sort((a, b) => parseInt(a.match(/\d+/)?.[0] || '0') - parseInt(b.match(/\d+/)?.[0] || '0'));
   }, [layerImages, searchQuery]);
+
+  const mainCompLayers = useMemo(() => {
+    const mainComp = compositions.find(c => c.id === 'main');
+    if (!mainComp) return [];
+    
+    // Find layers either from active states if activeCompositionId === 'main', or from mainComp storage if we are in another composition
+    const imagesSource = activeCompositionId === 'main' ? layerImages : (mainComp.layerImages || {});
+    const displayNamesSource = activeCompositionId === 'main' ? layerDisplayNames : (mainComp.layerDisplayNames || {});
+    const colorsSource = activeCompositionId === 'main' ? assetColors : (mainComp.assetColors || {});
+
+    return Object.keys(imagesSource)
+      .filter(key => (key || '').toLowerCase().includes((searchQuery || '').toLowerCase()))
+      .sort((a, b) => parseInt(a.match(/\d+/)?.[0] || '0') - parseInt(b.match(/\d+/)?.[0] || '0'))
+      .map(key => ({
+        key,
+        img: imagesSource[key],
+        displayName: displayNamesSource[key] || key,
+        color: colorsSource[key]
+      }));
+  }, [compositions, activeCompositionId, layerImages, layerDisplayNames, assetColors, searchQuery]);
 
   const handleReplaceImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -5986,6 +6777,210 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         </div>
       </div>
 
+      {/* SVGA Composition Workspace Panel */}
+      <div className="p-6 rounded-2xl sm:rounded-[3rem] border border-white/5 bg-slate-950/60 backdrop-blur-3xl shadow-xl flex flex-col gap-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h3 className="text-sm sm:text-lg font-black text-white flex items-center gap-2">
+              <span className="text-sky-400">🌌</span> بيئة تركيب وتكوين SVGA الاحترافية (SVGA Compositions)
+            </h3>
+            <p className="text-[10px] sm:text-xs text-slate-400 mt-1">
+              قم باستيراد نصوص وملفات SVGA كـ تركيبات مستقلة (معزولة) شبيهة بـ Pre-compositions في After Effects، عدلها ثم ادمجها بمرونة في المشهد الرئيسي.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => importCompInputRef.current?.click()} 
+              className="px-4 py-2.5 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white text-xs font-black rounded-xl border border-white/10 transition-all flex items-center gap-2 shadow-glow-sky whitespace-nowrap"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+              استيراد تركيبة SVGA جديدة
+            </button>
+            <input 
+              type="file" 
+              ref={importCompInputRef} 
+              onChange={handleImportCompositionFile} 
+              accept=".svga" 
+              className="hidden" 
+            />
+          </div>
+        </div>
+
+        {/* Cohesive tabs listing available compositions */}
+        <div className="flex flex-wrap gap-3 items-center">
+          {compositions.map((comp) => {
+            const isActive = comp.id === activeCompositionId;
+            const isMain = comp.id === 'main';
+            return (
+              <div 
+                key={comp.id}
+                onClick={() => handleSwitchComposition(comp.id)}
+                className={`py-2 px-4 rounded-xl transition-all border flex items-center gap-3 cursor-pointer ${
+                  isActive 
+                    ? 'bg-sky-500/10 border-sky-500 text-white font-bold' 
+                    : 'bg-white/5 border-white/5 text-slate-400 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs">{isMain ? '🏠' : '📼'}</span>
+                  <span className="text-xs truncate max-w-[150px]">{comp.name}</span>
+                  {!isMain && (
+                    <span className="text-[9px] px-1.5 py-0.5 bg-slate-800 rounded text-slate-400">
+                      {comp.metadata?.frames} إطار
+                    </span>
+                  )}
+                </div>
+
+                {/* Composition Specific Actions */}
+                {!isMain && (
+                  <div className="flex items-center gap-2 border-l border-white/10 pl-2">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`هل ترغب في دمج تركيبة "${comp.name}" كاملة في المشهد الرئيسي؟`)) {
+                          handleMergeCompositionIntoMain(comp.id, false);
+                        }
+                      }}
+                      className="text-[10px] bg-sky-500 hover:bg-sky-400 text-white px-2 py-1 rounded font-black transition-all whitespace-nowrap"
+                      title="دمج كل الطبقات"
+                    >
+                      دمج بالكامل
+                    </button>
+                    {(comp.selectedKeys && comp.selectedKeys.size > 0) && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm(`هل ترغب في دمج الطبقات المحددة فقط (${comp.selectedKeys?.size}) من تركيبة "${comp.name}"؟`)) {
+                            handleMergeCompositionIntoMain(comp.id, true);
+                          }
+                        }}
+                        className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded font-black transition-all whitespace-nowrap"
+                        title="دمج الطبقات المحددة فقط"
+                      >
+                        دمج المحدد ({comp.selectedKeys.size})
+                      </button>
+                    )}
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteComposition(comp.id);
+                      }}
+                      className="text-red-400 hover:text-red-300 p-1 rounded hover:bg-white/5"
+                      title="حذف التركيبة"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Composition Properties Adjuster when active comp is NOT main */}
+        {activeCompositionId !== 'main' && (
+          <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4 p-5 rounded-2xl bg-slate-900/50 border border-white/10 text-xs shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-sky-500/5 blur-3xl rounded-full"></div>
+            
+            <div className="flex flex-col gap-1.5 justify-center">
+              <span className="text-slate-400 font-bold flex items-center gap-1">🔍 التكبير والتصغير (Scale)</span>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="range" 
+                  min="0.1" 
+                  max="3" 
+                  step="0.01" 
+                  value={svgaScale} 
+                  onChange={(e) => setSvgaScale(parseFloat(e.target.value))} 
+                  className="w-full h-1 accent-sky-500 rounded bg-slate-700"
+                />
+                <span className="font-mono text-slate-300 min-w-[45px] text-right">{svgaScale.toFixed(2)}x</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5 justify-center">
+              <span className="text-slate-400 font-bold flex items-center gap-1">➡️ الإزاحة الأفقية (X Pos)</span>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="range" 
+                  min="-1000" 
+                  max="1000" 
+                  step="1" 
+                  value={svgaPos.x} 
+                  onChange={(e) => setSvgaPos(prev => ({ ...prev, x: parseInt(e.target.value) }))} 
+                  className="w-full h-1 accent-indigo-500 rounded bg-slate-700"
+                />
+                <span className="font-mono text-slate-300 min-w-[50px] text-right">{svgaPos.x}px</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5 justify-center">
+              <span className="text-slate-400 font-bold flex items-center gap-1">⬇️ الإزاحة الرأسية (Y Pos)</span>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="range" 
+                  min="-1000" 
+                  max="1000" 
+                  step="1" 
+                  value={svgaPos.y} 
+                  onChange={(e) => setSvgaPos(prev => ({ ...prev, y: parseInt(e.target.value) }))} 
+                  className="w-full h-1 accent-indigo-500 rounded bg-slate-700"
+                />
+                <span className="font-mono text-slate-300 min-w-[50px] text-right">{svgaPos.y}px</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5 justify-center">
+              <span className="text-slate-400 font-bold flex items-center gap-1">🔄 زاوية التدوير (Rotation)</span>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="360" 
+                  step="1" 
+                  value={svgaRotation} 
+                  onChange={(e) => setSvgaRotation(parseInt(e.target.value))} 
+                  className="w-full h-1 accent-pink-500 rounded bg-slate-700"
+                />
+                <span className="font-mono text-slate-300 min-w-[45px] text-right">{svgaRotation}°</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5 justify-center">
+              <span className="text-slate-400 font-bold flex items-center gap-1">🌗 مستوى الشفافية (Opacity)</span>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="range" 
+                  min="0.1" 
+                  max="1" 
+                  step="0.05" 
+                  value={svgaOpacity} 
+                  onChange={(e) => setSvgaOpacity(parseFloat(e.target.value))} 
+                  className="w-full h-1 accent-teal-500 rounded bg-slate-700"
+                />
+                <span className="font-mono text-slate-300 min-w-[45px] text-right">{Math.round(svgaOpacity * 100)}%</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5 justify-center">
+              <span className="text-slate-400 font-bold flex items-center gap-1">⏱️ سرعة الإطارات (FPS)</span>
+              <div className="flex items-center gap-2">
+                <input 
+                  type="number" 
+                  value={metadata.fps || 30} 
+                  onChange={(e) => {
+                    const newFps = Math.max(1, parseInt(e.target.value) || 30);
+                    setMetadata(prev => ({ ...prev, fps: newFps }));
+                  }} 
+                  className="w-full max-w-[80px] px-2 py-1 bg-black/50 border border-white/10 rounded-lg text-center text-white text-xs font-mono font-bold"
+                />
+                <span className="text-slate-500 font-bold">FPS</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 sm:gap-8 overflow-visible">
         <div className="xl:col-span-7 flex flex-col gap-4 sm:gap-0 overflow-visible">
           <div 
@@ -6038,12 +7033,25 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                         </div>
                       ))}
 
-                      <div className="w-full h-full relative z-10 flex items-center justify-center transition-transform duration-300" style={{ transform: `translate(${svgaPos.x}px, ${svgaPos.y}px) scale(${svgaScale})` }}>
+                      {/* Background Main SVGA Player played in the back of the Composition Editor */}
+                      {activeCompositionId !== 'main' && (
+                        <div className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none opacity-100">
+                          <div ref={backgroundPlayerRef} className="w-full h-full relative flex items-center justify-center overflow-visible" />
+                        </div>
+                      )}
+
+                      <div 
+                        className={`w-full h-full relative z-10 flex items-center justify-center ${isDragging ? '' : 'transition-transform duration-300'}`} 
+                        style={{ 
+                          transform: `translate(${svgaPos.x}px, ${svgaPos.y}px) scale(${svgaScale}) rotate(${svgaRotation}deg)`,
+                          opacity: svgaOpacity
+                        }}
+                      >
                          <div 
                             key={`${videoWidth}-${videoHeight}`} 
                             ref={playerRef} 
                             id="svga-player-container" 
-                            className="w-full h-full relative flex items-center justify-center overflow-visible"
+                            className="w-full h-full relative flex items-center justify-center overflow-visible select-none"
                             style={{
                                 WebkitMaskImage: (fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0 || cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0) ? `
                                     linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100 - fadeConfig.bottom}%, transparent 100%), 
@@ -6060,7 +7068,27 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                                 WebkitMaskComposite: 'source-in',
                                 maskComposite: 'intersect'
                             }}
-                         ></div>
+                         >
+                           {/* Precise interactive outline handles with native mouse/touch listeners */}
+                           {activeCompositionId !== 'main' && (
+                             <div 
+                               onMouseDown={handleDragStart}
+                               onTouchStart={handleTouchStart}
+                               className="absolute -inset-2 border-2 border-dashed border-sky-400 hover:border-sky-300 bg-sky-500/5 transition-colors cursor-move z-30 flex items-center justify-center rounded-xl"
+                               title="اسحب لتحريك وتعديل موضع التركيبة باحترافية"
+                             >
+                                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-sky-500/95 text-white whitespace-nowrap px-3 py-1 text-[11px] font-black rounded-lg shadow-xl flex items-center gap-1.5 select-none pointer-events-none">
+                                  <span>🌌</span> سحب لتحريك التركيبة
+                                </div>
+                                
+                                {/* Corner handles */}
+                                <div className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
+                                <div className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
+                                <div className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
+                                <div className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
+                             </div>
+                           )}
+                         </div>
                       </div>
                       {watermark && (
                         <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center p-0 transition-transform duration-200" style={{ transform: `translate(${wmPos.x}px, ${wmPos.y}px)` }}>
@@ -6090,6 +7118,210 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                   </div>
               </div>
           </div>
+
+          {/* Quick Unified Controller Panel for Secondary Composition Group */}
+          {activeCompositionId !== 'main' && (
+            <div className="mt-4 w-full bg-slate-900/90 border border-sky-500/30 rounded-2xl p-5 shadow-2xl relative overflow-hidden text-right">
+              {/* background atmospheric glow */}
+              <div className="absolute top-0 left-0 w-32 h-32 bg-sky-500/10 blur-2xl rounded-full" />
+              
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-white/5 pb-3 mb-4 relative z-10">
+                <div>
+                  <h4 className="text-white font-black text-xs flex items-center gap-2">
+                    <span className="animate-pulse">✨</span> أداة التحكم بالملف المضاف كـ "مجموعة واحدة"
+                  </h4>
+                  <p className="text-[10px] text-slate-400 font-bold mt-1">
+                    الملف المضاف حالياً: <span className="text-sky-400 font-mono font-extrabold">{metadata.name}</span>
+                  </p>
+                </div>
+                
+                {/* Switch / Reset Actions */}
+                <div className="flex gap-2 w-full sm:w-auto">
+                  <button 
+                    onClick={() => {
+                      setSvgaPos({ x: 0, y: 0 });
+                      setSvgaScale(1);
+                      setSvgaRotation(0);
+                      setSvgaOpacity(1);
+                    }}
+                    className="flex-1 sm:flex-initial px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white rounded-lg text-[10px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    🔄 إعادة تعيين الموضع
+                  </button>
+                  <button
+                    onClick={() => handleSwitchComposition('main')}
+                    className="flex-1 sm:flex-initial px-3 py-1.5 bg-sky-500/15 hover:bg-sky-500/25 text-sky-400 border border-sky-500/20 rounded-lg text-[10px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    🏠 العودة للمشهد الرئيسي
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-5 relative z-10">
+                {/* 1. Precision D-Pad movement controls */}
+                <div className="md:col-span-4 flex flex-col items-center justify-center bg-black/30 p-4 rounded-xl border border-white/5">
+                  <span className="text-slate-400 font-bold text-[10px] mb-3 self-start mr-1">🎯 التحريك والتحكم بالموقع (Pos):</span>
+                  
+                  {/* D-Pad circle block */}
+                  <div className="relative w-28 h-28 flex items-center justify-center bg-slate-950/80 rounded-full border border-white/10 p-2">
+                    {/* CENTER INDICATOR */}
+                    <div className="w-8 h-8 rounded-full bg-sky-500/25 flex items-center justify-center text-[10px] text-sky-400 font-extrabold select-none shadow-glow-sky border border-sky-500/30">
+                      GP
+                    </div>
+                    {/* UP */}
+                    <button 
+                      onClick={() => setSvgaPos(prev => ({ ...prev, y: prev.y - nudgeStep }))}
+                      className="absolute top-1 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-slate-950 border border-white/5 hover:bg-slate-800 text-slate-300 font-bold text-[11px] flex items-center justify-center shadow-lg cursor-pointer active:scale-90"
+                      title="تحريك لأعلى"
+                    >
+                      ▲
+                    </button>
+                    {/* DOWN */}
+                    <button 
+                      onClick={() => setSvgaPos(prev => ({ ...prev, y: prev.y + nudgeStep }))}
+                      className="absolute bottom-1 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-slate-950 border border-white/5 hover:bg-slate-800 text-slate-300 font-bold text-[11px] flex items-center justify-center shadow-lg cursor-pointer active:scale-90"
+                      title="تحريك لأسفل"
+                    >
+                      ▼
+                    </button>
+                    {/* LEFT */}
+                    <button 
+                      onClick={() => setSvgaPos(prev => ({ ...prev, x: prev.x - nudgeStep }))}
+                      className="absolute left-1 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-slate-950 border border-white/5 hover:bg-slate-800 text-slate-300 font-bold text-[11px] flex items-center justify-center shadow-lg cursor-pointer active:scale-90"
+                      title="تحريك ليسار"
+                    >
+                      ◀
+                    </button>
+                    {/* RIGHT */}
+                    <button 
+                      onClick={() => setSvgaPos(prev => ({ ...prev, x: prev.x + nudgeStep }))}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-slate-950 border border-white/5 hover:bg-slate-800 text-slate-300 font-bold text-[11px] flex items-center justify-center shadow-lg cursor-pointer active:scale-90"
+                      title="تحريك ليمين"
+                    >
+                      ▶
+                    </button>
+                  </div>
+
+                  {/* Nudge step switcher */}
+                  <div className="flex gap-1 mt-4 w-full">
+                    {([1, 5, 10, 50, 100] as number[]).map(step => (
+                      <button
+                        key={`nudge-step-${step}`}
+                        onClick={() => setNudgeStep(step)}
+                        className={`flex-1 py-1 text-[9px] font-mono font-black rounded-lg transition-all ${nudgeStep === step ? 'bg-sky-500 text-white shadow-glow-sky' : 'bg-white/5 text-slate-400 hover:bg-white/10'}`}
+                      >
+                        {step}px
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 2. Scale & Rotate precise controls */}
+                <div className="md:col-span-5 flex flex-col justify-between bg-black/30 p-4 rounded-xl border border-white/5">
+                  <div className="space-y-4 w-full">
+                    {/* Scale block */}
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-slate-400 font-bold text-[10px] flex items-center gap-1">🔍 تعديل الحجم والنسب (Scale):</span>
+                        <span className="text-sky-400 font-mono text-[10px] font-black">{svgaScale.toFixed(2)}x</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => setSvgaScale(prev => Math.max(0.1, parseFloat((prev - 0.05).toFixed(2))))}
+                          className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 rounded-lg text-slate-300 text-xs font-black cursor-pointer active:scale-90 select-none border border-white/5"
+                        >
+                          ➖ تصغير
+                        </button>
+                        <input 
+                          type="range" 
+                          min="0.1" 
+                          max="3" 
+                          step="0.01" 
+                          value={svgaScale} 
+                          onChange={(e) => setSvgaScale(parseFloat(e.target.value))} 
+                          className="flex-1 h-1 accent-sky-500 rounded bg-slate-700 cursor-pointer"
+                        />
+                        <button 
+                          onClick={() => setSvgaScale(prev => Math.min(3, parseFloat((prev + 0.05).toFixed(2))))}
+                          className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 rounded-lg text-slate-300 text-xs font-black cursor-pointer active:scale-90 select-none border border-white/5"
+                        >
+                          ➕ تكبير
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Rotation block */}
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-slate-400 font-bold text-[10px] flex items-center gap-1">🔄 زاوية الدوران (Rotation):</span>
+                        <span className="text-pink-400 font-mono text-[10px] font-black">{svgaRotation}°</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => setSvgaRotation(prev => (prev - 10 + 360) % 360)}
+                          className="px-2 py-1.5 bg-slate-950 hover:bg-slate-800 rounded-lg text-slate-300 text-[10px] font-black cursor-pointer active:scale-90 select-none border border-white/5 flex-1"
+                        >
+                          ↩️ ليسار 10°
+                        </button>
+                        <input 
+                          type="range" 
+                          min="0" 
+                          max="360" 
+                          step="1" 
+                          value={svgaRotation} 
+                          onChange={(e) => setSvgaRotation(parseInt(e.target.value))} 
+                          className="w-1/3 h-1 accent-pink-500 rounded bg-slate-700 cursor-pointer"
+                        />
+                        <button 
+                          onClick={() => setSvgaRotation(prev => (prev + 10) % 360)}
+                          className="px-2 py-1.5 bg-slate-950 hover:bg-slate-800 rounded-lg text-slate-300 text-[10px] font-black cursor-pointer active:scale-90 select-none border border-white/5 flex-1"
+                        >
+                          ↪️ ليمين 10°
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Opacity block */}
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-slate-400 font-bold text-[10px] flex items-center gap-1">🌗 مستوى الشفافية (Opacity):</span>
+                        <span className="text-teal-400 font-mono text-[10px] font-black">{Math.round(svgaOpacity * 100)}%</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input 
+                          type="range" 
+                          min="0.1" 
+                          max="1" 
+                          step="0.05" 
+                          value={svgaOpacity} 
+                          onChange={(e) => setSvgaOpacity(parseFloat(e.target.value))} 
+                          className="flex-1 h-1 accent-teal-500 rounded bg-slate-700 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Global Action - Merge Entire composition into Main at once */}
+                <div className="md:col-span-3 flex flex-col justify-center items-center bg-sky-500/5 p-4 rounded-xl border border-sky-500/20 text-center">
+                  <span className="text-[9px] text-sky-400 font-black tracking-wider uppercase mb-2">⚡ الإجراء النهائي (Lock & Merge)</span>
+                  <p className="text-[10px] text-slate-300 font-bold mb-4 leading-relaxed">
+                    بعد وضع المجموعة في الموضع المطلوب تماماً، اضغط هنا لدمج كافّة الطبقات دفعة واحدة بالمشهد الأساسي مع الحفاظ على الحركة والصيغة والموضع.
+                  </p>
+                  <button 
+                    onClick={() => {
+                      if (confirm(`هل أنت متأكد من رغبتك في دمج التركيبة المضافة "${metadata.name}" بالكامل بموضعها الحالي كـ "دفعة واحدة" داخل المشهد الرئيسي؟`)) {
+                        handleMergeCompositionIntoMain(activeCompositionId, false);
+                      }
+                    }}
+                    className="w-full py-3 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white rounded-xl text-[11px] font-black uppercase shadow-lg shadow-sky-500/20 border border-sky-400/30 transition-all select-none cursor-pointer active:scale-95 flex items-center justify-center gap-1"
+                  >
+                    🚀 دمج كامل الطبقات الآن
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="mt-4 w-full bg-slate-950/60 backdrop-blur-3xl p-4 sm:p-8 rounded-2xl sm:rounded-[2.5rem] border border-white/5 flex flex-col lg:flex-row items-center gap-4 sm:gap-8 shadow-2xl relative z-20">
                <div className="flex items-center gap-4 w-full lg:w-auto">
@@ -6223,136 +7455,364 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                         )}
                     </div>
                     
-                    {/* Toggles */}
-                    <div className="flex flex-col gap-2 mb-4">
-                        <div className="flex items-center p-3 bg-white/5 rounded-xl border border-white/5">
-                            <div className="relative inline-flex items-center cursor-pointer" onClick={() => setIsVapMode(!isVapMode)}>
-                                <input type="checkbox" className="sr-only peer" checked={isVapMode} readOnly />
-                                <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-500"></div>
-                                <span className="mr-3 text-xs font-bold text-slate-300">استيراد فيديو شفاف (VAP)</span>
+                    {/* TWO COHESIVE BANDS (بندان لطبقات الملفات) */}
+                    <div className="space-y-6">
+                      {/* -- BAND 1: ADDED SECONDARY COMPOSITION'S LAYERS (Only active when activeCompositionId !== 'main') -- */}
+                      {activeCompositionId !== 'main' ? (
+                        <div className="space-y-4">
+                          <div className="flex flex-col gap-2 p-4 rounded-2xl bg-sky-500/10 border border-sky-500/20 shadow-lg relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-24 h-24 bg-sky-500/5 blur-2xl rounded-full"></div>
+                            <div className="flex justify-between items-center relative z-10">
+                              <span className="text-white text-[11px] font-black flex items-center gap-1.5 uppercase">
+                                <span className="w-2.5 h-2.5 rounded-full bg-sky-500 animate-pulse"></span>
+                                🔹 البند الأول: طبقات الملف المضاف (قابلة للحركة والتحكم)
+                              </span>
+                              <span className="px-2 py-0.5 bg-sky-500/20 text-sky-400 font-extrabold text-[9px] rounded-lg border border-sky-500/30">نشط وحر للتعديل</span>
                             </div>
-                        </div>
+                            <p className="text-[10px] text-slate-400 font-bold leading-relaxed relative z-10">
+                              هذا القسم يعرض كامل طبقات ملف الـ SVGA الثاني الذي قمت بإضافته للتو. يمكنك الضغط على أي طبقة وضبط خياراتها الفردية، أو سحب الإطار الرئيسي في شاشة العرض لتثبيته بالكامل، ثم دمجه بضغطة زر.
+                            </p>
+                            
+                            <button 
+                              onClick={() => {
+                                if (confirm(`هل ترغب في دمج كافة طبقات الملف المضاف الأخير "${metadata.name}" في الملف الأساسي الرئيسي دفعة واحدة وبسرعة؟`)) {
+                                  handleMergeCompositionIntoMain(activeCompositionId, false);
+                                }
+                              }}
+                              className="mt-2 w-full py-3.5 bg-gradient-to-r from-sky-500 via-indigo-500 to-purple-600 hover:from-sky-400 hover:via-indigo-400 hover:to-purple-500 text-white font-black text-xs rounded-xl shadow-glow-sky border border-white/10 transition-all flex items-center justify-center gap-2 active:scale-98 relative z-10 cursor-pointer"
+                            >
+                              <span>✨</span> دمج كافة طبقات الملف المضاف بالكامل داخل المشهد الرئيسي دفعة واحدة
+                            </button>
+                          </div>
 
-                        <div className="flex items-center p-3 bg-white/5 rounded-xl border border-white/5">
-                            <div className="relative inline-flex items-center cursor-pointer" onClick={() => setPauseOnManipulate(!pauseOnManipulate)}>
-                                <input type="checkbox" className="sr-only peer" checked={pauseOnManipulate} readOnly />
-                                <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-500"></div>
-                                <span className="mr-3 text-xs font-bold text-slate-300">إيقاف التشغيل عند التعديل والتحريك</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    {/* Custom Layers & Existing Layers Merged Grid */}
-                    <div className="grid grid-cols-2 gap-4">
-                        {/* Custom Layers */}
-                        {[...customLayers].reverse().map(layer => (
-                            <div key={layer.id} onClick={() => { setSelectedLayerId(layer.id); }} className={`group bg-slate-900/30 rounded-[2rem] border p-4 transition-all cursor-pointer ${selectedLayerId === layer.id ? 'border-sky-500 bg-sky-500/10' : 'border-white/[0.03]'}`}>
-                                <div className="aspect-square rounded-2xl bg-black/40 flex items-center justify-center relative overflow-hidden mb-2">
-                                    <img src={layer.url} className="max-w-[80%] max-h-[80%] object-contain" />
-                                </div>
-                                <div className="flex justify-between items-center mb-2">
-                                    <span className="text-[8px] text-white font-black truncate max-w-[60px]">{layer.name}</span>
-                                    <div className="flex gap-1">
-                                        <button onClick={(e) => {
-                                            e.stopPropagation();
-                                            const newName = prompt("أدخل اسم جديد للطبقة:", layer.name);
-                                            if (newName) handleUpdateLayer(layer.id, { name: newName });
-                                        }} className="text-amber-500 hover:text-amber-400" title="إعادة تسمية">
-                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-                                        </button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleRemoveLayer(layer.id); }} className="text-red-500 hover:text-red-400">
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-                                        </button>
+                          <div className="grid grid-cols-2 gap-4">
+                            {/* Custom Layers */}
+                            {[...customLayers].reverse().map(layer => (
+                                <div key={layer.id} onClick={() => { setSelectedLayerId(layer.id); }} className={`group bg-slate-900/30 rounded-[2rem] border p-4 transition-all cursor-pointer ${selectedLayerId === layer.id ? 'border-sky-500 bg-sky-500/10' : 'border-white/[0.03]'}`}>
+                                    <div className="aspect-square rounded-2xl bg-black/40 flex items-center justify-center relative overflow-hidden mb-2">
+                                        <img src={layer.url} className="max-w-[80%] max-h-[80%] object-contain" />
+                                    </div>
+                                    <div className="flex justify-between items-center mb-2">
+                                        <span className="text-[8px] text-white font-black truncate max-w-[60px]">{layer.name}</span>
+                                        <div className="flex gap-1">
+                                            <button onClick={(e) => {
+                                                e.stopPropagation();
+                                                const newName = prompt("أدخل اسم جديد للطبقة:", layer.name);
+                                                if (newName) handleUpdateLayer(layer.id, { name: newName });
+                                            }} className="text-amber-500 hover:text-amber-400" title="إعادة تسمية">
+                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                                            </button>
+                                            <button onClick={(e) => { e.stopPropagation(); handleRemoveLayer(layer.id); }} className="text-red-500 hover:text-red-400">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-1 justify-between">
+                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'down'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white">⬇️</button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleUpdateLayer(layer.id, { zIndexMode: layer.zIndexMode === 'front' ? 'back' : 'front' }); }} className={`px-2 py-1 rounded text-[8px] font-black uppercase ${layer.zIndexMode === 'front' ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-700 text-slate-400'}`}>{layer.zIndexMode === 'front' ? 'أمام' : 'خلف'}</button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'up'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white">⬆️</button>
                                     </div>
                                 </div>
-                                <div className="flex gap-1 justify-between">
-                                    <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'down'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white">⬇️</button>
-                                    <button onClick={(e) => { e.stopPropagation(); handleUpdateLayer(layer.id, { zIndexMode: layer.zIndexMode === 'front' ? 'back' : 'front' }); }} className={`px-2 py-1 rounded text-[8px] font-black uppercase ${layer.zIndexMode === 'front' ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-700 text-slate-400'}`}>{layer.zIndexMode === 'front' ? 'أمام' : 'خلف'}</button>
-                                    <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'up'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white">⬆️</button>
-                                </div>
-                            </div>
-                        ))}
+                            ))}
 
-                        {/* Existing Layers */}
-                        {filteredKeys.map(key => (
-                            <div 
-                                key={key} 
-                                onClick={(e) => {
-                                    if (e.ctrlKey || e.metaKey) {
-                                        const newSelected = new Set(selectedKeys);
-                                        if (newSelected.has(key)) newSelected.delete(key);
-                                        else newSelected.add(key);
-                                        setSelectedKeys(newSelected);
-                                    } else {
-                                        setSelectedKeys(new Set([key]));
-                                    }
-                                }}
-                                className={`group bg-slate-900/30 rounded-[2rem] border p-4 transition-all duration-300 relative cursor-pointer ${selectedKeys.has(key) ? 'border-sky-500 bg-sky-500/10' : deletedKeys.has(key) ? 'border-red-500/50 grayscale opacity-40' : 'border-white/[0.03]'}`}
-                            >
-                                <div className="aspect-square rounded-2xl bg-black/40 flex items-center justify-center relative overflow-hidden">
-                                   {layerImages[key] && <img src={layerImages[key]} className="max-w-[70%] max-h-[70%] object-contain" style={{ filter: assetColors[key] ? `drop-shadow(0 0 2px ${assetColors[key]})` : 'none' }} />}
-                                   <div 
-                                      className="absolute top-2 right-2 w-5 h-5 rounded-full border border-white/20 flex items-center justify-center bg-black/40 z-10" 
-                                      onClick={(e) => {
-                                          e.stopPropagation();
-                                          const newSelected = new Set(selectedKeys);
-                                          if (newSelected.has(key)) newSelected.delete(key);
-                                          else newSelected.add(key);
-                                          setSelectedKeys(newSelected);
-                                      }}
-                                   >
-                                      {selectedKeys.has(key) && <div className="w-3 h-3 bg-sky-500 rounded-full"></div>}
-                                   </div>
-                                   <div className="absolute inset-0 bg-slate-950/90 opacity-0 group-hover:opacity-100 transition-all flex flex-col items-center justify-center gap-2 backdrop-blur-md px-2">
-                                      {!deletedKeys.has(key) && (
-                                          <div className="flex flex-col gap-1 w-full">
-                                            <button onClick={(e) => { e.stopPropagation(); handleCloneAndIsolate(key); }} className="w-full py-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-md text-[8px] font-black uppercase transition-all shadow-sm">Clone & Isolate</button>
-                                            {selectedKeys.size > 1 && (
-                                                <button onClick={(e) => { e.stopPropagation(); handleIsolateSelected(); }} className="w-full py-1 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-md text-[8px] font-black uppercase transition-all shadow-sm">Isolate Selected</button>
-                                            )}
-                                            <div className="grid grid-cols-3 gap-1">
-                                                <button onClick={() => handleDownloadLayer(key)} className="h-7 bg-emerald-500 text-white rounded-md flex items-center justify-center" title="تحميل الصورة">⬇️</button>
-                                                <div className={`relative h-7 rounded-md overflow-hidden border ${assetColorModes[key] === 'fill' ? 'border-pink-500' : 'border-white/20'}`} title={assetColorModes[key] === 'fill' ? "تلوين كامل (Fill)" : "تلوين دمج (Multiply - يحافظ على التفاصيل)"}>
-                                                  <input type="color" value={assetColors[key] || "#ffffff"} onChange={(e) => handleColorChange(key, e.target.value)} className="absolute inset-[-50%] w-[200%] h-[200%] cursor-pointer bg-transparent border-none" />
+                            {/* Existing Layers */}
+                            {filteredKeys.map(key => (
+                                <div 
+                                    key={key} 
+                                    onClick={(e) => {
+                                        if (e.ctrlKey || e.metaKey) {
+                                            const newSelected = new Set(selectedKeys);
+                                            if (newSelected.has(key)) newSelected.delete(key);
+                                            else newSelected.add(key);
+                                            setSelectedKeys(newSelected);
+                                        } else {
+                                            setSelectedKeys(new Set([key]));
+                                        }
+                                    }}
+                                    className={`group bg-slate-900/30 rounded-[2rem] border p-4 transition-all duration-300 relative cursor-pointer ${selectedKeys.has(key) ? 'border-sky-500 bg-sky-500/10' : deletedKeys.has(key) ? 'border-red-500/50 grayscale opacity-40' : 'border-white/[0.03]'}`}
+                                >
+                                    <div className="aspect-square rounded-2xl bg-black/40 flex items-center justify-center relative overflow-hidden">
+                                       {layerImages[key] && <img src={layerImages[key]} className="max-w-[70%] max-h-[70%] object-contain" style={{ filter: assetColors[key] ? `drop-shadow(0 0 2px ${assetColors[key]})` : 'none' }} />}
+                                       <div 
+                                          className="absolute top-2 right-2 w-5 h-5 rounded-full border border-white/20 flex items-center justify-center bg-black/40 z-10" 
+                                          onClick={(e) => {
+                                              e.stopPropagation();
+                                              const newSelected = new Set(selectedKeys);
+                                              if (newSelected.has(key)) newSelected.delete(key);
+                                              else newSelected.add(key);
+                                              setSelectedKeys(newSelected);
+                                          }}
+                                       >
+                                          {selectedKeys.has(key) && <div className="w-3 h-3 bg-sky-500 rounded-full"></div>}
+                                       </div>
+                                       <div className="absolute inset-0 bg-slate-950/90 opacity-0 group-hover:opacity-100 transition-all flex flex-col items-center justify-center gap-2 backdrop-blur-md px-2">
+                                          {!deletedKeys.has(key) && (
+                                              <div className="flex flex-col gap-1 w-full">
+                                                <button onClick={(e) => { e.stopPropagation(); handleCloneAndIsolate(key); }} className="w-full py-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-md text-[8px] font-black uppercase transition-all shadow-sm font-sans">Clone & Isolate</button>
+                                                {selectedKeys.size > 1 && (
+                                                    <button onClick={(e) => { e.stopPropagation(); handleIsolateSelected(); }} className="w-full py-1 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-md text-[8px] font-black uppercase transition-all shadow-sm font-sans">Isolate Selected</button>
+                                                )}
+                                                <div className="grid grid-cols-3 gap-1">
+                                                    <button onClick={() => handleDownloadLayer(key)} className="h-7 bg-emerald-500 text-white rounded-md flex items-center justify-center" title="تحميل الصورة">⬇️</button>
+                                                    <div className={`relative h-7 rounded-md overflow-hidden border ${assetColorModes[key] === 'fill' ? 'border-pink-500' : 'border-white/20'}`} title={assetColorModes[key] === 'fill' ? "تلوين كامل (Fill)" : "تلوين دمج (Multiply - يحافظ على التفاصيل)"}>
+                                                      <input type="color" value={assetColors[key] || "#ffffff"} onChange={(e) => handleColorChange(key, e.target.value)} className="absolute inset-[-50%] w-[200%] h-[200%] cursor-pointer bg-transparent border-none" />
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => handleToggleColorMode(key)} 
+                                                        className={`h-7 rounded-md flex items-center justify-center text-[10px] border transition-all ${assetColorModes[key] === 'fill' ? 'bg-pink-500/20 border-pink-500 text-pink-400' : 'bg-blue-500/20 border-blue-500 text-blue-400'}`}
+                                                        title={assetColorModes[key] === 'fill' ? "وضع التعبئة (تغيير كامل)" : "وضع التلوين (Multiply - يحافظ على التفاصيل)"}
+                                                    >
+                                                        {assetColorModes[key] === 'fill' ? '🎨' : '💧'}
+                                                    </button>
                                                 </div>
-                                                <button 
-                                                    onClick={() => handleToggleColorMode(key)} 
-                                                    className={`h-7 rounded-md flex items-center justify-center text-[10px] border transition-all ${assetColorModes[key] === 'fill' ? 'bg-pink-500/20 border-pink-500 text-pink-400' : 'bg-blue-500/20 border-blue-500 text-blue-400'}`}
-                                                    title={assetColorModes[key] === 'fill' ? "وضع التعبئة (تغيير كامل)" : "وضع التلوين (Multiply - يحافظ على التفاصيل)"}
-                                                >
-                                                    {assetColorModes[key] === 'fill' ? '🎨' : '💧'}
-                                                </button>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-1 w-full">
-                                                <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'down'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬇️ خلف</button>
-                                                <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'up'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬆️ أمام</button>
-                                            </div>
-                                            <div className="flex gap-1 w-full flex-wrap">
-                                                 <button onClick={() => {
-                                                     setReplacingAssetKey(key);
-                                                     fileInputRef.current?.click();
-                                                 }} className="flex-1 py-1 bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-md text-[8px] font-black uppercase hover:bg-sky-500/30 h-10">تغيير الصورة</button>
+                                                <div className="grid grid-cols-2 gap-1 w-full">
+                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'down'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬇️ خلف</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'up'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬆️ أمام</button>
+                                                    <button 
+                                                       onClick={(e) => { e.stopPropagation(); handleCopyLayer(key); }} 
+                                                       className="w-full py-1 mt-1 bg-amber-500/20 border border-amber-500/30 rounded-md text-[8px] font-black text-amber-400 hover:bg-amber-500/30 text-center"
+                                                    >
+                                                       📋 نسخ (Copy)
+                                                    </button>
+                                                    {compositions.length > 1 && (
+                                                       <select 
+                                                         onChange={(e) => {
+                                                           const val = e.target.value;
+                                                           if (val) {
+                                                             handleMoveLayerToComposition(key, val);
+                                                             e.target.value = '';
+                                                           }
+                                                         }}
+                                                         className="w-full py-1 mt-1 bg-indigo-500/10 border border-indigo-500/20 rounded-md text-[8px] font-black text-indigo-300 hover:bg-indigo-500/30 text-center cursor-pointer"
+                                                       >
+                                                         <option value="" className="bg-slate-950 text-slate-400 text-[8px] hidden">✈️ نقل لتركيبة</option>
+                                                         {compositions.filter(c => c.id !== activeCompositionId).map(c => (
+                                                           <option key={c.id} value={c.id} className="bg-slate-950 text-white text-[8px]">
+                                                             {c.name}
+                                                           </option>
+                                                         ))}
+                                                       </select>
+                                                    )}
+                                                </div>
+                                                <div className="flex gap-1 w-full flex-wrap">
+                                                     <button onClick={() => {
+                                                         setReplacingAssetKey(key);
+                                                         fileInputRef.current?.click();
+                                                     }} className="flex-1 py-1 bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-md text-[8px] font-black uppercase hover:bg-sky-500/30 h-10">تغيير الصورة</button>
 
-                                                 <button onClick={() => handleOpenTextReplaceModal(key)} className="flex-1 py-1 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-md text-[8px] font-black uppercase hover:bg-yellow-500/30 h-10 flex items-center justify-center gap-1">
-                                                    ✨ استبدال بنص
-                                                 </button>
-                                            </div>
+                                                     <button onClick={() => handleOpenTextReplaceModal(key)} className="flex-1 py-1 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-md text-[8px] font-black uppercase hover:bg-yellow-500/30 h-10 flex items-center justify-center gap-1">
+                                                        ✨ نص (Text)
+                                                     </button>
+                                                </div>
 
-                                            {textReplaceOriginalImages[key] && textReplaceOriginalImages[key].length > 0 && (
-                                               <button onClick={() => handleUndoTextReplace(key)} className="w-full py-1.5 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-orange-500/30 flex items-center justify-center gap-1">
-                                                  ↩️ استعادة الأصلي (Undo)
-                                               </button>
-                                            )}
+                                                {textReplaceOriginalImages[key] && textReplaceOriginalImages[key].length > 0 && (
+                                                   <button onClick={() => handleUndoTextReplace(key)} className="w-full py-1.5 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-orange-500/30 flex items-center justify-center gap-1">
+                                                      ↩️ أصلي (Undo)
+                                                   </button>
+                                                )}
 
-                                            <button onClick={() => handleOpenFadeModal(key)} className="w-full py-1.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-purple-500/30">تلاشي الحواف (Fade)</button>
-                                          </div>
-                                      )}
-                                      <button onClick={() => handleDeleteAsset(key)} className={`w-full py-1.5 ${deletedKeys.has(key) ? 'bg-emerald-500' : 'bg-red-500'} text-white rounded-lg text-[8px] font-black uppercase`}>{deletedKeys.has(key) ? 'استعادة' : 'حذف'}</button>
-                                   </div>
+                                                <button onClick={() => handleOpenFadeModal(key)} className="w-full py-1.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-purple-500/30">تلاشي الحواف (Fade)</button>
+                                              </div>
+                                          )}
+                                          <button onClick={() => handleDeleteAsset(key)} className={`w-full py-1.5 ${deletedKeys.has(key) ? 'bg-emerald-500' : 'bg-red-500'} text-white rounded-lg text-[8px] font-black uppercase`}>{deletedKeys.has(key) ? 'استعادة' : 'حذف'}</button>
+                                       </div>
+                                    </div>
+                                    <span className="mt-2 text-[8px] text-slate-500 font-black block text-center uppercase truncate">{layerDisplayNames[key] || key}</span>
                                 </div>
-                                <span className="mt-2 text-[8px] text-slate-500 font-black block text-center uppercase truncate">{layerDisplayNames[key] || key}</span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        /* Single Primary Grid when activeCompositionId === 'main' and no secondary SVGA is loaded/active */
+                        <div className="space-y-4">
+                          <div className="flex flex-col gap-1.5 p-4 rounded-xl bg-orange-500/5 border border-orange-500/10">
+                            <span className="text-white text-[10px] font-bold flex items-center gap-1.5">✨ المشهد الأساسي النشط (Main Workspace)</span>
+                            <p className="text-[9px] text-slate-400 leading-relaxed">هذه هي الطبقات الأصلية لمشهدك الأساسي. قم باستيراد ملف SVGA ثانوي مباشرة عبر زر "استيراد تركيبة SVGA جديدة" لوضعه والتحكم فيه بشكل متزامن فوق هذا المشهد!</p>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                            {[...customLayers].reverse().map(layer => (
+                                <div key={layer.id} onClick={() => { setSelectedLayerId(layer.id); }} className={`group bg-slate-900/30 rounded-[2rem] border p-4 transition-all cursor-pointer ${selectedLayerId === layer.id ? 'border-sky-500 bg-sky-500/10' : 'border-white/[0.03]'}`}>
+                                    <div className="aspect-square rounded-2xl bg-black/40 flex items-center justify-center relative overflow-hidden mb-2">
+                                        <img src={layer.url} className="max-w-[80%] max-h-[80%] object-contain" />
+                                    </div>
+                                    <div className="flex justify-between items-center mb-2">
+                                        <span className="text-[8px] text-white font-black truncate max-w-[60px]">{layer.name}</span>
+                                        <div className="flex gap-1">
+                                            <button onClick={(e) => {
+                                                e.stopPropagation();
+                                                const newName = prompt("أدخل اسم جديد للطبقة:", layer.name);
+                                                if (newName) handleUpdateLayer(layer.id, { name: newName });
+                                            }} className="text-amber-500 hover:text-amber-400" title="إعادة تسمية">
+                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                                            </button>
+                                            <button onClick={(e) => { e.stopPropagation(); handleRemoveLayer(layer.id); }} className="text-red-500 hover:text-red-400">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-1 justify-between">
+                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'down'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white">⬇️</button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleUpdateLayer(layer.id, { zIndexMode: layer.zIndexMode === 'front' ? 'back' : 'front' }); }} className={`px-2 py-1 rounded text-[8px] font-black uppercase ${layer.zIndexMode === 'front' ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-700 text-slate-400'}`}>{layer.zIndexMode === 'front' ? 'أمام' : 'خلف'}</button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'up'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white">⬆️</button>
+                                    </div>
+                                </div>
+                            ))}
+
+                            {filteredKeys.map(key => (
+                                <div 
+                                    key={key} 
+                                    onClick={(e) => {
+                                        if (e.ctrlKey || e.metaKey) {
+                                            const newSelected = new Set(selectedKeys);
+                                            if (newSelected.has(key)) newSelected.delete(key);
+                                            else newSelected.add(key);
+                                            setSelectedKeys(newSelected);
+                                        } else {
+                                            setSelectedKeys(new Set([key]));
+                                        }
+                                    }}
+                                    className={`group bg-slate-900/30 rounded-[2rem] border p-4 transition-all duration-300 relative cursor-pointer ${selectedKeys.has(key) ? 'border-sky-500 bg-sky-500/10' : deletedKeys.has(key) ? 'border-red-500/50 grayscale opacity-40' : 'border-white/[0.03]'}`}
+                                >
+                                    <div className="aspect-square rounded-2xl bg-black/40 flex items-center justify-center relative overflow-hidden">
+                                       {layerImages[key] && <img src={layerImages[key]} className="max-w-[70%] max-h-[70%] object-contain" style={{ filter: assetColors[key] ? `drop-shadow(0 0 2px ${assetColors[key]})` : 'none' }} />}
+                                       <div 
+                                          className="absolute top-2 right-2 w-5 h-5 rounded-full border border-white/20 flex items-center justify-center bg-black/40 z-10" 
+                                          onClick={(e) => {
+                                              e.stopPropagation();
+                                              const newSelected = new Set(selectedKeys);
+                                              if (newSelected.has(key)) newSelected.delete(key);
+                                              else newSelected.add(key);
+                                              setSelectedKeys(newSelected);
+                                          }}
+                                       >
+                                          {selectedKeys.has(key) && <div className="w-3 h-3 bg-sky-500 rounded-full"></div>}
+                                       </div>
+                                       <div className="absolute inset-0 bg-slate-950/90 opacity-0 group-hover:opacity-100 transition-all flex flex-col items-center justify-center gap-2 backdrop-blur-md px-2">
+                                          {!deletedKeys.has(key) && (
+                                              <div className="flex flex-col gap-1 w-full">
+                                                <button onClick={(e) => { e.stopPropagation(); handleCloneAndIsolate(key); }} className="w-full py-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-md text-[8px] font-black uppercase transition-all shadow-sm font-sans">Clone & Isolate</button>
+                                                {selectedKeys.size > 1 && (
+                                                    <button onClick={(e) => { e.stopPropagation(); handleIsolateSelected(); }} className="w-full py-1 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-md text-[8px] font-black uppercase transition-all shadow-sm font-sans">Isolate Selected</button>
+                                                )}
+                                                <div className="grid grid-cols-3 gap-1">
+                                                    <button onClick={() => handleDownloadLayer(key)} className="h-7 bg-emerald-500 text-white rounded-md flex items-center justify-center" title="تحميل الصورة">⬇️</button>
+                                                    <div className={`relative h-7 rounded-md overflow-hidden border ${assetColorModes[key] === 'fill' ? 'border-pink-500' : 'border-white/20'}`} title={assetColorModes[key] === 'fill' ? "تلوين كامل (Fill)" : "تلوين دمج (Multiply - يحافظ على التفاصيل)"}>
+                                                      <input type="color" value={assetColors[key] || "#ffffff"} onChange={(e) => handleColorChange(key, e.target.value)} className="absolute inset-[-50%] w-[200%] h-[200%] cursor-pointer bg-transparent border-none" />
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => handleToggleColorMode(key)} 
+                                                        className={`h-7 rounded-md flex items-center justify-center text-[10px] border transition-all ${assetColorModes[key] === 'fill' ? 'bg-pink-500/20 border-pink-500 text-pink-400' : 'bg-blue-500/20 border-blue-500 text-blue-400'}`}
+                                                        title={assetColorModes[key] === 'fill' ? "وضع التعبئة (تغيير كامل)" : "وضع التلوين (Multiply - يحافظ على التفاصيل)"}
+                                                    >
+                                                        {assetColorModes[key] === 'fill' ? '🎨' : '💧'}
+                                                    </button>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-1 w-full">
+                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'down'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬇️ خلف</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'up'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬆️ أمام</button>
+                                                    <button 
+                                                       onClick={(e) => { e.stopPropagation(); handleCopyLayer(key); }} 
+                                                       className="w-full py-1 mt-1 bg-amber-500/20 border border-amber-500/30 rounded-md text-[8px] font-black text-amber-400 hover:bg-amber-500/30 text-center"
+                                                    >
+                                                       📋 نسخ (Copy)
+                                                    </button>
+                                                    {compositions.length > 1 && (
+                                                       <select 
+                                                         onChange={(e) => {
+                                                           const val = e.target.value;
+                                                           if (val) {
+                                                             handleMoveLayerToComposition(key, val);
+                                                             e.target.value = '';
+                                                           }
+                                                         }}
+                                                         className="w-full py-1 mt-1 bg-indigo-500/10 border border-indigo-500/20 rounded-md text-[8px] font-black text-indigo-300 hover:bg-indigo-500/30 text-center cursor-pointer"
+                                                       >
+                                                         <option value="" className="bg-slate-950 text-slate-400 text-[8px] hidden">✈️ نقل لتركيبة</option>
+                                                         {compositions.filter(c => c.id !== activeCompositionId).map(c => (
+                                                           <option key={c.id} value={c.id} className="bg-slate-950 text-white text-[8px]">
+                                                             {c.name}
+                                                           </option>
+                                                         ))}
+                                                       </select>
+                                                    )}
+                                                </div>
+                                                <div className="flex gap-1 w-full flex-wrap">
+                                                     <button onClick={() => {
+                                                         setReplacingAssetKey(key);
+                                                         fileInputRef.current?.click();
+                                                     }} className="flex-1 py-1 bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-md text-[8px] font-black uppercase hover:bg-sky-500/30 h-10">تغيير الصورة</button>
+
+                                                     <button onClick={() => handleOpenTextReplaceModal(key)} className="flex-1 py-1 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-md text-[8px] font-black uppercase hover:bg-yellow-500/30 h-10 flex items-center justify-center gap-1">
+                                                        ✨ نص (Text)
+                                                     </button>
+                                                </div>
+
+                                                {textReplaceOriginalImages[key] && textReplaceOriginalImages[key].length > 0 && (
+                                                   <button onClick={() => handleUndoTextReplace(key)} className="w-full py-1.5 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-orange-500/30 flex items-center justify-center gap-1">
+                                                      ↩️ أصلي (Undo)
+                                                   </button>
+                                                )}
+
+                                                <button onClick={() => handleOpenFadeModal(key)} className="w-full py-1.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-purple-500/30">تلاشي الحواف (Fade)</button>
+                                              </div>
+                                          )}
+                                          <button onClick={() => handleDeleteAsset(key)} className={`w-full py-1.5 ${deletedKeys.has(key) ? 'bg-emerald-500' : 'bg-red-500'} text-white rounded-lg text-[8px] font-black uppercase`}>{deletedKeys.has(key) ? 'استعادة' : 'حذف'}</button>
+                                       </div>
+                                    </div>
+                                    <span className="mt-2 text-[8px] text-slate-500 font-black block text-center uppercase truncate">{layerDisplayNames[key] || key}</span>
+                                </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* -- BAND 2: ORIGINAL MAIN COMPOSITION'S BASE LAYERS (Shown when activeCompositionId !== 'main') -- */}
+                      {activeCompositionId !== 'main' && mainCompLayers.length > 0 && (
+                        <div className="space-y-4 pt-4 border-t border-white/5">
+                          <div className="flex flex-col gap-2 p-4 rounded-2xl bg-slate-900/60 border border-white/5 relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-24 h-24 bg-white/[0.02] blur-xl rounded-full"></div>
+                            <div className="flex justify-between items-center relative z-10">
+                              <span className="text-slate-300 text-[11px] font-black flex items-center gap-1.5 uppercase">
+                                🔒 البند الثاني: طبقات الملف الأساسي (الأصلي)
+                              </span>
+                              <span className="px-2 py-0.5 bg-slate-800 text-slate-400 font-extrabold text-[9px] rounded-lg border border-white/5">قفل مؤمن (ثابت خلفاً)</span>
                             </div>
-                        ))}
+                            <p className="text-[10px] text-slate-400 font-bold leading-relaxed relative z-10">
+                              طبقات الملف الأساسي مغلقة مؤقتاً لضمان عدم تغيير موضعها أو خصائصها بالخطأ أثناء تعديل الملف المضاف فوقها. يمكنك الضغط على زر التعديل للانتقال وإدارتها بشكل مستقل.
+                            </p>
+                            <button 
+                              onClick={() => {
+                                handleSwitchComposition('main');
+                              }}
+                              className="mt-2 w-full py-2 bg-white/5 hover:bg-white/10 text-white font-black text-[10px] rounded-xl border border-white/10 transition-all flex items-center justify-center gap-1.5 active:scale-98 relative z-10 cursor-pointer"
+                            >
+                              ✏️ نقرة واحدة لتغيير أو تعديل طبقات الملف الأساسي
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            {mainCompLayers.map(({ key, img, displayName, color }) => (
+                              <div 
+                                key={`main_lock_${key}`}
+                                className="bg-slate-900/10 border border-white/5 rounded-[2rem] p-4 relative grayscale opacity-40 hover:opacity-60 transition-all duration-300 cursor-not-allowed group"
+                              >
+                                <div className="aspect-square rounded-2xl bg-black/20 flex items-center justify-center relative overflow-hidden">
+                                  {img && <img src={img} className="max-w-[70%] max-h-[70%] object-contain" style={{ filter: color ? `drop-shadow(0 0 2px ${color})` : 'none' }} />}
+                                  
+                                  {/* Center Lock Overlay icon */}
+                                  <div className="absolute inset-0 bg-slate-950/40 flex items-center justify-center">
+                                    <div className="bg-slate-900/90 text-slate-400 p-2 rounded-full border border-white/5 shadow-lg flex items-center justify-center">
+                                      🔒
+                                    </div>
+                                  </div>
+                                </div>
+                                <span className="mt-2 text-[8px] text-slate-500 font-black block text-center uppercase truncate">{displayName}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                 </div>
               )}
@@ -7144,7 +8604,7 @@ class _MyAppState extends State<MyApp> {
                         </h5>
                         <div className="grid grid-cols-2 gap-6">
                             {(['top', 'bottom', 'left', 'right'] as (keyof typeof cropConfig)[]).map((dir) => (
-                                <div key={`crop-${dir}`} className="space-y-3 bg-black/20 p-3 rounded-xl border border-white/5">
+                                <div key={`crop-${String(dir)}`} className="space-y-3 bg-black/20 p-3 rounded-xl border border-white/5">
                                     <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase">
                                         <span>{dir === 'top' ? 'أعلى (Top)' : dir === 'bottom' ? 'أسفل (Bottom)' : dir === 'left' ? 'يسار (Left)' : 'يمين (Right)'}</span>
                                     </div>
