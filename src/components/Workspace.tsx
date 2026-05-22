@@ -6878,10 +6878,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                         e.stopPropagation();
                         handleDeleteComposition(comp.id);
                       }}
-                      className="text-red-400 hover:text-red-300 p-1 rounded hover:bg-white/5"
+                      className="text-[10px] bg-red-600/10 hover:bg-red-600/30 text-red-400 hover:text-white px-2.5 py-1 rounded-lg border border-red-500/25 transition-all font-black flex items-center gap-1 cursor-pointer"
                       title="حذف التركيبة"
                     >
-                      🗑️
+                      <span>🗑️</span> حذف الملف
                     </button>
                   </div>
                 )}
@@ -6892,7 +6892,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
         {/* Composition Properties Adjuster when active comp is NOT main */}
         {activeCompositionId !== 'main' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4 p-5 rounded-2xl bg-slate-900/50 border border-white/10 text-xs shadow-2xl relative overflow-hidden">
+          <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-7 gap-4 p-5 rounded-2xl bg-slate-900/50 border border-white/10 text-xs shadow-2xl relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-sky-500/5 blur-3xl rounded-full"></div>
             
             <div className="flex flex-col gap-1.5 justify-center">
@@ -6989,6 +6989,19 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 />
                 <span className="text-slate-500 font-bold">FPS</span>
               </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5 justify-center">
+              <span className="text-red-400 font-bold flex items-center gap-1">🗑️ حذف الملف بالكامل</span>
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteComposition(activeCompositionId);
+                }}
+                className="w-full py-2.5 bg-red-600/10 hover:bg-red-600/30 text-red-400 hover:text-white font-black text-xs rounded-xl border border-red-500/30 transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer shadow-lg"
+              >
+                <span>🗑️</span> حذف هذا الملف كلياً
+              </button>
             </div>
           </div>
         )}
@@ -7517,7 +7530,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                           <div className="grid grid-cols-2 gap-4">
                             {/* Custom Layers */}
                             {[...customLayers].reverse().map(layer => (
-                                <div key={layer.id} onClick={() => { setSelectedLayerId(layer.id); }} className={`group bg-slate-900/30 rounded-[2rem] border p-4 transition-all cursor-pointer ${selectedLayerId === layer.id ? 'border-sky-500 bg-sky-500/10' : 'border-white/[0.03]'}`}>
+                                <div key={layer.id} onClick={() => { setSelectedLayerId(layer.id); }} className={`group bg-slate-900/30 rounded-[2rem] border p-4 transition-all cursor-pointer ${selectedLayerId === layer.id ? 'border-sky-500 bg-sky-500/10' : 'border-white/[0.03]'}`} id={`layer-card-${layer.id}`}>
                                     <div className="aspect-square rounded-2xl bg-black/40 flex items-center justify-center relative overflow-hidden mb-2">
                                         <img src={layer.url} className="max-w-[80%] max-h-[80%] object-contain" />
                                     </div>
@@ -7528,18 +7541,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                                                 e.stopPropagation();
                                                 const newName = prompt("أدخل اسم جديد للطبقة:", layer.name);
                                                 if (newName) handleUpdateLayer(layer.id, { name: newName });
-                                            }} className="text-amber-500 hover:text-amber-400" title="إعادة تسمية">
+                                            }} className="text-amber-500 hover:text-amber-400 cursor-pointer" title="إعادة تسمية">
                                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                                             </button>
-                                            <button onClick={(e) => { e.stopPropagation(); handleRemoveLayer(layer.id); }} className="text-red-500 hover:text-red-400">
+                                            <button onClick={(e) => { e.stopPropagation(); handleRemoveLayer(layer.id); }} className="text-red-500 hover:text-red-400 cursor-pointer">
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
                                             </button>
                                         </div>
                                     </div>
                                     <div className="flex gap-1 justify-between">
-                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'down'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white">⬇️</button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleUpdateLayer(layer.id, { zIndexMode: layer.zIndexMode === 'front' ? 'back' : 'front' }); }} className={`px-2 py-1 rounded text-[8px] font-black uppercase ${layer.zIndexMode === 'front' ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-700 text-slate-400'}`}>{layer.zIndexMode === 'front' ? 'أمام' : 'خلف'}</button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'up'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white">⬆️</button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'down'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white cursor-pointer">⬇️</button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleUpdateLayer(layer.id, { zIndexMode: layer.zIndexMode === 'front' ? 'back' : 'front' }); }} className={`px-2 py-1 rounded text-[8px] font-black uppercase cursor-pointer ${layer.zIndexMode === 'front' ? 'bg-sky-500/20 text-sky-400 animate-pulse' : 'bg-slate-700 text-slate-400'}`}>{layer.zIndexMode === 'front' ? 'أمام' : 'خلف'}</button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'up'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white cursor-pointer">⬆️</button>
                                     </div>
                                 </div>
                             ))}
@@ -7574,35 +7587,37 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                                        >
                                           {selectedKeys.has(key) && <div className="w-3 h-3 bg-sky-500 rounded-full"></div>}
                                        </div>
-                                       <div className="absolute inset-0 bg-slate-950/90 opacity-0 group-hover:opacity-100 transition-all flex flex-col items-center justify-center gap-2 backdrop-blur-md px-2">
+                                       <div className="absolute inset-0 bg-slate-950/95 opacity-0 group-hover:opacity-100 transition-all duration-200 flex flex-col items-stretch justify-start gap-1.5 backdrop-blur-md p-2.5 overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/15 select-none text-right font-sans">
+                                           {/* Delete / Restore Button ALWAYS at the top so it is fully visible right away */}
+                                           <button 
+                                              onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleDeleteAsset(key);
+                                              }} 
+                                              className={`w-full py-2 transition-all duration-200 font-extrabold text-[10px] uppercase rounded-xl border flex items-center justify-center gap-1.5 cursor-pointer shrink-0 z-20 ${deletedKeys.has(key) ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25' : 'bg-red-500/15 text-red-150 border-red-500/30 hover:bg-red-500/25'}`}
+                                           >
+                                              {deletedKeys.has(key) ? '🟢 استعادة الطبقة' : '🗑️ حذف الطبقة'}
+                                           </button>
                                           {!deletedKeys.has(key) && (
-                                              <div className="flex flex-col gap-1 w-full">
-                                                <button onClick={(e) => { e.stopPropagation(); handleCloneAndIsolate(key); }} className="w-full py-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-md text-[8px] font-black uppercase transition-all shadow-sm font-sans">Clone & Isolate</button>
-                                                {selectedKeys.size > 1 && (
-                                                    <button onClick={(e) => { e.stopPropagation(); handleIsolateSelected(); }} className="w-full py-1 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-md text-[8px] font-black uppercase transition-all shadow-sm font-sans">Isolate Selected</button>
-                                                )}
+                                              <div className="flex flex-col gap-1.5 w-full">
                                                 <div className="grid grid-cols-3 gap-1">
-                                                    <button onClick={() => handleDownloadLayer(key)} className="h-7 bg-emerald-500 text-white rounded-md flex items-center justify-center" title="تحميل الصورة">⬇️</button>
-                                                    <div className={`relative h-7 rounded-md overflow-hidden border ${assetColorModes[key] === 'fill' ? 'border-pink-500' : 'border-white/20'}`} title={assetColorModes[key] === 'fill' ? "تلوين كامل (Fill)" : "تلوين دمج (Multiply - يحافظ على التفاصيل)"}>
+                                                    <button onClick={() => handleDownloadLayer(key)} className="h-7 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg flex items-center justify-center transition-all cursor-pointer" title="تحميل الصورة">📥</button>
+                                                    <div className={`relative h-7 rounded-lg overflow-hidden border ${assetColorModes[key] === 'fill' ? 'border-pink-500/50 bg-pink-500/10' : 'border-white/10 bg-white/5'}`} title={assetColorModes[key] === 'fill' ? "تلوين كامل (Fill)" : "تلوين دمج (Multiply - يحافظ على التفاصيل)"}>
                                                       <input type="color" value={assetColors[key] || "#ffffff"} onChange={(e) => handleColorChange(key, e.target.value)} className="absolute inset-[-50%] w-[200%] h-[200%] cursor-pointer bg-transparent border-none" />
                                                     </div>
                                                     <button 
                                                         onClick={() => handleToggleColorMode(key)} 
-                                                        className={`h-7 rounded-md flex items-center justify-center text-[10px] border transition-all ${assetColorModes[key] === 'fill' ? 'bg-pink-500/20 border-pink-500 text-pink-400' : 'bg-blue-500/20 border-blue-500 text-blue-400'}`}
+                                                        className={`h-7 rounded-lg flex items-center justify-center text-[10px] border transition-all cursor-pointer ${assetColorModes[key] === 'fill' ? 'bg-pink-500/10 border-pink-500/30 text-pink-400 hover:bg-pink-500/20' : 'bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20'}`}
                                                         title={assetColorModes[key] === 'fill' ? "وضع التعبئة (تغيير كامل)" : "وضع التلوين (Multiply - يحافظ على التفاصيل)"}
                                                     >
                                                         {assetColorModes[key] === 'fill' ? '🎨' : '💧'}
                                                     </button>
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-1 w-full">
-                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'down'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬇️ خلف</button>
-                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'up'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬆️ أمام</button>
-                                                    <button 
-                                                       onClick={(e) => { e.stopPropagation(); handleCopyLayer(key); }} 
-                                                       className="w-full py-1 mt-1 bg-amber-500/20 border border-amber-500/30 rounded-md text-[8px] font-black text-amber-400 hover:bg-amber-500/30 text-center"
-                                                    >
-                                                       📋 نسخ (Copy)
-                                                    </button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'down'); }} className="py-1 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[8px] text-slate-300 transition-all cursor-pointer">⬇️ خلف</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'up'); }} className="py-1 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[8px] text-slate-300 transition-all cursor-pointer">⬆️ أمام</button>
+                                                </div>
+                                                <div className="flex gap-1 w-full flex-wrap">
                                                     {compositions.length > 1 && (
                                                        <select 
                                                          onChange={(e) => {
@@ -7612,7 +7627,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                                                              e.target.value = '';
                                                            }
                                                          }}
-                                                         className="w-full py-1 mt-1 bg-indigo-500/10 border border-indigo-500/20 rounded-md text-[8px] font-black text-indigo-300 hover:bg-indigo-500/30 text-center cursor-pointer"
+                                                         className="flex-1 py-1 bg-indigo-500/10 border border-indigo-500/25 rounded-lg text-[8px] font-black text-indigo-300 hover:bg-indigo-500/25 text-center cursor-pointer outline-none"
                                                        >
                                                          <option value="" className="bg-slate-950 text-slate-400 text-[8px] hidden">✈️ نقل لتركيبة</option>
                                                          {compositions.filter(c => c.id !== activeCompositionId).map(c => (
@@ -7623,27 +7638,27 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                                                        </select>
                                                     )}
                                                 </div>
-                                                <div className="flex gap-1 w-full flex-wrap">
+                                                <div className="grid grid-cols-2 gap-1 w-full">
                                                      <button onClick={() => {
                                                          setReplacingAssetKey(key);
                                                          fileInputRef.current?.click();
-                                                     }} className="flex-1 py-1 bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-md text-[8px] font-black uppercase hover:bg-sky-500/30 h-10">تغيير الصورة</button>
+                                                     }} className="py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/25 rounded-lg text-[8px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer">🖼️ تغيير الصورة</button>
 
-                                                     <button onClick={() => handleOpenTextReplaceModal(key)} className="flex-1 py-1 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-md text-[8px] font-black uppercase hover:bg-yellow-500/30 h-10 flex items-center justify-center gap-1">
+                                                     <button onClick={() => handleOpenTextReplaceModal(key)} className="py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/25 rounded-lg text-[8px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer">
                                                         ✨ نص (Text)
                                                      </button>
                                                 </div>
 
                                                 {textReplaceOriginalImages[key] && textReplaceOriginalImages[key].length > 0 && (
-                                                   <button onClick={() => handleUndoTextReplace(key)} className="w-full py-1.5 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-orange-500/30 flex items-center justify-center gap-1">
+                                                   <button onClick={() => handleUndoTextReplace(key)} className="w-full py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/25 rounded-lg text-[8px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer">
                                                       ↩️ أصلي (Undo)
                                                    </button>
                                                 )}
 
-                                                <button onClick={() => handleOpenFadeModal(key)} className="w-full py-1.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-purple-500/30">تلاشي الحواف (Fade)</button>
+                                                <button onClick={() => handleOpenFadeModal(key)} className="w-full py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/25 rounded-lg text-[8px] font-black uppercase transition-all cursor-pointer text-center">🌓 تلاشي الحواف (Fade)</button>
                                               </div>
                                           )}
-                                          <button onClick={() => handleDeleteAsset(key)} className={`w-full py-1.5 ${deletedKeys.has(key) ? 'bg-emerald-500' : 'bg-red-500'} text-white rounded-lg text-[8px] font-black uppercase`}>{deletedKeys.has(key) ? 'استعادة' : 'حذف'}</button>
+
                                        </div>
                                     </div>
                                     <span className="mt-2 text-[8px] text-slate-500 font-black block text-center uppercase truncate">{layerDisplayNames[key] || key}</span>
@@ -7656,7 +7671,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                         <div className="space-y-4">
                           <div className="flex flex-col gap-1.5 p-4 rounded-xl bg-orange-500/5 border border-orange-500/10">
                             <span className="text-white text-[10px] font-bold flex items-center gap-1.5">✨ المشهد الأساسي النشط (Main Workspace)</span>
-                            <p className="text-[9px] text-slate-400 leading-relaxed">هذه هي الطبقات الأصلية لمشهدك الأساسي. قم باستيراد ملف SVGA ثانوي مباشرة عبر زر "استيراد تركيبة SVGA جديدة" لوضعه والتحكم فيه بشكل متزامن فوق هذا المشهد!</p>
+                            <p className="text-[9px] text-slate-400 leading-relaxed">هذه هي الطبقات الأصلية لمشهدك الأساسي. قم باستيراد ملف SVGA ثانوي مباشرة عبر زر "استيراد تركيبة SVGA جديدة" لوضعه والتحكم فيه بشكل متزامن فوق this المشهد!</p>
                           </div>
                           
                           <div className="grid grid-cols-2 gap-4">
@@ -7672,18 +7687,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                                                 e.stopPropagation();
                                                 const newName = prompt("أدخل اسم جديد للطبقة:", layer.name);
                                                 if (newName) handleUpdateLayer(layer.id, { name: newName });
-                                            }} className="text-amber-500 hover:text-amber-400" title="إعادة تسمية">
+                                            }} className="text-amber-500 hover:text-amber-400 cursor-pointer" title="إعادة تسمية">
                                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                                             </button>
-                                            <button onClick={(e) => { e.stopPropagation(); handleRemoveLayer(layer.id); }} className="text-red-500 hover:text-red-400">
+                                            <button onClick={(e) => { e.stopPropagation(); handleRemoveLayer(layer.id); }} className="text-red-500 hover:text-red-400 cursor-pointer">
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
                                             </button>
                                         </div>
                                     </div>
                                     <div className="flex gap-1 justify-between">
-                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'down'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white">⬇️</button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleUpdateLayer(layer.id, { zIndexMode: layer.zIndexMode === 'front' ? 'back' : 'front' }); }} className={`px-2 py-1 rounded text-[8px] font-black uppercase ${layer.zIndexMode === 'front' ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-700 text-slate-400'}`}>{layer.zIndexMode === 'front' ? 'أمام' : 'خلف'}</button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'up'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white">⬆️</button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'down'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white cursor-pointer">⬇️</button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleUpdateLayer(layer.id, { zIndexMode: layer.zIndexMode === 'front' ? 'back' : 'front' }); }} className={`px-2 py-1 rounded text-[8px] font-black uppercase cursor-pointer ${layer.zIndexMode === 'front' ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-700 text-slate-400'}`}>{layer.zIndexMode === 'front' ? 'أمام' : 'خلف'}</button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'up'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white cursor-pointer">⬆️</button>
                                     </div>
                                 </div>
                             ))}
@@ -7717,35 +7732,37 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                                        >
                                           {selectedKeys.has(key) && <div className="w-3 h-3 bg-sky-500 rounded-full"></div>}
                                        </div>
-                                       <div className="absolute inset-0 bg-slate-950/90 opacity-0 group-hover:opacity-100 transition-all flex flex-col items-center justify-center gap-2 backdrop-blur-md px-2">
+                                       <div className="absolute inset-0 bg-slate-950/95 opacity-0 group-hover:opacity-100 transition-all duration-200 flex flex-col items-stretch justify-start gap-1.5 backdrop-blur-md p-2.5 overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/15 select-none text-right font-sans">
+                                           {/* Delete / Restore Button ALWAYS at the top so it is fully visible right away */}
+                                           <button 
+                                              onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleDeleteAsset(key);
+                                              }} 
+                                              className={`w-full py-2 transition-all duration-200 font-extrabold text-[10px] uppercase rounded-xl border flex items-center justify-center gap-1.5 cursor-pointer shrink-0 z-20 ${deletedKeys.has(key) ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25' : 'bg-red-500/15 text-red-150 border-red-500/30 hover:bg-red-500/25'}`}
+                                           >
+                                              {deletedKeys.has(key) ? '🟢 استعادة الطبقة' : '🗑️ حذف الطبقة'}
+                                           </button>
                                           {!deletedKeys.has(key) && (
-                                              <div className="flex flex-col gap-1 w-full">
-                                                <button onClick={(e) => { e.stopPropagation(); handleCloneAndIsolate(key); }} className="w-full py-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-md text-[8px] font-black uppercase transition-all shadow-sm font-sans">Clone & Isolate</button>
-                                                {selectedKeys.size > 1 && (
-                                                    <button onClick={(e) => { e.stopPropagation(); handleIsolateSelected(); }} className="w-full py-1 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-md text-[8px] font-black uppercase transition-all shadow-sm font-sans">Isolate Selected</button>
-                                                )}
-                                                <div className="grid grid-cols-3 gap-1">
-                                                    <button onClick={() => handleDownloadLayer(key)} className="h-7 bg-emerald-500 text-white rounded-md flex items-center justify-center" title="تحميل الصورة">⬇️</button>
-                                                    <div className={`relative h-7 rounded-md overflow-hidden border ${assetColorModes[key] === 'fill' ? 'border-pink-500' : 'border-white/20'}`} title={assetColorModes[key] === 'fill' ? "تلوين كامل (Fill)" : "تلوين دمج (Multiply - يحافظ على التفاصيل)"}>
+                                              <div className="flex flex-col gap-1.5 w-full">
+                                                <div className="grid grid-cols-3 gap-1 grid-row">
+                                                    <button onClick={() => handleDownloadLayer(key)} className="h-7 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg flex items-center justify-center transition-all cursor-pointer" title="تحميل الصورة">📥</button>
+                                                    <div className={`relative h-7 rounded-lg overflow-hidden border ${assetColorModes[key] === 'fill' ? 'border-pink-500/50 bg-pink-500/10' : 'border-white/10 bg-white/5'}`} title={assetColorModes[key] === 'fill' ? "تلوين كامل (Fill)" : "تلوين دمج (Multiply - يحافظ على التفاصيل)"}>
                                                       <input type="color" value={assetColors[key] || "#ffffff"} onChange={(e) => handleColorChange(key, e.target.value)} className="absolute inset-[-50%] w-[200%] h-[200%] cursor-pointer bg-transparent border-none" />
                                                     </div>
                                                     <button 
                                                         onClick={() => handleToggleColorMode(key)} 
-                                                        className={`h-7 rounded-md flex items-center justify-center text-[10px] border transition-all ${assetColorModes[key] === 'fill' ? 'bg-pink-500/20 border-pink-500 text-pink-400' : 'bg-blue-500/20 border-blue-500 text-blue-400'}`}
+                                                        className={`h-7 rounded-lg flex items-center justify-center text-[10px] border transition-all cursor-pointer ${assetColorModes[key] === 'fill' ? 'bg-pink-500/10 border-pink-500/30 text-pink-400 hover:bg-pink-500/20' : 'bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20'}`}
                                                         title={assetColorModes[key] === 'fill' ? "وضع التعبئة (تغيير كامل)" : "وضع التلوين (Multiply - يحافظ على التفاصيل)"}
                                                     >
                                                         {assetColorModes[key] === 'fill' ? '🎨' : '💧'}
                                                     </button>
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-1 w-full">
-                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'down'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬇️ خلف</button>
-                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'up'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬆️ أمام</button>
-                                                    <button 
-                                                       onClick={(e) => { e.stopPropagation(); handleCopyLayer(key); }} 
-                                                       className="w-full py-1 mt-1 bg-amber-500/20 border border-amber-500/30 rounded-md text-[8px] font-black text-amber-400 hover:bg-amber-500/30 text-center"
-                                                    >
-                                                       📋 نسخ (Copy)
-                                                    </button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'down'); }} className="py-1 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[8px] text-slate-300 transition-all cursor-pointer">⬇️ خلف</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'up'); }} className="py-1 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[8px] text-slate-300 transition-all cursor-pointer">⬆️ أمام</button>
+                                                </div>
+                                                <div className="flex gap-1 w-full flex-wrap">
                                                     {compositions.length > 1 && (
                                                        <select 
                                                          onChange={(e) => {
@@ -7755,7 +7772,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                                                              e.target.value = '';
                                                            }
                                                          }}
-                                                         className="w-full py-1 mt-1 bg-indigo-500/10 border border-indigo-500/20 rounded-md text-[8px] font-black text-indigo-300 hover:bg-indigo-500/30 text-center cursor-pointer"
+                                                         className="flex-1 py-1 bg-indigo-500/10 border border-indigo-500/25 rounded-lg text-[8px] font-black text-indigo-300 hover:bg-indigo-500/25 text-center cursor-pointer outline-none"
                                                        >
                                                          <option value="" className="bg-slate-950 text-slate-400 text-[8px] hidden">✈️ نقل لتركيبة</option>
                                                          {compositions.filter(c => c.id !== activeCompositionId).map(c => (
@@ -7766,27 +7783,27 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                                                        </select>
                                                     )}
                                                 </div>
-                                                <div className="flex gap-1 w-full flex-wrap">
+                                                <div className="grid grid-cols-2 gap-1 w-full">
                                                      <button onClick={() => {
                                                          setReplacingAssetKey(key);
                                                          fileInputRef.current?.click();
-                                                     }} className="flex-1 py-1 bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-md text-[8px] font-black uppercase hover:bg-sky-500/30 h-10">تغيير الصورة</button>
+                                                     }} className="py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/25 rounded-lg text-[8px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer">🖼️ تغيير الصورة</button>
 
-                                                     <button onClick={() => handleOpenTextReplaceModal(key)} className="flex-1 py-1 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-md text-[8px] font-black uppercase hover:bg-yellow-500/30 h-10 flex items-center justify-center gap-1">
+                                                     <button onClick={() => handleOpenTextReplaceModal(key)} className="py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/25 rounded-lg text-[8px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer">
                                                         ✨ نص (Text)
                                                      </button>
                                                 </div>
 
                                                 {textReplaceOriginalImages[key] && textReplaceOriginalImages[key].length > 0 && (
-                                                   <button onClick={() => handleUndoTextReplace(key)} className="w-full py-1.5 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-orange-500/30 flex items-center justify-center gap-1">
+                                                   <button onClick={() => handleUndoTextReplace(key)} className="w-full py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/25 rounded-lg text-[8px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer">
                                                       ↩️ أصلي (Undo)
                                                    </button>
                                                 )}
 
-                                                <button onClick={() => handleOpenFadeModal(key)} className="w-full py-1.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-purple-500/30">تلاشي الحواف (Fade)</button>
+                                                <button onClick={() => handleOpenFadeModal(key)} className="w-full py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/25 rounded-lg text-[8px] font-black uppercase transition-all cursor-pointer text-center">🌓 تلاشي الحواف (Fade)</button>
                                               </div>
                                           )}
-                                          <button onClick={() => handleDeleteAsset(key)} className={`w-full py-1.5 ${deletedKeys.has(key) ? 'bg-emerald-500' : 'bg-red-500'} text-white rounded-lg text-[8px] font-black uppercase`}>{deletedKeys.has(key) ? 'استعادة' : 'حذف'}</button>
+
                                        </div>
                                     </div>
                                     <span className="mt-2 text-[8px] text-slate-500 font-black block text-center uppercase truncate">{layerDisplayNames[key] || key}</span>
