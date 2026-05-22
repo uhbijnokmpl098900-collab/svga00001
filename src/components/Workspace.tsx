@@ -140,6 +140,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const [presetBgs, setPresetBgs] = useState<PresetBackground[]>([]);
   const [previewBg, setPreviewBg] = useState<string | null>(null);
+  const [previewBgType, setPreviewBgType] = useState<'image' | 'video'>('image');
   const [activePreset, setActivePreset] = useState<string>('none');
   const [watermark, setWatermark] = useState<string | null>(null);
   const [deletedKeys, setDeletedKeys] = useState<Set<string>>(new Set());
@@ -2407,17 +2408,24 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleBgUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (ev) => { 
-        setPreviewBg(ev.target?.result as string); setBgScale(100); setBgPos({ x: 50, y: 50 }); setActivePreset('custom');
-      };
-      reader.readAsDataURL(file);
+      if (file.type.startsWith('video/')) {
+        const url = URL.createObjectURL(file);
+        setPreviewBg(url);
+        setPreviewBgType('video');
+        setBgScale(100); setBgPos({ x: 50, y: 50 }); setActivePreset('custom');
+      } else {
+        const reader = new FileReader();
+        reader.onload = (ev) => { 
+          setPreviewBg(ev.target?.result as string); setPreviewBgType('image'); setBgScale(100); setBgPos({ x: 50, y: 50 }); setActivePreset('custom');
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
   const selectPresetBg = (bg: PresetBackground | null) => {
-    if (!bg) { setActivePreset('none'); setPreviewBg(null); }
-    else { setActivePreset(bg.id); setPreviewBg(bg.url); setBgScale(100); setBgPos({ x: 50, y: 50 }); }
+    if (!bg) { setActivePreset('none'); setPreviewBg(null); setPreviewBgType('image'); }
+    else { setActivePreset(bg.id); setPreviewBg(bg.url); setPreviewBgType('image'); setBgScale(100); setBgPos({ x: 50, y: 50 }); }
   };
 
   const handleWatermarkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -4746,7 +4754,22 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         }));
 
         let bgImg: HTMLImageElement | null = null;
-        if (previewBg) bgImg = await loadImage(previewBg);
+        let bgVideo: HTMLVideoElement | null = null;
+        if (previewBg) {
+            if (previewBgType === 'video') {
+                bgVideo = document.createElement('video');
+                bgVideo.src = previewBg;
+                bgVideo.crossOrigin = 'anonymous';
+                bgVideo.muted = true;
+                await new Promise(resolve => {
+                    bgVideo!.onloadeddata = resolve;
+                    bgVideo!.onerror = resolve;
+                    bgVideo!.load();
+                });
+            } else {
+                bgImg = await loadImage(previewBg);
+            }
+        }
         
         let wmImg: HTMLImageElement | null = null;
         if (watermark) wmImg = await loadImage(watermark);
@@ -4901,7 +4924,21 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             cCtx.clearRect(0, 0, safeWidth, safeHeight);
 
             // 1. Background
-            if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
+            if (bgVideo && bgVideo.videoWidth > 0) {
+                if (bgVideo.duration > 0) {
+                    bgVideo.currentTime = (i / fps) % bgVideo.duration;
+                    await new Promise(r => {
+                        const handler = () => { bgVideo!.removeEventListener('seeked', handler); r(null); };
+                        bgVideo!.addEventListener('seeked', handler);
+                        setTimeout(handler, 50);
+                    });
+                }
+                const bgW = (safeWidth * bgScale) / 100;
+                const bgH = bgW * (bgVideo.videoHeight / bgVideo.videoWidth);
+                const bgX = (safeWidth - bgW) * (bgPos.x / 100);
+                const bgY = (safeHeight - bgH) * (bgPos.y / 100);
+                cCtx.drawImage(bgVideo, bgX, bgY, bgW, bgH);
+            } else if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
                 const bgW = (safeWidth * bgScale) / 100;
                 const bgH = bgW * (bgImg.height / bgImg.width);
                 const bgX = (safeWidth - bgW) * (bgPos.x / 100);
@@ -6741,7 +6778,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     <div className="flex flex-col gap-6 sm:gap-8 pb-32 animate-in fade-in slide-in-from-bottom-8 duration-1000 font-arabic select-none text-right" dir="rtl">
       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleReplaceImage} />
       <input type="file" ref={replaceSvgaInputRef} className="hidden" accept=".svga" onChange={handleReplaceSvgaFile} />
-      <input type="file" ref={bgInputRef} className="hidden" accept="image/*" onChange={handleBgUpload} />
+      <input type="file" ref={bgInputRef} className="hidden" accept="image/*, video/mp4, video/webm" onChange={handleBgUpload} />
       <input type="file" ref={watermarkInputRef} className="hidden" accept="image/*" onChange={handleWatermarkUpload} />
       <input type="file" ref={layerInputRef} className="hidden" accept="image/*" onChange={handleAddLayer} />
       <input type="file" ref={audioInputRef} className="hidden" accept="audio/*" onChange={handleAudioUpload} />
@@ -7034,15 +7071,15 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                   <div className="relative overflow-hidden shadow-2xl pointer-events-auto" style={{ 
                       width: `${videoWidth}px`, 
                       height: `${videoHeight}px`, 
-                      backgroundImage: previewBg ? `url(${previewBg})` : `
+                      backgroundImage: (previewBg && previewBgType === 'image') ? `url(${previewBg})` : (previewBg ? 'none' : `
                         linear-gradient(45deg, #334155 25%, transparent 25%), 
                         linear-gradient(-45deg, #334155 25%, transparent 25%), 
                         linear-gradient(45deg, transparent 75%, #334155 75%), 
                         linear-gradient(-45deg, transparent 75%, #334155 75%)
-                      `,
-                      backgroundSize: previewBg ? `${bgScale}%` : '20px 20px',
-                      backgroundRepeat: previewBg ? 'no-repeat' : 'repeat', 
-                      backgroundPosition: previewBg ? `${bgPos.x}% ${bgPos.y}%` : '0 0, 0 10px, 10px -10px, -10px 0px', 
+                      `),
+                      backgroundSize: (previewBg && previewBgType === 'image') ? `${bgScale}%` : '20px 20px',
+                      backgroundRepeat: (previewBg && previewBgType === 'image') ? 'no-repeat' : 'repeat', 
+                      backgroundPosition: (previewBg && previewBgType === 'image') ? `${bgPos.x}% ${bgPos.y}%` : '0 0, 0 10px, 10px -10px, -10px 0px', 
                       backgroundColor: previewBg ? 'transparent' : '#0f172a',
                       boxShadow: '0 0 100px rgba(0,0,0,0.5), inset 0 0 50px rgba(0,0,0,0.5)', 
                       border: previewBg ? 'none' : '2px solid rgba(255,255,255,0.05)',
@@ -7054,6 +7091,24 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                       ` : 'none',
                       maskComposite: 'intersect'
                   }}>
+                      {previewBg && previewBgType === 'video' && (
+                          <video 
+                              src={previewBg} 
+                              autoPlay 
+                              loop 
+                              muted 
+                              playsInline 
+                              crossOrigin="anonymous"
+                              className="absolute pointer-events-none z-0" 
+                              style={{
+                                  width: `${bgScale}%`,
+                                  left: `${bgPos.x}%`,
+                                  top: `${bgPos.y}%`,
+                                  transform: `translate(-${bgPos.x}%, -${bgPos.y}%)`
+                              }}
+                          />
+                      )}
+                      
                       {/* Back Layers */}
                       {customLayers.filter(l => l.zIndexMode === 'back').map(layer => (
                         <div 
