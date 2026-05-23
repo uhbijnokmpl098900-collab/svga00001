@@ -407,7 +407,17 @@ export const BatchCompressor: React.FC<BatchCompressorProps> = ({ onCancel, curr
                               <option value="3840">حد أقصى 4K (3840px)</option>
                               <option value="1920">حد أقصى 1080p (1920px)</option>
                               <option value="1280">حد أقصى 720p (1280px)</option>
+                              <option value="1024">حد أقصى (1024px)</option>
                               <option value="800">حد أقصى للويب (800px)</option>
+                              <option value="600">حد أقصى (600px)</option>
+                              <option value="500">حد أقصى (500px)</option>
+                              <option value="400">حد أقصى (400px)</option>
+                              <option value="300">حد أقصى أيقونة (300px)</option>
+                              <option value="256">حد أقصى (256px)</option>
+                              <option value="200">حد أقصى صغير (200px)</option>
+                              <option value="150">حد أقصى (150px)</option>
+                              <option value="128">حد أقصى مصغر (128px)</option>
+                              <option value="100">حد أقصى دقيق (100px)</option>
                           </select>
                       </div>
                   </div>
