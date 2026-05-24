@@ -187,7 +187,11 @@ export const Header: React.FC<HeaderProps> = (props) => {
           <button onClick={props.onLogoClick} className="flex items-center gap-3 group shrink-0">
             <div className="w-11 h-11 bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-900 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/30 group-hover:scale-105 group-active:scale-95 transition-all duration-300 border border-white/10 relative overflow-hidden shrink-0">
                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 mix-blend-overlay"></div>
-               <span className="text-white font-black text-2xl drop-shadow-md relative z-10">S</span>
+               {props.settings?.logoUrl ? (
+                 <img src={props.settings.logoUrl} alt="Logo" className="w-full h-full object-cover relative z-10" />
+               ) : (
+                 <span className="text-white font-black text-2xl drop-shadow-md relative z-10">S</span>
+               )}
             </div>
             <div className="flex flex-col items-start hidden sm:flex shrink-0">
               <h1 className="text-xl md:text-2xl font-black animated-brand-text tracking-tight whitespace-nowrap overflow-visible">
