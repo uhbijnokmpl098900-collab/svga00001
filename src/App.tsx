@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Header } from './components/Header';
 import { Uploader } from './components/Uploader';
+import { Dashboard } from './components/Dashboard';
 import { Workspace } from './components/Workspace';
 import { BatchCompressor } from './components/BatchCompressor';
 import { BatchCropper } from './components/BatchCropper';
@@ -423,18 +424,42 @@ const App: React.FC = () => {
       
       <div className="flex pt-20 h-screen overflow-hidden relative">
         <main className={`flex-1 overflow-y-auto transition-all duration-700 custom-scrollbar mr-0`}>
+          <style>{`
+            .no-scrollbar::-webkit-scrollbar {
+              display: none;
+            }
+            .no-scrollbar {
+              -ms-overflow-style: none;
+              scrollbar-width: none;
+            }
+            .mask-edges {
+              mask-image: linear-gradient(to right, transparent, black 2%, black 98%, transparent);
+              -webkit-mask-image: linear-gradient(to right, transparent, black 2%, black 98%, transparent);
+            }
+          `}</style>
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
             {state === AppState.IDLE && (
-              <div className="py-10 sm:py-20 animate-in fade-in zoom-in duration-700">
-                <Uploader 
+              <div className="py-10 animate-in fade-in zoom-in duration-700 w-[100vw] relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]">
+                <Dashboard 
                   onUpload={handleFileUpload} 
-                  isUploading={false} 
-                  onConverterOpen={() => handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter')}
-                  onMultiSvgaOpen={() => handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview')}
-                  onBatchImageOpen={() => setShowBatchImage(true)}
-                  onPagConverterOpen={() => setShowPagConverter(true)}
-                  globalQuality={globalQuality}
-                  setGlobalQuality={setGlobalQuality}
+                  onAction={(actionKey: string) => {
+                     switch(actionKey) {
+                        case 'videoConverter': handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter'); break;
+                        case 'multiSvga': handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview'); break;
+                        case 'batchImageProcessor': handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor'); break;
+                        case 'batchCompress': handleFeatureAccess(AppState.BATCH_COMPRESSOR, 'Batch Compressor'); break;
+                        case 'batchCropper': handleFeatureAccess(AppState.BATCH_CROPPER, 'Batch Cropper'); break;
+                        case 'imageConverter': handleImageConverterOpen(); break;
+                        case 'svgaEx': handleFeatureAccess(AppState.SVGA_EDITOR_EX, 'SVGA Editor EX'); break;
+                        case 'store': setState(AppState.STORE); break;
+                        case 'imageProcessor': handleFeatureAccess(AppState.IMAGE_PROCESSOR, 'Image Processor'); break;
+                        case 'imageMatcher': handleFeatureAccess(AppState.IMAGE_MATCHER, 'Image Matcher'); break;
+                        case 'imageEditor': handleFeatureAccess(AppState.IMAGE_EDITOR, 'Image Editor'); break;
+                        case 'imageEnhancer': handleFeatureAccess(AppState.IMAGE_ENHANCER, 'AI Image Enhancer'); break;
+                        case 'batchImageOpen': setShowBatchImage(true); break;
+                        case 'pagConverterOpen': setShowPagConverter(true); break;
+                     }
+                  }}
                 />
               </div>
             )}
