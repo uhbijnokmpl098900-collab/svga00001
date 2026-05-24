@@ -190,10 +190,10 @@ export const Header: React.FC<HeaderProps> = (props) => {
                <span className="text-white font-black text-2xl drop-shadow-md relative z-10">S</span>
             </div>
             <div className="flex flex-col items-start hidden sm:flex shrink-0">
-              <h1 className="text-lg md:text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 tracking-tight group-hover:text-white transition-colors whitespace-nowrap overflow-visible">
+              <h1 className="text-xl md:text-2xl font-black animated-brand-text tracking-tight whitespace-nowrap overflow-visible">
                 {props.settings?.appName?.trim() ? props.settings.appName : 'SVGA Studio'}
               </h1>
-              <span className="text-[9px] text-indigo-400 font-bold tracking-[0.2em] uppercase whitespace-nowrap">Professional Platform</span>
+              <span className="text-[9px] text-indigo-400 font-bold tracking-[0.2em] uppercase whitespace-nowrap mt-0.5">Professional Platform</span>
             </div>
           </button>
           

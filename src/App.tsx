@@ -436,6 +436,18 @@ const App: React.FC = () => {
               mask-image: linear-gradient(to right, transparent, black 2%, black 98%, transparent);
               -webkit-mask-image: linear-gradient(to right, transparent, black 2%, black 98%, transparent);
             }
+            .animated-brand-text {
+              background: linear-gradient(90deg, #6366f1, #a855f7, #ec4899, #3b82f6, #2dd4bf, #6366f1);
+              background-size: 200% auto;
+              color: transparent;
+              background-clip: text;
+              -webkit-background-clip: text;
+              animation: colorGradient 4s linear infinite;
+              filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5)) drop-shadow(0 0 10px rgba(168,85,247,0.4));
+            }
+            @keyframes colorGradient {
+              to { background-position: 200% center; }
+            }
           `}</style>
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
             {state === AppState.IDLE && (
