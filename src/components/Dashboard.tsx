@@ -53,6 +53,7 @@ const categories = [
       { id: 'batch-image-processor', label: 'Batch Image Processor', icon: <Image className="w-8 h-8" />, actionKey: 'batchImageProcessor', descAr: 'تطبيق التعديلات والتحسينات على مجلد كامل من الصور بضغطة واحدة.', descEn: 'Apply enhancements and edits to a whole folder of images with one click.' },
       { id: 'batch', label: 'Batch Compress', icon: <Layers className="w-8 h-8" />, actionKey: 'batchCompress', descAr: 'ضغط وتقليل حجم كمية كبيرة من الصور بكفاءة دون فقدان ملحوظ للجودة الأصلية.', descEn: 'Compress a large batch of images efficiently without noticeable quality loss.' },
       { id: 'cropper', label: 'Batch Cropper', icon: <Scissors className="w-8 h-8" />, actionKey: 'batchCropper', descAr: 'قص واقتطاع وتغيير أحجام مجموعة صور بشكل آلي لنفس الأبعاد المطلوبة بدقة.', descEn: 'Auto-crop and resize a batch of images to the exact required dimensions.' },
+      { id: 'universal', label: 'Universal Motion Tools', icon: <Video className="w-8 h-8" />, actionKey: 'universalConverter', descAr: 'بيئة احترافية شاملة لمعاينة وضغط وتحويل كافة صيغ الأنيميشن بسهولة.', descEn: 'Professional universal environment to preview, compress, and convert all animation formats.' },
       { id: 'converter', label: 'Video Converter', icon: <Video className="w-8 h-8" />, actionKey: 'videoConverter', descAr: 'أداة سريعة لتحويل مقاطع الفيديو وتفريغها إلى صيغ أخرى كـ SVGA.', descEn: 'Fast tool to convert videos and composite them to other formats like SVGA.' },
     ]
   },

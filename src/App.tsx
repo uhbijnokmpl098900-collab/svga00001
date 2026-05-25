@@ -7,6 +7,7 @@ import { Workspace } from './components/Workspace';
 import { BatchCompressor } from './components/BatchCompressor';
 import { BatchCropper } from './components/BatchCropper';
 import { VideoConverter } from './components/VideoConverter';
+import { UniversalMotionTools } from './components/UniversalMotionTools';
 import { MultiSvgaViewer } from './components/MultiSvgaViewer';
 import { ImageToSvga } from './components/ImageToSvga';
 import { ImageProcessor } from './components/ImageProcessor';
@@ -524,6 +525,7 @@ const App: React.FC = () => {
                   onAction={(actionKey: string) => {
                      switch(actionKey) {
                         case 'videoConverter': handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter'); break;
+                        case 'universalConverter': handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools'); break;
                         case 'multiSvga': handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview'); break;
                         case 'batchImageProcessor': handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor'); break;
                         case 'batchCompress': handleFeatureAccess(AppState.BATCH_COMPRESSOR, 'Batch Compressor'); break;
@@ -575,6 +577,14 @@ const App: React.FC = () => {
                 onLoginRequired={() => {}}
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}
                 globalQuality={globalQuality}
+              />
+            )}
+            {state === AppState.UNIVERSAL_CONVERTER && (
+              <UniversalMotionTools 
+                currentUser={currentUser} 
+                onCancel={handleReset} 
+                onLoginRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
               />
             )}
             {state === AppState.IMAGE_CONVERTER && (

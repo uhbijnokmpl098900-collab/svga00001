@@ -4483,6 +4483,202 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   };
 
 
+  const handleExportAnimatedSVG = async (options: { decrement?: boolean } = {}) => {
+    const { decrement = true } = options;
+    if (!svgaInstance || !playerRef.current) return;
+
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    const { allowed } = await checkAccess('Animated SVG Export', { decrement, subscriptionOnly: true });
+    if (!allowed) {
+      onSubscriptionRequired();
+      return;
+    }
+
+    setIsExporting(true);
+    setExportPhase('جاري إنشاء ملف Animated SVG...');
+
+    try {
+        svgaInstance.pauseAnimation();
+        const originalFrame = currentFrame;
+        const totalFrames = metadata.frames || svgaInstance.videoItem?.frames || 0;
+        const fps = Math.round(parseFloat(metadata.fps as any)) || Math.round(parseFloat(svgaInstance.videoItem?.FPS || 30));
+        const totalDuration = totalFrames / fps;
+        
+        if (totalFrames === 0) {
+            alert("No frames data found in metadata. Cannot export.");
+            setIsExporting(false);
+            return;
+        }
+        
+        const safeWidth = videoWidth;
+        const safeHeight = videoHeight;
+        
+        const canvas = playerRef.current?.querySelector('canvas');
+        if (!canvas) throw new Error("Canvas not found");
+        
+        const compCanvas = document.createElement('canvas');
+        compCanvas.width = safeWidth;
+        compCanvas.height = safeHeight;
+        const cCtx = compCanvas.getContext('2d', { willReadFrequently: true });
+        if (!cCtx) throw new Error("Failed to create context");
+
+        const framesBase64: string[] = [];
+
+        const loadImage = (src: string): Promise<HTMLImageElement> => {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.crossOrigin = "anonymous";
+                img.onload = () => resolve(img);
+                img.onerror = () => resolve(img);
+                img.src = src;
+            });
+        };
+
+        let bgImg: HTMLImageElement | null = null;
+        if (previewBg) bgImg = await loadImage(previewBg);
+        
+        let wmImg: HTMLImageElement | null = null;
+        if (watermark) wmImg = await loadImage(watermark);
+
+        const loadedLayers = await Promise.all(customLayers.map(async l => {
+            const img = await loadImage(l.url);
+            return { ...l, img };
+        }));
+
+        // Use isolated player for export to guarantee clean canvas without interfering with UI
+        const exportContainer = document.createElement('div');
+        exportContainer.style.position = 'fixed';
+        exportContainer.style.left = '-9999px';
+        exportContainer.style.top = '-9999px';
+        const videoItem = svgaInstance.videoItem || metadata.videoItem;
+        exportContainer.style.width = `${videoItem?.videoSize?.width || videoWidth}px`;
+        exportContainer.style.height = `${videoItem?.videoSize?.height || videoHeight}px`;
+        document.body.appendChild(exportContainer);
+
+        const exportPlayer = new SVGA.Player(exportContainer);
+        exportPlayer.setContentMode('AspectFill');
+        if (videoItem) {
+             exportPlayer.setVideoItem(videoItem);
+        }
+
+        for (let i = 0; i < totalFrames; i++) {
+            exportPlayer.stepToFrame(i, false);
+            await new Promise(r => setTimeout(r, 40));
+            
+            const currentCanvas = exportContainer.querySelector('canvas');
+            if (!currentCanvas) continue;
+
+            cCtx.clearRect(0, 0, safeWidth, safeHeight);
+
+            if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
+                const bgW = (safeWidth * bgScale) / 100;
+                const bgH = bgW * (bgImg.height / bgImg.width);
+                const bgX = (safeWidth - bgW) * (bgPos.x / 100);
+                const bgY = (safeHeight - bgH) * (bgPos.y / 100);
+                cCtx.drawImage(bgImg, bgX, bgY, bgW, bgH);
+            }
+
+            loadedLayers.filter(l => l.zIndexMode === 'back').forEach(l => {
+                if (l.img.complete && l.img.naturalWidth > 0) {
+                    cCtx.drawImage(l.img, l.x, l.y, l.width * l.scale, l.height * l.scale);
+                }
+            });
+
+            const cx = safeWidth / 2;
+            const cy = safeHeight / 2;
+            cCtx.save();
+            cCtx.translate(cx + svgaPos.x, cy + svgaPos.y);
+            cCtx.scale(svgaScale, svgaScale);
+            cCtx.translate(-cx, -cy);
+            
+            const s = Math.min(safeWidth / currentCanvas.width, safeHeight / currentCanvas.height);
+            const w = currentCanvas.width * s;
+            const h = currentCanvas.height * s;
+            const x = (safeWidth - w) / 2;
+            const y = (safeHeight - h) / 2;
+            cCtx.drawImage(currentCanvas, x, y, w, h);
+            cCtx.restore();
+
+            if (wmImg && wmImg.complete && wmImg.naturalWidth > 0) {
+                const wmW = safeWidth * wmScale;
+                const wmH = wmW * (wmImg.height / wmImg.width);
+                const wmX = (safeWidth - wmW) / 2 + wmPos.x;
+                const wmY = (safeHeight - wmH) / 2 + wmPos.y;
+                cCtx.globalAlpha = 0.7;
+                cCtx.drawImage(wmImg, wmX, wmY, wmW, wmH);
+                cCtx.globalAlpha = 1.0;
+            }
+
+            loadedLayers.filter(l => l.zIndexMode === 'front').forEach(l => {
+                if (l.img.complete && l.img.naturalWidth > 0) {
+                    cCtx.drawImage(l.img, l.x, l.y, l.width * l.scale, l.height * l.scale);
+                }
+            });
+
+            applyTransparencyEffects(cCtx, safeWidth, safeHeight);
+
+            // Export to PNG max quality
+            const base64 = compCanvas.toDataURL('image/png', 1.0);
+            framesBase64.push(base64);
+            
+            setProgress(Math.floor(((i + 1) / totalFrames) * 90));
+        }
+        
+        document.body.removeChild(exportContainer);
+
+        setExportPhase('تجميع إطارات SVG المتحركة...');
+        
+        let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${safeWidth} ${safeHeight}" width="${safeWidth}" height="${safeHeight}">\n`;
+        svgContent += `<style>\n`;
+        svgContent += `image { opacity: 0; }\n`;
+        for (let i = 0; i < totalFrames; i++) {
+            svgContent += `.f${i} { animation: a${i} ${totalDuration}s infinite; }\n`;
+            
+            const pStart = ((i / totalFrames) * 100).toFixed(3);
+            const pEnd = (((i + 1) / totalFrames) * 100).toFixed(3);
+            svgContent += `@keyframes a${i} {
+    0%, ${pStart}% { opacity: 0; }
+    ${pStart}.001%, ${pEnd}% { opacity: 1; filter: none; }
+    ${pEnd}.001%, 100% { opacity: 0; }
+}\n`;
+        }
+        svgContent += `</style>\n`;
+        
+        for (let i = 0; i < totalFrames; i++) {
+            svgContent += `<image class="f${i}" href="${framesBase64[i]}" xlink:href="${framesBase64[i]}" width="${safeWidth}" height="${safeHeight}" />\n`;
+        }
+        svgContent += `</svg>`;
+
+        const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${metadata.name}-animated.svg`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        if (currentUser) {
+            logActivity(currentUser, 'export', `Exported Animated SVG: ${metadata.name}-animated.svg`);
+        }
+        
+        svgaInstance.stepToFrame(originalFrame, isPlaying);
+        if (isPlaying) svgaInstance.startAnimation();
+        
+        alert("✅ تم تصدير Animated SVG بنجاح!");
+        setIsExporting(false);
+
+    } catch (e) {
+        console.error("Animated SVG Export Error: ", e);
+        alert("فشل تصدير Animated SVG: " + (e as any).message);
+        setIsExporting(false);
+    }
+  };
+
+
   const handleExportAPNG = async (options: { decrement?: boolean } = {}) => {
     const { decrement = true } = options;
     if (!svgaInstance || !playerRef.current) return;
@@ -5543,7 +5739,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     }
   }, [currentUser, selectedFormat]);
 
-  const availableFormats = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Lottie (Sequence)', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP (MP4)', 'VAP 1.0.5', 'SVGA → YYEVA'];
+  const availableFormats = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Lottie (Sequence)', 'SVGA → Animated SVG', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP (MP4)', 'VAP 1.0.5', 'SVGA → YYEVA'];
   
   const displayedFormats = useMemo(() => {
       // If we are in EX mode, only show SVGA 2.0 EX
@@ -5597,6 +5793,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
     if (currentFormat === 'AE Project') await handleExportAEProject({ decrement: false });
     else if (currentFormat === 'Lottie (Sequence)') await handleExportLottieSequence({ decrement: false });
+    else if (currentFormat === 'SVGA → Animated SVG') await handleExportAnimatedSVG({ decrement: false });
     else if (currentFormat === 'SVGA 2.0 EX') {
         await handleSvgaExExport({
             metadata, videoWidth, videoHeight, exportScale, svgaScale, svgaPos,
