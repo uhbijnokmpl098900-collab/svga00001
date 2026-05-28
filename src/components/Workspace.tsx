@@ -77,6 +77,7 @@ interface SVGAComposition {
   svgaOpacity?: number;
   selectedKeys?: Set<string>;
   playbackSpeed?: number;
+  customDimensions?: {width: number, height: number} | null;
 }
 
 const TRANSPARENT_PIXEL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
@@ -208,10 +209,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleSwitchComposition = (targetId: string) => {
     if (targetId === activeCompositionId) return;
 
-    let targetComp: SVGAComposition | undefined;
+    // targetComp can be found immediately from current state
+    const targetComp = compositions.find(c => c.id === targetId);
+    if (!targetComp) return;
 
     setCompositions(prev => {
-      const updated = prev.map(c => {
+      return prev.map(c => {
         if (c.id === activeCompositionId) {
           return {
             ...c,
@@ -230,37 +233,34 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             svgaScale,
             svgaRotation,
             svgaOpacity,
-            selectedKeys
+            selectedKeys,
+            customDimensions
           };
         }
         return c;
       });
-      targetComp = updated.find(c => c.id === targetId);
-      return updated;
     });
 
-    if (targetComp) {
-        // Use a slight timeout to ensure React batches these correctly after setCompositions finishes
-        setTimeout(() => {
-            setActiveCompositionId(targetId);
-            setMetadata(targetComp!.metadata);
-            setLayerImages(targetComp!.layerImages);
-            setAssetColors(targetComp!.assetColors);
-            setAssetColorModes(targetComp!.assetColorModes);
-            setAssetBlurs(targetComp!.assetBlurs);
-            setDeletedKeys(targetComp!.deletedKeys);
-            setCustomLayers(targetComp!.customLayers);
-            setLayerDisplayNames(targetComp!.layerDisplayNames);
-            setLayerTextOptions(targetComp!.layerTextOptions);
-            setCurrentFrame(targetComp!.currentFrame);
-            setIsPlaying(targetComp!.isPlaying);
-            setSvgaPos(targetComp!.svgaPos);
-            setSvgaScale(targetComp!.svgaScale);
-            setSvgaRotation(targetComp!.svgaRotation || 0);
-            setSvgaOpacity(targetComp!.svgaOpacity !== undefined ? targetComp!.svgaOpacity : 1);
-            setSelectedKeys(targetComp!.selectedKeys || new Set());
-        }, 0);
-    }
+    setTimeout(() => {
+        setActiveCompositionId(targetId);
+        setMetadata(targetComp.metadata);
+        setLayerImages(targetComp.layerImages);
+        setAssetColors(targetComp.assetColors);
+        setAssetColorModes(targetComp.assetColorModes);
+        setAssetBlurs(targetComp.assetBlurs);
+        setDeletedKeys(targetComp.deletedKeys);
+        setCustomLayers(targetComp.customLayers);
+        setLayerDisplayNames(targetComp.layerDisplayNames);
+        setLayerTextOptions(targetComp.layerTextOptions);
+        setCurrentFrame(targetComp.currentFrame);
+        setIsPlaying(targetComp.isPlaying);
+        setSvgaPos(targetComp.svgaPos);
+        setSvgaScale(targetComp.svgaScale);
+        setSvgaRotation(targetComp.svgaRotation || 0);
+        setSvgaOpacity(targetComp.svgaOpacity !== undefined ? targetComp.svgaOpacity : 1);
+        setSelectedKeys(targetComp.selectedKeys || new Set());
+        setCustomDimensions(targetComp.customDimensions || null);
+    }, 0);
   };
 
   const handleImportCompositionFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -307,11 +307,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           };
         });
 
-        Object.assign(videoItem, {
+        const newVideoItem = {
+          ...videoItem,
           images: newImages,
           sprites: newSprites
-        });
-        const newVideoItem = videoItem;
+        };
 
         const newMeta: FileMetadata = {
           name: compName,
@@ -389,6 +389,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             setSvgaPos({ x: 0, y: 0 });
             setSvgaScale(1);
             setSelectedKeys(new Set());
+            setCustomDimensions(null);
         }, 0);
 
         setIsExporting(false);
@@ -471,19 +472,63 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
     const newSprites = [...(mainVideoItem.sprites || [])];
 
-    // Compute transformation variables based on scale, position and rotation
+    // Compute mathematically correct mapping from Source SVGA to Main SVGA coordinate space
     const S = sourceComp.svgaScale || 1;
     const rad = ((sourceComp.svgaRotation || 0) * Math.PI) / 180;
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
+    const svgaPosX = sourceComp.svgaPos?.x || 0;
+    const svgaPosY = sourceComp.svgaPos?.y || 0;
 
-    // Parent affine variables
-    const ap = S * cos;
-    const bp = S * sin;
-    const cp = -S * sin;
-    const dp = S * cos;
-    const txp = sourceComp.svgaPos.x || 0;
-    const typ = sourceComp.svgaPos.y || 0;
+    const mainOrigW = mainComp.metadata.dimensions?.width || mainVideoItem?.videoSize?.width || videoWidth;
+    const mainOrigH = mainComp.metadata.dimensions?.height || mainVideoItem?.videoSize?.height || videoHeight;
+    const mainContainScale = Math.min(videoWidth / mainOrigW, videoHeight / mainOrigH);
+    const mainScreenLx = (videoWidth - mainOrigW * mainContainScale) / 2;
+    const mainScreenLy = (videoHeight - mainOrigH * mainContainScale) / 2;
+
+    const sourceOrigW = sourceComp.metadata.dimensions?.width || sourceVideoItem?.videoSize?.width || videoWidth;
+    const sourceOrigH = sourceComp.metadata.dimensions?.height || sourceVideoItem?.videoSize?.height || videoHeight;
+    const sourceContainScale = Math.min(videoWidth / sourceOrigW, videoHeight / sourceOrigH);
+    const sourceScreenLx = (videoWidth - sourceOrigW * sourceContainScale) / 2;
+    const sourceScreenLy = (videoHeight - sourceOrigH * sourceContainScale) / 2;
+
+    const cx = videoWidth / 2;
+    const cy = videoHeight / 2;
+
+    const multiplyMat = (m1: any, m2: any) => ({
+      a: m1.a * m2.a + m1.b * m2.c,
+      b: m1.a * m2.b + m1.b * m2.d,
+      c: m1.c * m2.a + m1.d * m2.c,
+      d: m1.c * m2.b + m1.d * m2.d,
+      tx: m1.tx * m2.a + m1.ty * m2.c + m2.tx,
+      ty: m1.tx * m2.b + m1.ty * m2.d + m2.ty
+    });
+
+    const mat1 = { a: sourceContainScale, b: 0, c: 0, d: sourceContainScale, tx: sourceScreenLx, ty: sourceScreenLy };
+    const mat2 = {
+      a: S * cos, b: S * sin,
+      c: -S * sin, d: S * cos,
+      tx: cx - cx * S * cos + cy * S * sin + svgaPosX,
+      ty: cy - cx * S * sin - cy * S * cos + svgaPosY
+    };
+    const mat3 = {
+      a: 1 / mainContainScale, b: 0,
+      c: 0, d: 1 / mainContainScale,
+      tx: -mainScreenLx / mainContainScale, ty: -mainScreenLy / mainContainScale
+    };
+
+    const mTemp = multiplyMat(mat1, mat2);
+    const M_final = multiplyMat(mTemp, mat3);
+
+    // Parent affine variables mapped properly
+    const ap = M_final.a;
+    const bp = M_final.b;
+    const cp = M_final.c;
+    const dp = M_final.d;
+    const txp = M_final.tx;
+    const typ = M_final.ty;
+    const layoutScale = M_final.a; // Usually uniform scaling
+    
     const alphaMultiplier = sourceComp.svgaOpacity !== undefined ? sourceComp.svgaOpacity : 1;
 
     spritesToMerge.forEach((sprite: any) => {
@@ -518,8 +563,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           // Compute transformed layout
           frameCopy.layout.x = widthCheck(ap * lx + cp * ly + txp);
           frameCopy.layout.y = heightCheck(bp * lx + dp * ly + typ);
-          frameCopy.layout.width = widthCheck(lw * S);
-          frameCopy.layout.height = heightCheck(lh * S);
+          frameCopy.layout.width = widthCheck(lw * layoutScale);
+          frameCopy.layout.height = heightCheck(lh * layoutScale);
 
           if (frameCopy.transform) {
             const ac = frameCopy.transform.a !== undefined ? frameCopy.transform.a : 1;
@@ -556,11 +601,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       });
     });
 
-    Object.assign(mainVideoItem, {
+    const updatedMainVideoItem = {
+      ...mainVideoItem,
       images: mainImages,
       sprites: newSprites
-    });
-    const updatedMainVideoItem = mainVideoItem;
+    };
 
     const updatedMainLayerImages = { ...mainComp.layerImages };
     const updatedMainDisplayNames = { ...mainComp.layerDisplayNames };
@@ -888,9 +933,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const { videoWidth, videoHeight } = useMemo(() => {
     const defaults = getDefaultDimensions(metadata);
+    const w = customDimensions?.width || defaults.width;
+    const h = customDimensions?.height || defaults.height;
+    
     return {
-      videoWidth: customDimensions?.width || defaults.width,
-      videoHeight: customDimensions?.height || defaults.height
+      videoWidth: w > 0 && !isNaN(w) ? w : 1334,
+      videoHeight: h > 0 && !isNaN(h) ? h : 750
     };
   }, [customDimensions, metadata]);
 
@@ -1602,7 +1650,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             currentFrame: 0,
             isPlaying: true,
             svgaPos: { x: 0, y: 0 },
-            svgaScale: 1
+            svgaScale: 1,
+            customDimensions: null
           }
         ];
       });
@@ -1619,67 +1668,71 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       player = new SVGA.Player(playerRef.current);
       player.loops = 0; player.clearsAfterStop = false;
       
-      // We manually scale and center the container, so use Fill
-      player.setContentMode('Fill'); 
-      player.setVideoItem(metadata.videoItem);
-      
-      // Calculate "contain" scale to fit perfectly inside the 1334x750 workspace
-      const svgaWidth = metadata.dimensions?.width || 1;
-      const svgaHeight = metadata.dimensions?.height || 1;
-      const scale = Math.min(videoWidth / svgaWidth, videoHeight / svgaHeight);
-      
-      const finalWidth = svgaWidth * scale;
-      const finalHeight = svgaHeight * scale;
+      try {
+        player.setContentMode('Fill'); 
+        player.setVideoItem(metadata.videoItem);
+        
+        // Calculate "contain" scale to fit perfectly inside the 1334x750 workspace
+        const svgaWidth = metadata.dimensions?.width || metadata.videoItem?.videoSize?.width || 1;
+        const svgaHeight = metadata.dimensions?.height || metadata.videoItem?.videoSize?.height || 1;
+        const scale = Math.min(videoWidth / svgaWidth, videoHeight / svgaHeight);
+        
+        const finalWidth = svgaWidth * scale;
+        const finalHeight = svgaHeight * scale;
 
-      // Size the inner container to exactly match the scaled SVGA dimensions
-      Object.assign(playerRef.current.style, {
-        width: `${finalWidth}px`,
-        height: `${finalHeight}px`,
-        position: 'absolute',
-        top: '50%',
-        left: '50%',
-        transform: `translate(-50%, -50%)`,
-        transformOrigin: 'center center'
-      });
+        // Size the inner container to exactly match the scaled SVGA dimensions
+        Object.assign(playerRef.current.style, {
+          width: `${finalWidth}px`,
+          height: `${finalHeight}px`,
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: `translate(-50%, -50%)`,
+          transformOrigin: 'center center'
+        });
 
-      // Override any inline styles SVGA.Player might set on the canvas
-      const updateCanvas = () => {
-        const canvas = playerRef.current?.querySelector('canvas');
-        if (canvas) {
-          Object.assign(canvas.style, {
-            width: '100%',
-            height: '100%',
-            display: 'block',
-            objectFit: 'fill'
-          });
+        // Override any inline styles SVGA.Player might set on the canvas
+        const updateCanvas = () => {
+          const canvas = playerRef.current?.querySelector('canvas');
+          if (canvas) {
+            Object.assign(canvas.style, {
+              width: '100%',
+              height: '100%',
+              display: 'block',
+              objectFit: 'fill'
+            });
+          }
+        };
+
+        updateCanvas();
+        const timer = setTimeout(updateCanvas, 100);
+
+        // Restore frame if we were playing/paused at a specific frame
+        if (currentFrame > 0 && currentFrame < (metadata.videoItem?.frames || 9999)) {
+            player.stepToFrame(currentFrame, isPlayingRef.current);
         }
-      };
-
-      updateCanvas();
-      const timer = setTimeout(updateCanvas, 100);
-
-      // Restore frame if we were playing/paused at a specific frame
-      if (currentFrame > 0) {
-          player.stepToFrame(currentFrame, isPlayingRef.current);
+        
+        if (isPlayingRef.current) {
+            player.startAnimation();
+        }
+        
+        player.onFrame((frame: number) => setCurrentFrame(frame));
+        setSvgaInstance(player);
+        
+        return () => { 
+          clearTimeout(timer);
+          if (player) { 
+              try {
+                  player.stopAnimation(); 
+                  player.clear(); 
+              } catch (e) {
+                  console.warn("SVGA Player clear failed:", e);
+              }
+          } 
+        };
+      } catch (err) {
+        console.error("SVGA Player Init Error:", err);
       }
-      
-      if (isPlayingRef.current) {
-          player.startAnimation();
-      }
-      
-      player.onFrame((frame: number) => setCurrentFrame(frame));
-      setSvgaInstance(player);
-      return () => { 
-        clearTimeout(timer);
-        if (player) { 
-            try {
-                player.stopAnimation(); 
-                player.clear(); 
-            } catch (e) {
-                console.warn("SVGA Player clear failed:", e);
-            }
-        } 
-      };
     }
   }, [metadata.videoItem, videoWidth, videoHeight, metadata.dimensions]);
 
@@ -1692,63 +1745,67 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     if (activeCompositionId !== 'main' && backgroundPlayerRef.current && mainVideoItem && typeof SVGA !== 'undefined') {
       backgroundPlayerRef.current.innerHTML = '';
       bgPlayer = new SVGA.Player(backgroundPlayerRef.current);
-      bgPlayer.loops = 0;
-      bgPlayer.clearsAfterStop = false;
-      bgPlayer.setContentMode('Fill');
-      bgPlayer.setVideoItem(mainVideoItem);
+      try {
+        bgPlayer.loops = 0;
+        bgPlayer.clearsAfterStop = false;
+        bgPlayer.setContentMode('Fill');
+        bgPlayer.setVideoItem(mainVideoItem);
 
-      const svgaWidth = mainComp?.metadata?.dimensions?.width || 1;
-      const svgaHeight = mainComp?.metadata?.dimensions?.height || 1;
-      const scale = Math.min(videoWidth / svgaWidth, videoHeight / svgaHeight);
-      const finalWidth = svgaWidth * scale;
-      const finalHeight = svgaHeight * scale;
+        const svgaWidth = mainComp?.metadata?.dimensions?.width || mainVideoItem?.videoSize?.width || 1;
+        const svgaHeight = mainComp?.metadata?.dimensions?.height || mainVideoItem?.videoSize?.height || 1;
+        const scale = Math.min(videoWidth / svgaWidth, videoHeight / svgaHeight);
+        const finalWidth = svgaWidth * scale;
+        const finalHeight = svgaHeight * scale;
 
-      Object.assign(backgroundPlayerRef.current.style, {
-        width: `${finalWidth}px`,
-        height: `${finalHeight}px`,
-        position: 'absolute',
-        top: '50%',
-        left: '50%',
-        transform: `translate(-50%, -50%)`,
-        transformOrigin: 'center center'
-      });
+        Object.assign(backgroundPlayerRef.current.style, {
+          width: `${finalWidth}px`,
+          height: `${finalHeight}px`,
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: `translate(-50%, -50%)`,
+          transformOrigin: 'center center'
+        });
 
-      const updateBgCanvas = () => {
-        const canvas = backgroundPlayerRef.current?.querySelector('canvas');
-        if (canvas) {
-          Object.assign(canvas.style, {
-            width: '100%',
-            height: '100%',
-            display: 'block',
-            objectFit: 'fill'
-          });
-        }
-      };
-
-      updateBgCanvas();
-      const timer = setTimeout(updateBgCanvas, 100);
-
-      if (currentFrame >= 0) {
-        bgPlayer.stepToFrame(currentFrame % (mainComp?.metadata?.frames || 1), isPlaying);
-      }
-      if (isPlaying) {
-        bgPlayer.startAnimation();
-      }
-
-      setBackgroundPlayerInstance(bgPlayer);
-
-      return () => {
-        clearTimeout(timer);
-        if (bgPlayer) {
-          try {
-            bgPlayer.stopAnimation();
-            bgPlayer.clear();
-          } catch (e) {
-            console.warn("SVGA Background Player clear failed:", e);
+        const updateBgCanvas = () => {
+          const canvas = backgroundPlayerRef.current?.querySelector('canvas');
+          if (canvas) {
+            Object.assign(canvas.style, {
+              width: '100%',
+              height: '100%',
+              display: 'block',
+              objectFit: 'fill'
+            });
           }
+        };
+
+        updateBgCanvas();
+        const timer = setTimeout(updateBgCanvas, 100);
+
+        if (currentFrame >= 0 && mainComp?.metadata?.frames) {
+          bgPlayer.stepToFrame(currentFrame % (mainComp.metadata.frames || 1), isPlaying);
         }
-        setBackgroundPlayerInstance(null);
-      };
+        if (isPlaying) {
+          bgPlayer.startAnimation();
+        }
+
+        setBackgroundPlayerInstance(bgPlayer);
+
+        return () => {
+          clearTimeout(timer);
+          if (bgPlayer) {
+            try {
+              bgPlayer.stopAnimation();
+              bgPlayer.clear();
+            } catch (e) {
+              console.warn("SVGA Background Player clear failed:", e);
+            }
+          }
+          setBackgroundPlayerInstance(null);
+        };
+      } catch (err) {
+        console.error("SVGA Background Player Init Error:", err);
+      }
     } else {
       setBackgroundPlayerInstance(null);
     }
