@@ -946,8 +946,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   useEffect(() => {
     return () => {
       Object.values(layerImages).forEach((url) => {
-        if ((url as string).startsWith('blob:')) {
-          URL.revokeObjectURL(url as string);
+        if (url && typeof url === 'string' && url.startsWith('blob:')) {
+          URL.revokeObjectURL(url);
         }
       });
     };
@@ -1138,7 +1138,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           
           // Revoke old URLs before setting new ones
           Object.values(layerImages).forEach((url) => {
-              if ((url as string).startsWith('blob:')) URL.revokeObjectURL(url as string);
+              if (url && typeof url === 'string' && url.startsWith('blob:')) URL.revokeObjectURL(url);
           });
 
           setLayerImages(newLayerImages);
@@ -1665,7 +1665,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       setSvgaInstance(player);
       return () => { 
         clearTimeout(timer);
-        if (player) { player.stopAnimation(); player.clear(); } 
+        if (player) { 
+            try {
+                player.stopAnimation(); 
+                player.clear(); 
+            } catch (e) {
+                console.warn("SVGA Player clear failed:", e);
+            }
+        } 
       };
     }
   }, [metadata.videoItem, videoWidth, videoHeight, metadata.dimensions]);
@@ -1727,8 +1734,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       return () => {
         clearTimeout(timer);
         if (bgPlayer) {
-          bgPlayer.stopAnimation();
-          bgPlayer.clear();
+          try {
+            bgPlayer.stopAnimation();
+            bgPlayer.clear();
+          } catch (e) {
+            console.warn("SVGA Background Player clear failed:", e);
+          }
         }
         setBackgroundPlayerInstance(null);
       };
