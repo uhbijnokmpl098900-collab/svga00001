@@ -208,6 +208,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleSwitchComposition = (targetId: string) => {
     if (targetId === activeCompositionId) return;
 
+    let targetComp: SVGAComposition | undefined;
+
     setCompositions(prev => {
       const updated = prev.map(c => {
         if (c.id === activeCompositionId) {
@@ -233,29 +235,32 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         }
         return c;
       });
-
-      const target = updated.find(c => c.id === targetId);
-      if (target) {
-        setActiveCompositionId(targetId);
-        setMetadata(target.metadata);
-        setLayerImages(target.layerImages);
-        setAssetColors(target.assetColors);
-        setAssetColorModes(target.assetColorModes);
-        setAssetBlurs(target.assetBlurs);
-        setDeletedKeys(target.deletedKeys);
-        setCustomLayers(target.customLayers);
-        setLayerDisplayNames(target.layerDisplayNames);
-        setLayerTextOptions(target.layerTextOptions);
-        setCurrentFrame(target.currentFrame);
-        setIsPlaying(target.isPlaying);
-        setSvgaPos(target.svgaPos);
-        setSvgaScale(target.svgaScale);
-        setSvgaRotation(target.svgaRotation || 0);
-        setSvgaOpacity(target.svgaOpacity !== undefined ? target.svgaOpacity : 1);
-        setSelectedKeys(target.selectedKeys || new Set());
-      }
+      targetComp = updated.find(c => c.id === targetId);
       return updated;
     });
+
+    if (targetComp) {
+        // Use a slight timeout to ensure React batches these correctly after setCompositions finishes
+        setTimeout(() => {
+            setActiveCompositionId(targetId);
+            setMetadata(targetComp!.metadata);
+            setLayerImages(targetComp!.layerImages);
+            setAssetColors(targetComp!.assetColors);
+            setAssetColorModes(targetComp!.assetColorModes);
+            setAssetBlurs(targetComp!.assetBlurs);
+            setDeletedKeys(targetComp!.deletedKeys);
+            setCustomLayers(targetComp!.customLayers);
+            setLayerDisplayNames(targetComp!.layerDisplayNames);
+            setLayerTextOptions(targetComp!.layerTextOptions);
+            setCurrentFrame(targetComp!.currentFrame);
+            setIsPlaying(targetComp!.isPlaying);
+            setSvgaPos(targetComp!.svgaPos);
+            setSvgaScale(targetComp!.svgaScale);
+            setSvgaRotation(targetComp!.svgaRotation || 0);
+            setSvgaOpacity(targetComp!.svgaOpacity !== undefined ? targetComp!.svgaOpacity : 1);
+            setSelectedKeys(targetComp!.selectedKeys || new Set());
+        }, 0);
+    }
   };
 
   const handleImportCompositionFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -302,17 +307,17 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           };
         });
 
-        const newVideoItem = {
-          ...videoItem,
+        Object.assign(videoItem, {
           images: newImages,
           sprites: newSprites
-        };
+        });
+        const newVideoItem = videoItem;
 
         const newMeta: FileMetadata = {
           name: compName,
           size: file.size,
           type: 'SVGA',
-          dimensions: { width: videoItem.videoSize.width, height: videoItem.videoSize.height },
+          dimensions: { width: videoItem.videoSize?.width || 1334, height: videoItem.videoSize?.height || 750 },
           fps: extractedFps,
           frames: videoItem.frames,
           assets: [],
@@ -365,25 +370,26 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             }
             return c;
           });
-
-          setActiveCompositionId(compId);
-          setMetadata(newMeta);
-          setLayerImages(extractedImages);
-          setAssetColors({});
-          setAssetColorModes({});
-          setAssetBlurs({});
-          setDeletedKeys(new Set());
-          setCustomLayers([]);
-          setLayerDisplayNames({});
-          setLayerTextOptions({});
-          setCurrentFrame(0);
-          setIsPlaying(false);
-          setSvgaPos({ x: 0, y: 0 });
-          setSvgaScale(1);
-          setSelectedKeys(new Set());
-
           return [...updated, newComp];
         });
+
+        setTimeout(() => {
+            setActiveCompositionId(compId);
+            setMetadata(newMeta);
+            setLayerImages(extractedImages);
+            setAssetColors({});
+            setAssetColorModes({});
+            setAssetBlurs({});
+            setDeletedKeys(new Set());
+            setCustomLayers([]);
+            setLayerDisplayNames({});
+            setLayerTextOptions({});
+            setCurrentFrame(0);
+            setIsPlaying(false);
+            setSvgaPos({ x: 0, y: 0 });
+            setSvgaScale(1);
+            setSelectedKeys(new Set());
+        }, 0);
 
         setIsExporting(false);
         setProgress(100);
@@ -550,11 +556,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       });
     });
 
-    const updatedMainVideoItem = {
-      ...mainVideoItem,
+    Object.assign(mainVideoItem, {
       images: mainImages,
       sprites: newSprites
-    };
+    });
+    const updatedMainVideoItem = mainVideoItem;
 
     const updatedMainLayerImages = { ...mainComp.layerImages };
     const updatedMainDisplayNames = { ...mainComp.layerDisplayNames };
@@ -3753,8 +3759,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       exportContainer.style.position = 'fixed';
       exportContainer.style.left = '-9999px';
       exportContainer.style.top = '-9999px';
-      exportContainer.style.width = `${videoItem.videoSize.width}px`;
-      exportContainer.style.height = `${videoItem.videoSize.height}px`;
+      exportContainer.style.width = `${videoItem?.videoSize?.width || videoWidth}px`;
+      exportContainer.style.height = `${videoItem?.videoSize?.height || videoHeight}px`;
       document.body.appendChild(exportContainer);
 
       const exportPlayer = new SVGA.Player(exportContainer);
@@ -6750,8 +6756,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                     }
                 }
 
-                const origW = metadata.videoItem.videoSize.width;
-                const origH = metadata.videoItem.videoSize.height;
+                const origW = metadata.videoItem?.videoSize?.width || videoWidth;
+                const origH = metadata.videoItem?.videoSize?.height || videoHeight;
                 const scaleX = videoWidth / origW;
                 const scaleY = videoHeight / origH;
                 
