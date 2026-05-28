@@ -529,29 +529,24 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     const svgaPosY = sourceComp.svgaPos?.y || 0;
 
     const mainDefaults = getDefaultDimensions(mainComp.metadata);
-    const mainPreviewW = mainComp.customDimensions?.width || mainDefaults.width || 1334;
-    const mainPreviewH = mainComp.customDimensions?.height || mainDefaults.height || 750;
+    const mainOrigW = mainComp.metadata.dimensions?.width || mainVideoItem?.videoSize?.width || mainDefaults.width || 1334;
+    const mainOrigH = mainComp.metadata.dimensions?.height || mainVideoItem?.videoSize?.height || mainDefaults.height || 750;
 
     const sourceDefaults = getDefaultDimensions(sourceComp.metadata);
-    const sourcePreviewW = sourceComp.customDimensions?.width || sourceDefaults.width || 1334;
-    const sourcePreviewH = sourceComp.customDimensions?.height || sourceDefaults.height || 750;
+    const sourceOrigW = sourceComp.metadata.dimensions?.width || sourceVideoItem?.videoSize?.width || sourceDefaults.width || 1334;
+    const sourceOrigH = sourceComp.metadata.dimensions?.height || sourceVideoItem?.videoSize?.height || sourceDefaults.height || 750;
 
-    const mainOrigW = mainComp.metadata.dimensions?.width || mainVideoItem?.videoSize?.width || mainPreviewW;
-    const mainOrigH = mainComp.metadata.dimensions?.height || mainVideoItem?.videoSize?.height || mainPreviewH;
-    const mainContainScale = Math.min(mainPreviewW / mainOrigW, mainPreviewH / mainOrigH);
-    const mainScreenLx = (mainPreviewW - mainOrigW * mainContainScale) / 2;
-    const mainScreenLy = (mainPreviewH - mainOrigH * mainContainScale) / 2;
+    // Inside the editor, the user positioned the secondary composition inside a viewport sized to its native dimensions.
+    const uiViewW = sourceOrigW;
+    const uiViewH = sourceOrigH;
 
-    const sourceOrigW = sourceComp.metadata.dimensions?.width || sourceVideoItem?.videoSize?.width || sourcePreviewW;
-    const sourceOrigH = sourceComp.metadata.dimensions?.height || sourceVideoItem?.videoSize?.height || sourcePreviewH;
-    const sourceContainScale = Math.min(sourcePreviewW / sourceOrigW, sourcePreviewH / sourceOrigH);
-    const sourceScreenLx = (sourcePreviewW - sourceOrigW * sourceContainScale) / 2;
-    const sourceScreenLy = (sourcePreviewH - sourceOrigH * sourceContainScale) / 2;
+    // The main background composition was fitted and centered within that viewport.
+    const C = Math.min(uiViewW / mainOrigW, uiViewH / mainOrigH);
+    const Offset_m_X = (uiViewW - mainOrigW * C) / 2;
+    const Offset_m_Y = (uiViewH - mainOrigH * C) / 2;
 
-    const cx_src = sourcePreviewW / 2;
-    const cy_src = sourcePreviewH / 2;
-    const cx_main = mainPreviewW / 2;
-    const cy_main = mainPreviewH / 2;
+    const cx = uiViewW / 2;
+    const cy = uiViewH / 2;
 
     const multiplyMat = (m1: any, m2: any) => ({
       a: m1.a * m2.a + m1.c * m2.b,
@@ -562,31 +557,24 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       ty: m1.b * m2.tx + m1.d * m2.ty + m1.ty
     });
 
-    // 1. Convert Source Native (0,0) to Source Preview Space
-    const mat1 = { a: sourceContainScale, b: 0, c: 0, d: sourceContainScale, tx: sourceScreenLx, ty: sourceScreenLy };
-    // 2. Apply Source Workspace Transformations (Scale, Rotation, Translation around center of Source Preview)
-    const mat2 = {
-      a: S * cos, b: S * sin,
-      c: -S * sin, d: S * cos,
-      tx: cx_src - cx_src * S * cos + cy_src * S * sin + svgaPosX,
-      ty: cy_src - cx_src * S * sin - cy_src * S * cos + svgaPosY
-    };
-    // 3. Align centers of Source Preview and Main Preview space
-    const centerAlignTx = cx_main - cx_src;
-    const centerAlignTy = cy_main - cy_src;
-    const mat2_b = { a: 1, b: 0, c: 0, d: 1, tx: centerAlignTx, ty: centerAlignTy };
-    
-    // 4. Map from Main Preview Space back down to Main Native coordinate space
-    const mat3 = {
-      a: 1 / mainContainScale, b: 0,
-      c: 0, d: 1 / mainContainScale,
-      tx: -mainScreenLx / mainContainScale, ty: -mainScreenLy / mainContainScale
+    // 1. Source pixels to UI screen pixels (taking into account the UI Scaling S, R, T)
+    const M_source_to_screen = { 
+      a: S * cos, b: S * sin, 
+      c: -S * sin, d: S * cos, 
+      tx: cx - cx * S * cos + cy * S * sin + svgaPosX, 
+      ty: cy - cx * S * sin - cy * S * cos + svgaPosY 
     };
 
-    // Correct sequential matrix application: M_final = mat3 * mat2_b * mat2 * mat1
-    const M21 = multiplyMat(mat2, mat1);
-    const M_b21 = multiplyMat(mat2_b, M21);
-    const M_final = multiplyMat(mat3, M_b21);
+    // 2. UI screen pixels to main native pixels
+    // P_m = (P_screen - Offset) / C
+    const M_screen_to_main = {
+      a: 1 / C, b: 0, 
+      c: 0, d: 1 / C,
+      tx: -Offset_m_X / C,
+      ty: -Offset_m_Y / C
+    };
+
+    const M_final = multiplyMat(M_screen_to_main, M_source_to_screen);
 
     const alphaMultiplier = sourceComp.svgaOpacity !== undefined ? sourceComp.svgaOpacity : 1;
 
@@ -5953,28 +5941,26 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       const svgaPosX = sourceComp.svgaPos?.x || 0; const svgaPosY = sourceComp.svgaPos?.y || 0;
 
       const mainDefaults = getDefaultDimensions(mainComp.metadata);
-      const mainPreviewW = mainComp.customDimensions?.width || mainDefaults.width || 1334;
-      const mainPreviewH = mainComp.customDimensions?.height || mainDefaults.height || 750;
+      const mainOrigW = mainComp.metadata.dimensions?.width || unifiedVideoItem?.videoSize?.width || mainDefaults.width || 1334;
+      const mainOrigH = mainComp.metadata.dimensions?.height || unifiedVideoItem?.videoSize?.height || mainDefaults.height || 750;
 
       const sourceDefaults = getDefaultDimensions(sourceComp.metadata);
-      const sourcePreviewW = sourceComp.customDimensions?.width || sourceDefaults.width || 1334;
-      const sourcePreviewH = sourceComp.customDimensions?.height || sourceDefaults.height || 750;
+      const sourceOrigW = sourceComp.metadata.dimensions?.width || sourceVideoItem?.videoSize?.width || sourceDefaults.width || 1334;
+      const sourceOrigH = sourceComp.metadata.dimensions?.height || sourceVideoItem?.videoSize?.height || sourceDefaults.height || 750;
 
-      const mainOrigW = mainComp.metadata.dimensions?.width || unifiedVideoItem?.videoSize?.width || mainPreviewW;
-      const mainOrigH = mainComp.metadata.dimensions?.height || unifiedVideoItem?.videoSize?.height || mainPreviewH;
-      const mainContainScale = Math.min(mainPreviewW / mainOrigW, mainPreviewH / mainOrigH);
-      const mainScreenLx = (mainPreviewW - mainOrigW * mainContainScale) / 2;
-      const mainScreenLy = (mainPreviewH - mainOrigH * mainContainScale) / 2;
+      // In the UI, the secondary source was visually tuned inside a viewport equal to its own dimensions!
+      const uiViewW = sourceOrigW;
+      const uiViewH = sourceOrigH;
 
-      const sourceOrigW = sourceComp.metadata.dimensions?.width || sourceVideoItem?.videoSize?.width || sourcePreviewW;
-      const sourceOrigH = sourceComp.metadata.dimensions?.height || sourceVideoItem?.videoSize?.height || sourcePreviewH;
-      const sourceContainScale = Math.min(sourcePreviewW / sourceOrigW, sourcePreviewH / sourceOrigH);
-      const sourceScreenLx = (sourcePreviewW - sourceOrigW * sourceContainScale) / 2;
-      const sourceScreenLy = (sourcePreviewH - sourceOrigH * sourceContainScale) / 2;
+      // The main component was visually shrunk/grown to fit inside this viewport
+      const C = Math.min(uiViewW / mainOrigW, uiViewH / mainOrigH);
+      const Offset_m_X = (uiViewW - mainOrigW * C) / 2;
+      const Offset_m_Y = (uiViewH - mainOrigH * C) / 2;
 
-      const cx_src = sourcePreviewW / 2; const cy_src = sourcePreviewH / 2;
-      const cx_main = mainPreviewW / 2; const cy_main = mainPreviewH / 2;
+      const cx = uiViewW / 2; 
+      const cy = uiViewH / 2;
 
+      // We compose matrices to reverse-project from the visual viewport back into the main composition native coords.
       const multiplyMat = (m1: any, m2: any) => ({
         a: m1.a * m2.a + m1.c * m2.b,
         b: m1.b * m2.a + m1.d * m2.b,
@@ -5984,14 +5970,24 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         ty: m1.b * m2.tx + m1.d * m2.ty + m1.ty
       });
 
-      const mat1 = { a: sourceContainScale, b: 0, c: 0, d: sourceContainScale, tx: sourceScreenLx, ty: sourceScreenLy };
-      const mat2 = { a: S * cos, b: S * sin, c: -S * sin, d: S * cos, tx: cx_src - cx_src * S * cos + cy_src * S * sin + svgaPosX, ty: cy_src - cx_src * S * sin - cy_src * S * cos + svgaPosY };
-      const mat2_b = { a: 1, b: 0, c: 0, d: 1, tx: cx_main - cx_src, ty: cy_main - cy_src };
-      const mat3 = { a: 1 / mainContainScale, b: 0, c: 0, d: 1 / mainContainScale, tx: -mainScreenLx / mainContainScale, ty: -mainScreenLy / mainContainScale };
+      // 1. Source pixels to UI screen pixels (taking into account the UI Scaling S, R, T)
+      const M_source_to_screen = { 
+        a: S * cos, b: S * sin, 
+        c: -S * sin, d: S * cos, 
+        tx: cx - cx * S * cos + cy * S * sin + svgaPosX, 
+        ty: cy - cx * S * sin - cy * S * cos + svgaPosY 
+      };
 
-      const M21 = multiplyMat(mat2, mat1);
-      const M_b21 = multiplyMat(mat2_b, M21);
-      const M_final = multiplyMat(mat3, M_b21);
+      // 2. UI screen pixels to main native pixels
+      // P_m = (P_screen - Offset) / C
+      const M_screen_to_main = {
+        a: 1 / C, b: 0, 
+        c: 0, d: 1 / C,
+        tx: -Offset_m_X / C,
+        ty: -Offset_m_Y / C
+      };
+
+      const M_final = multiplyMat(M_screen_to_main, M_source_to_screen);
       const alphaMultiplier = sourceComp.svgaOpacity !== undefined ? sourceComp.svgaOpacity : 1;
 
       spritesToMerge.forEach((sprite: any) => {
