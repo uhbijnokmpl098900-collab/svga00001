@@ -82,6 +82,33 @@ interface SVGAComposition {
 
 const TRANSPARENT_PIXEL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
+
+const cloneFrame = (frame: any) => {
+  if (!frame) return frame;
+  return {
+    ...frame,
+    layout: frame.layout ? { ...frame.layout } : undefined,
+    transform: frame.transform ? { ...frame.transform } : undefined
+  };
+};
+
+const cloneSprite = (sprite: any) => {
+  if (!sprite) return sprite;
+  return {
+    ...sprite,
+    frames: sprite.frames ? sprite.frames.map(cloneFrame) : []
+  };
+};
+
+const cloneSvgaItem = (item: any) => {
+  if (!item) return item;
+  return {
+    ...item,
+    images: { ...(item.images || {}) },
+    sprites: item.sprites ? item.sprites.map(cloneSprite) : []
+  };
+};
+
 export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata, onCancel, settings, currentUser, onLoginRequired, onSubscriptionRequired, globalQuality: initialGlobalQuality = 'high', onFileReplace, mode = 'normal', onImageConverterOpen }) => {
   const { checkAccess } = useAccessControl();
   const { t, dir } = useLanguage();
@@ -470,13 +497,23 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       return;
     }
 
+    const cloneFrame = (frame: any) => {
+      if (!frame) return frame;
+      return {
+        ...frame,
+        layout: frame.layout ? { ...frame.layout } : undefined,
+        transform: frame.transform ? { ...frame.transform } : undefined
+        // We DO NOT deep clone `shapes` or `clipPath`. This saves huge amounts of memory and prevents browser crashes on large SVGA files.
+      };
+    };
+
     // Extend main sprites frames if the new composition increases the total frames count
     const newSprites = (mainVideoItem.sprites || []).map((sprite: any) => {
       const sourceLength = sprite.frames?.length || 0;
       if (sourceLength > 0 && sourceLength < targetFramesCount) {
         const extendedFrames = [...sprite.frames];
         for (let i = sourceLength; i < targetFramesCount; i++) {
-          extendedFrames.push(JSON.parse(JSON.stringify(extendedFrames[i % sourceLength])));
+          extendedFrames.push(cloneFrame(extendedFrames[i % sourceLength]));
         }
         return { ...sprite, frames: extendedFrames };
       }
@@ -571,7 +608,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
         };
 
-        const frameCopy = JSON.parse(JSON.stringify(originalFrameObj));
+        const frameCopy = cloneFrame(originalFrameObj);
 
         // Multiply opacity
         frameCopy.alpha = widthCheck((originalFrameObj.alpha !== undefined ? originalFrameObj.alpha : 1.0) * alphaMultiplier);
@@ -696,7 +733,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
     setCopiedLayer({
       key,
-      sprite: JSON.parse(JSON.stringify(sprite)),
+      sprite: cloneSprite(sprite),
       image: layerImages[key] || TRANSPARENT_PIXEL,
       displayName: layerDisplayNames[key],
       color: assetColors[key],
@@ -721,7 +758,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           layout: { x: 0, y: 0, width: 200, height: 200 },
           transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
         };
-        const pads = Array(compFrames - newSprite.frames.length).fill(null).map(() => JSON.parse(JSON.stringify(lastFrame)));
+        const pads = Array(compFrames - newSprite.frames.length).fill(null).map(() => cloneFrame(lastFrame));
         newSprite.frames = [...newSprite.frames, ...pads];
       } else {
         newSprite.frames = newSprite.frames.slice(0, compFrames);
@@ -774,7 +811,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     });
 
     const exportedObj = {
-      sprite: JSON.parse(JSON.stringify(sprite)),
+      sprite: cloneSprite(sprite),
       image: layerImages[key] || TRANSPARENT_PIXEL,
       displayName: layerDisplayNames[key],
       color: assetColors[key],
@@ -794,7 +831,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
               layout: { x: 0, y: 0, width: 200, height: 200 },
               transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
             };
-            const pads = Array(compFrames - targetSprite.frames.length).fill(null).map(() => JSON.parse(JSON.stringify(lastFrame)));
+            const pads = Array(compFrames - targetSprite.frames.length).fill(null).map(() => cloneFrame(lastFrame));
             targetSprite.frames = [...targetSprite.frames, ...pads];
           } else {
             targetSprite.frames = targetSprite.frames.slice(0, compFrames);
@@ -1989,7 +2026,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         setLayerImages(p => ({ ...p, [textReplaceTarget]: base64 }));
         
         if (metadata.videoItem) {
-            const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+            const newVideoItem = cloneSvgaItem(metadata.videoItem);
             if (!newVideoItem.images) newVideoItem.images = {};
             newVideoItem.images[textReplaceTarget] = base64;
             
@@ -2018,7 +2055,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
               setLayerImages(prev => ({ ...prev, [key]: previousBase64 }));
               
               if (metadata.videoItem) {
-                  const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+                  const newVideoItem = cloneSvgaItem(metadata.videoItem);
                   if (!newVideoItem.images) newVideoItem.images = {};
                   newVideoItem.images[key] = previousBase64;
                   setMetadata({ ...metadata, videoItem: newVideoItem });
@@ -2371,7 +2408,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                     
                     // Update Metadata to persist changes
                     if (metadata.videoItem) {
-                        const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+                        const newVideoItem = cloneSvgaItem(metadata.videoItem);
                         if (!newVideoItem.images) newVideoItem.images = {};
                         newVideoItem.images[replacingAssetKey] = base64;
                         
@@ -2601,7 +2638,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       if (!metadata.videoItem) return;
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
       
-      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+      const newVideoItem = cloneSvgaItem(metadata.videoItem);
       let updated = false;
 
       if (newVideoItem.sprites) {
@@ -2626,7 +2663,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleDuplicateSprite = (key: string) => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+      const newVideoItem = cloneSvgaItem(metadata.videoItem);
       const spriteToClone = newVideoItem.sprites.find((s: any) => s.imageKey === key);
 
       if (!spriteToClone) return;
@@ -2634,7 +2671,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       const newKey = `${key}_copy_${Date.now()}`;
       
       // Clone the sprite
-      const newSprite = JSON.parse(JSON.stringify(spriteToClone));
+      const newSprite = cloneSprite(spriteToClone);
       newSprite.imageKey = newKey;
 
       // Offset the new sprite slightly so it's visible
@@ -2686,7 +2723,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
       if (!metadata.videoItem) return;
 
-      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+      const newVideoItem = cloneSvgaItem(metadata.videoItem);
       const spriteToClone = newVideoItem.sprites.find((s: any) => s.imageKey === key);
 
       if (!spriteToClone) return;
@@ -2694,7 +2731,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       const newKey = `${key}_isolated_${Date.now()}`;
       
       // Clone the sprite
-      const newSprite = JSON.parse(JSON.stringify(spriteToClone));
+      const newSprite = cloneSprite(spriteToClone);
       newSprite.imageKey = newKey;
 
       // Reset sprites to only contain this new sprite
@@ -2733,7 +2770,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
       if (!metadata.videoItem) return;
 
-      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+      const newVideoItem = cloneSvgaItem(metadata.videoItem);
       
       // Keep only selected sprites
       newVideoItem.sprites = newVideoItem.sprites.filter((s: any) => selectedKeys.has(s.imageKey));
@@ -2811,7 +2848,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleFlipSprite = (key: string, direction: 'horizontal' | 'vertical') => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+      const newVideoItem = cloneSvgaItem(metadata.videoItem);
       let updated = false;
 
       newVideoItem.sprites.forEach((sprite: any) => {
@@ -2861,7 +2898,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleReorderSprite = (key: string, direction: 'up' | 'down' | 'top' | 'bottom') => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+      const newVideoItem = cloneSvgaItem(metadata.videoItem);
       const sprites = newVideoItem.sprites;
       const index = sprites.findIndex((s: any) => s.imageKey === key);
 
@@ -2894,7 +2931,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleMirrorCopy = (key: string) => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+      const newVideoItem = cloneSvgaItem(metadata.videoItem);
       const spriteToClone = newVideoItem.sprites.find((s: any) => s.imageKey === key);
 
       if (!spriteToClone) return;
@@ -2902,7 +2939,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       const newKey = `${key}_mirror_${Date.now()}`;
       
       // Clone the sprite
-      const newSprite = JSON.parse(JSON.stringify(spriteToClone));
+      const newSprite = cloneSprite(spriteToClone);
       newSprite.imageKey = newKey;
 
       newSprite.frames.forEach((frame: any) => {
@@ -2964,7 +3001,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
 
-      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+      const newVideoItem = cloneSvgaItem(metadata.videoItem);
       let updated = false;
 
       newVideoItem.sprites.forEach((sprite: any) => {
@@ -3026,7 +3063,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
 
-      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+      const newVideoItem = cloneSvgaItem(metadata.videoItem);
       let updated = false;
 
       newVideoItem.sprites.forEach((sprite: any) => {
@@ -3066,7 +3103,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleDuplicatePair = (key: string) => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+      const newVideoItem = cloneSvgaItem(metadata.videoItem);
       const spriteToClone = newVideoItem.sprites.find((s: any) => s.imageKey === key);
 
       if (!spriteToClone) return;
@@ -3076,7 +3113,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       const mirrorKey = `${key}_mirror_${timestamp}`;
       
       // 1. Create Normal Copy
-      const copySprite = JSON.parse(JSON.stringify(spriteToClone));
+      const copySprite = cloneSprite(spriteToClone);
       copySprite.imageKey = copyKey;
       // Offset slightly
       copySprite.frames.forEach((frame: any) => {
@@ -3088,7 +3125,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       newVideoItem.sprites.push(copySprite);
 
       // 2. Create Mirrored Copy
-      const mirrorSprite = JSON.parse(JSON.stringify(spriteToClone));
+      const mirrorSprite = cloneSprite(spriteToClone);
       mirrorSprite.imageKey = mirrorKey;
       mirrorSprite.frames.forEach((frame: any) => {
           if (!frame.transform) frame.transform = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
@@ -3139,7 +3176,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
       
-      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+      const newVideoItem = cloneSvgaItem(metadata.videoItem);
       let updated = false;
 
       if (newVideoItem.sprites) {
@@ -3174,7 +3211,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           audioRef.current?.pause();
       }
       
-      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
+      const newVideoItem = cloneSvgaItem(metadata.videoItem);
       let updated = false;
 
       if (newVideoItem.sprites) {
@@ -3334,7 +3371,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
               // Use metadata.videoItem.sprites as the source of truth if it exists, 
               // but preserve original sprite data if we're just filtering/editing.
               // For duplicated layers, we MUST use metadata.videoItem.sprites.
-              message.sprites = (metadata.videoItem.sprites || message.sprites).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => JSON.parse(JSON.stringify(s)));
+              message.sprites = (metadata.videoItem.sprites || message.sprites).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => cloneSprite(s));
           }
           if (message.images) {
               // Ensure all images from metadata.videoItem.images are included
@@ -3356,7 +3393,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                   frames: metadata.frames || 0
               },
               images: {},
-              sprites: (metadata.videoItem.sprites || []).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => JSON.parse(JSON.stringify(s))),
+              sprites: (metadata.videoItem.sprites || []).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => cloneSprite(s)),
               audios: [...(metadata.videoItem.audios || [])]
           };
           
@@ -6731,7 +6768,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 const audioList: any[] = [...(metadata.videoItem.audios || [])];
                 
                 let finalSprites = (metadata.videoItem.sprites || []).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => {
-                    const sprite = JSON.parse(JSON.stringify(s));
+                    const sprite = cloneSprite(s);
                     if (layerDisplayNames[sprite.imageKey]) {
                         sprite.name = layerDisplayNames[sprite.imageKey];
                     }
