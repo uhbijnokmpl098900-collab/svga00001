@@ -517,12 +517,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     const cy_main = mainPreviewH / 2;
 
     const multiplyMat = (m1: any, m2: any) => ({
-      a: m1.a * m2.a + m1.b * m2.c,
-      b: m1.a * m2.b + m1.b * m2.d,
-      c: m1.c * m2.a + m1.d * m2.c,
-      d: m1.c * m2.b + m1.d * m2.d,
-      tx: m1.tx * m2.a + m1.ty * m2.c + m2.tx,
-      ty: m1.tx * m2.b + m1.ty * m2.d + m2.ty
+      a: m1.a * m2.a + m1.c * m2.b,
+      b: m1.b * m2.a + m1.d * m2.b,
+      c: m1.a * m2.c + m1.c * m2.d,
+      d: m1.b * m2.c + m1.d * m2.d,
+      tx: m1.a * m2.tx + m1.c * m2.ty + m1.tx,
+      ty: m1.b * m2.tx + m1.d * m2.ty + m1.ty
     });
 
     // 1. Convert Source Native (0,0) to Source Preview Space
@@ -546,18 +546,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       tx: -mainScreenLx / mainContainScale, ty: -mainScreenLy / mainContainScale
     };
 
-    const mTemp1 = multiplyMat(mat1, mat2);
-    const mTemp2 = multiplyMat(mTemp1, mat2_b);
-    const M_final = multiplyMat(mTemp2, mat3);
-
-    // Parent affine variables mapped properly
-    const ap = M_final.a;
-    const bp = M_final.b;
-    const cp = M_final.c;
-    const dp = M_final.d;
-    const txp = M_final.tx;
-    const typ = M_final.ty;
-    const layoutScale = Math.sqrt(ap * ap + bp * bp); // Average scale, works for uniform scaling
+    // Correct sequential matrix application: M_final = mat3 * mat2_b * mat2 * mat1
+    const M21 = multiplyMat(mat2, mat1);
+    const M_b21 = multiplyMat(mat2_b, M21);
+    const M_final = multiplyMat(mat3, M_b21);
 
     const alphaMultiplier = sourceComp.svgaOpacity !== undefined ? sourceComp.svgaOpacity : 1;
 
@@ -585,42 +577,26 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         frameCopy.alpha = widthCheck((originalFrameObj.alpha !== undefined ? originalFrameObj.alpha : 1.0) * alphaMultiplier);
 
         if (frameCopy.layout) {
-          const lx = frameCopy.layout.x !== undefined ? frameCopy.layout.x : 0;
-          const ly = frameCopy.layout.y !== undefined ? frameCopy.layout.y : 0;
-          const lw = frameCopy.layout.width !== undefined ? frameCopy.layout.width : 100;
-          const lh = frameCopy.layout.height !== undefined ? frameCopy.layout.height : 100;
+          // DO NOT MUTATE LAYOUT COORDS OR DIMENSIONS!
+          // We apply the entire transformation properly into `frameCopy.transform`.
+          const mOrig = {
+            a: frameCopy.transform?.a !== undefined ? frameCopy.transform.a : 1,
+            b: frameCopy.transform?.b || 0,
+            c: frameCopy.transform?.c || 0,
+            d: frameCopy.transform?.d !== undefined ? frameCopy.transform.d : 1,
+            tx: frameCopy.transform?.tx || 0,
+            ty: frameCopy.transform?.ty || 0
+          };
 
-          // Compute transformed layout
-          frameCopy.layout.x = widthCheck(ap * lx + cp * ly + txp);
-          frameCopy.layout.y = heightCheck(bp * lx + dp * ly + typ);
-          frameCopy.layout.width = widthCheck(lw * layoutScale);
-          frameCopy.layout.height = heightCheck(lh * layoutScale);
+          const mNew = multiplyMat(M_final, mOrig);
 
-          if (frameCopy.transform) {
-            const ac = frameCopy.transform.a !== undefined ? frameCopy.transform.a : 1;
-            const bc = frameCopy.transform.b !== undefined ? frameCopy.transform.b : 0;
-            const cc = frameCopy.transform.c !== undefined ? frameCopy.transform.c : 0;
-            const dc = frameCopy.transform.d !== undefined ? frameCopy.transform.d : 1;
-            const txc = frameCopy.transform.tx !== undefined ? frameCopy.transform.tx : 0;
-            const tyc = frameCopy.transform.ty !== undefined ? frameCopy.transform.ty : 0;
-
-            // Compute exact composed 2D affine matrix multiplication
-            frameCopy.transform.a = ap * ac + cp * bc;
-            frameCopy.transform.b = bp * ac + dp * bc;
-            frameCopy.transform.c = ap * cc + cp * dc;
-            frameCopy.transform.d = bp * cc + dp * dc;
-            frameCopy.transform.tx = widthCheck(ap * txc + cp * tyc + txp);
-            frameCopy.transform.ty = heightCheck(bp * txc + dp * tyc + typ);
-          } else {
-            frameCopy.transform = {
-              a: ap,
-              b: bp,
-              c: cp,
-              d: dp,
-              tx: widthCheck(txp),
-              ty: heightCheck(typ)
-            };
-          }
+          if (!frameCopy.transform) frameCopy.transform = {};
+          frameCopy.transform.a = mNew.a;
+          frameCopy.transform.b = mNew.b;
+          frameCopy.transform.c = mNew.c;
+          frameCopy.transform.d = mNew.d;
+          frameCopy.transform.tx = widthCheck(mNew.tx);
+          frameCopy.transform.ty = heightCheck(mNew.ty);
         }
         finalFrames.push(frameCopy);
       }
