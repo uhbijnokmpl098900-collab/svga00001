@@ -5,9 +5,10 @@ interface VapPlayerProps {
     width?: number;
     height?: number;
     className?: string;
+    alphaMode?: 'none' | 'right' | 'left' | 'top' | 'bottom';
 }
 
-export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, className }) => {
+export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, className, alphaMode = 'right' }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const requestRef = useRef<number>();
@@ -36,17 +37,36 @@ export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, classN
         const fsSource = `
             precision mediump float;
             uniform sampler2D u_image;
+            uniform int u_alphaMode;
             varying vec2 v_texCoord;
             void main() {
-                // RGB is on the Left (0.0 to 0.5)
-                vec2 rgbUV = vec2(v_texCoord.x * 0.5, v_texCoord.y);
-                // Alpha is on the Right (0.5 to 1.0)
-                vec2 alphaUV = vec2(v_texCoord.x * 0.5 + 0.5, v_texCoord.y);
+                vec2 rgbUV = v_texCoord;
+                vec2 alphaUV = v_texCoord;
+                
+                // 0: right (Alpha Right, RGB Left)
+                // 1: left (Alpha Left, RGB Right)
+                // 2: bottom (Alpha Bottom, RGB Top)
+                // 3: top (Alpha Top, RGB Bottom)
+                
+                if (u_alphaMode == 0) {
+                    rgbUV.x = v_texCoord.x * 0.5;
+                    alphaUV.x = v_texCoord.x * 0.5 + 0.5;
+                } else if (u_alphaMode == 1) {
+                    rgbUV.x = v_texCoord.x * 0.5 + 0.5;
+                    alphaUV.x = v_texCoord.x * 0.5;
+                } else if (u_alphaMode == 2) {
+                    // Top-Bottom split
+                    rgbUV.y = v_texCoord.y * 0.5 + 0.5;
+                    alphaUV.y = v_texCoord.y * 0.5;
+                } else if (u_alphaMode == 3) {
+                    rgbUV.y = v_texCoord.y * 0.5;
+                    alphaUV.y = v_texCoord.y * 0.5 + 0.5;
+                }
                 
                 vec4 color = texture2D(u_image, rgbUV);
-                vec4 alpha = texture2D(u_image, alphaUV);
+                vec4 alphaStr = texture2D(u_image, alphaUV);
                 
-                gl_FragColor = vec4(color.rgb, alpha.r);
+                gl_FragColor = vec4(color.rgb, alphaStr.r);
             }
         `;
 
@@ -103,6 +123,7 @@ export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, classN
         const positionLocation = gl.getAttribLocation(program, "a_position");
         const texCoordLocation = gl.getAttribLocation(program, "a_texCoord");
         const imageLocation = gl.getUniformLocation(program, "u_image");
+        const alphaModeLocation = gl.getUniformLocation(program, "u_alphaMode");
 
         gl.enableVertexAttribArray(positionLocation);
         gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
@@ -122,6 +143,13 @@ export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, classN
 
         const render = () => {
             if (video.readyState >= video.HAVE_CURRENT_DATA) {
+                // Set alpha mode
+                let am = 0;
+                if (alphaMode === 'left') am = 1;
+                else if (alphaMode === 'bottom') am = 2;
+                else if (alphaMode === 'top') am = 3;
+                gl.uniform1i(alphaModeLocation, am);
+                
                 gl.bindTexture(gl.TEXTURE_2D, texture);
                 gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
                 gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -142,7 +170,7 @@ export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, classN
         return () => {
             if (requestRef.current) cancelAnimationFrame(requestRef.current);
         };
-    }, [src]);
+    }, [src, alphaMode]);
 
     return (
         <div className={`relative ${className}`}>
@@ -152,12 +180,8 @@ export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, classN
                 className="hidden" 
                 playsInline 
                 loop 
-                muted // Muted for autoplay usually, but we want audio. 
-                // If we want audio, we should show controls or handle it.
-                // Let's expose controls on the container or just use video controls?
-                // We can't use video controls because the video is hidden.
-                // We need custom controls or just click to play.
-                // For now, let's auto-play muted or let user click.
+                muted
+                autoPlay // autoPlay added for consistency with the normal video tag
             />
             <canvas 
                 ref={canvasRef} 
@@ -175,8 +199,8 @@ export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, classN
                 }}
             />
             {!isPlaying && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="bg-black/50 rounded-full p-4">
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity">
+                    <div className="bg-black/50 rounded-full p-4 shadow-xl border border-white/10 backdrop-blur">
                         <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                     </div>
                 </div>

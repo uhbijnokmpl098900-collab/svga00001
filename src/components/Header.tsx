@@ -1,7 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserRecord, AppSettings } from '../types';
-import { LogOut, Settings, ShoppingBag, Image, Video, Layers, Wand2, BadgeCheck, Maximize, Lock, Scissors, Menu, X as CloseIcon, Zap, Sparkles } from 'lucide-react';
+import { 
+  LogOut, Settings, ShoppingBag, Image, Video, Layers, Wand2, 
+  BadgeCheck, Maximize, Lock, Scissors, Menu, X as CloseIcon, 
+  Zap, Sparkles, Info, Search, ChevronDown, Check, LayoutGrid, 
+  Command
+} from 'lucide-react';
 
 interface HeaderProps {
   onLogoClick: () => void;
@@ -28,361 +33,432 @@ interface HeaderProps {
   currentTab: string;
 }
 
-export const Header: React.FC<HeaderProps> = ({
-  onLogoClick,
-  isAdmin,
-  currentUser,
-  settings,
-  onAdminToggle,
-  onLogout,
-  isAdminOpen,
-  onBatchOpen,
-  onStoreOpen,
-  onConverterOpen,
-  onImageConverterOpen,
-  onImageEditorOpen,
-  onImageMatcherOpen,
-  onCropperOpen,
-  onSvgaExOpen,
-  onMultiSvgaOpen,
-  onImageProcessorOpen,
-  onImageEnhancerOpen,
-  onBatchImageProcessorOpen,
-  onLoginClick,
-  onProfileClick,
-  currentTab
-}) => {
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
-  const navItems = [
-    { id: 'svga', label: 'SVGA Editor', icon: <Layers className="w-4 h-4" />, onClick: onLogoClick, color: 'indigo' },
-    { 
-      id: 'svga-ex', 
-      label: 'SVGA Editor EX', 
-      icon: <Layers className="w-4 h-4" />, 
-      onClick: onSvgaExOpen,
-      color: 'red',
-      locked: false,
-      show: true
-    },
-    { id: 'image-processor', label: 'Image Processor', icon: <Wand2 className="w-4 h-4" />, onClick: onImageProcessorOpen, color: 'emerald' },
-    { id: 'image-enhancer', label: 'AI Image Enhancer', icon: <Sparkles className="w-4 h-4" />, onClick: onImageEnhancerOpen, color: 'blue', isNew: true },
-    { id: 'batch-image-processor', label: 'Batch Image Processor', icon: <Image className="w-4 h-4" />, onClick: onBatchImageProcessorOpen, color: 'teal' },
-    { id: 'multi-svga', label: 'Multi SVGA Preview', icon: <Layers className="w-4 h-4" />, onClick: onMultiSvgaOpen, color: 'purple' },
-    { id: 'converter', label: 'Video Converter', icon: <Video className="w-4 h-4" />, onClick: onConverterOpen, color: 'pink' },
-    { id: 'image-converter', label: 'Image to SVGA', icon: <Image className="w-4 h-4" />, onClick: onImageConverterOpen, color: 'orange' },
-    { id: 'batch', label: 'Batch Compress', icon: <Layers className="w-4 h-4" />, onClick: onBatchOpen, color: 'amber' },
-    { id: 'image-editor', label: 'Image Editor', icon: <Wand2 className="w-4 h-4" />, onClick: onImageEditorOpen, color: 'cyan' },
-    { id: 'image-matcher', label: 'Image Matcher', icon: <Maximize className="w-4 h-4" />, onClick: onImageMatcherOpen, color: 'blue' },
-    { id: 'cropper', label: 'Batch Cropper', icon: <Scissors className="w-4 h-4" />, onClick: onCropperOpen, color: 'rose' },
-    { id: 'store', label: 'Store', icon: <ShoppingBag className="w-4 h-4" />, onClick: onStoreOpen, color: 'fuchsia' },
-  ];
-
-  return (
-    <>
-      <header className="fixed top-0 left-0 right-0 h-20 bg-[#020617]/80 backdrop-blur-md border-b border-white/5 z-[1000] px-4 sm:px-6 flex items-center justify-between">
-      {/* Left Side: Profile & New Tools Button (Mobile) or Logo (Desktop) */}
-      <div className="flex items-center gap-2 sm:gap-3">
-        {/* Mobile Tools Button */}
-        <div className="flex md:hidden items-center gap-2">
-          <button 
-            onClick={() => setIsMobileMenuOpen(true)}
-            className="flex items-center gap-2 px-3 py-2 bg-gradient-to-br from-indigo-600/20 to-purple-600/20 hover:from-indigo-600/30 hover:to-purple-600/30 text-indigo-400 rounded-xl border border-indigo-500/30 transition-all active:scale-90 shadow-lg shadow-indigo-500/5 group"
-          >
-            <Wand2 className="w-4 h-4 group-hover:rotate-12 transition-transform" />
-            <span className="text-[10px] font-black uppercase tracking-widest hidden xs:block">الأدوات</span>
-          </button>
-        </div>
-        
-        {/* Desktop Logo */}
-        <button onClick={onLogoClick} className="hidden md:flex items-center gap-3 group">
-          <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20 group-hover:scale-105 transition-transform duration-300">
-            <span className="text-white font-black text-xl">S</span>
-          </div>
-          <div className="flex flex-col items-start">
-            <h1 className="text-lg font-bold text-white tracking-tight group-hover:text-indigo-400 transition-colors">
-              {settings?.appName || 'SVGA Studio'}
-            </h1>
-            <span className="text-[10px] text-slate-400 font-medium tracking-widest uppercase">Professional Tools</span>
-          </div>
-        </button>
-      </div>
-
-      {/* Center: Mobile Logo or Desktop Navigation */}
-      <div className="flex-1 flex justify-center md:justify-start md:ml-8">
-        {/* Mobile Logo (Site Name) */}
-        <button onClick={onLogoClick} className="md:hidden flex flex-col items-center group">
-          <h1 className="text-sm font-black text-white tracking-tight truncate max-w-[150px]">
-            {settings?.appName || 'Ahmed Designer'}
-          </h1>
-          <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest">Professional Tools</span>
-        </button>
-
-        {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center gap-1">
-          {navItems.filter(item => item.show !== false).map(item => (
-            <NavButton 
-              key={item.id}
-              active={currentTab === item.id} 
-              onClick={item.onClick} 
-              icon={item.icon}
-              label={item.label}
-              color={item.color}
-              locked={item.locked}
-            />
-          ))}
-        </nav>
-      </div>
-
-      {/* Right Side: Admin Panel Button */}
-      <div className="flex items-center gap-1 sm:gap-3">
-        {isAdmin && (
-          <button
-            onClick={onAdminToggle}
-            className={`p-2 rounded-lg transition-colors ${
-              isAdminOpen ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400 hover:text-white hover:bg-white/5'
-            }`}
-            title="Admin Panel"
-          >
-            <Settings className="w-5 h-5" />
-          </button>
-        )}
-        <button
-          onClick={onLogout}
-          className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-          title="تسجيل الخروج"
-        >
-          <LogOut className="w-5 h-5" />
-        </button>
-      </div>
-    </header>
-
-    {/* Mobile Menu Overlay - Outside header to avoid z-index nesting issues */}
-    <AnimatePresence>
-      {isMobileMenuOpen && (
-        <>
-          {/* Backdrop */}
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setIsMobileMenuOpen(false)}
-            className="fixed inset-0 bg-black/95 backdrop-blur-xl z-[9998] md:hidden"
-          />
-          
-          {/* Menu Content */}
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
-            className="fixed inset-0 bg-[#020617] z-[9999] md:hidden overflow-y-auto flex flex-col"
-          >
-            {/* Close Button Top Right */}
-            <div className="absolute top-6 right-6 z-[10000]">
-              <button 
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="p-3 text-white bg-white/10 hover:bg-white/20 rounded-full shadow-xl transition-all active:scale-90"
-              >
-                <CloseIcon className="w-8 h-8" />
-              </button>
-            </div>
-
-            <div className="flex-1 flex flex-col items-center justify-center p-6 pt-20">
-              <div className="w-full max-w-md space-y-8">
-                <div className="text-center space-y-2 mb-4">
-                  <div className="inline-flex w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl items-center justify-center shadow-2xl shadow-indigo-500/40 mb-4">
-                    <span className="text-white font-black text-3xl">S</span>
-                  </div>
-                  <h2 className="text-white text-3xl font-black tracking-tight">قائمة الأدوات</h2>
-                  <p className="text-slate-500 text-sm font-bold uppercase tracking-[0.2em]">اختر الأداة التي تريد استخدامها</p>
-                </div>
-
-                <div className="grid grid-cols-1 gap-4">
-                  {/* Home / Reset */}
-                  <button
-                    onClick={() => {
-                      onLogoClick();
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`flex items-center gap-5 p-6 rounded-[2rem] text-xl font-black transition-all active:scale-95 shadow-xl ${
-                      currentTab === 'svga' 
-                        ? 'bg-indigo-600 text-white shadow-indigo-600/30'
-                        : 'bg-white/5 text-slate-300 border border-white/10'
-                    }`}
-                  >
-                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${currentTab === 'svga' ? 'bg-white/20' : 'bg-white/5'}`}>
-                      <Layers className="w-7 h-7" />
-                    </div>
-                    <div className="flex-1 text-right">
-                      <span>الرئيسية / المحرر</span>
-                    </div>
-                  </button>
-
-                  {/* All other nav items */}
-                  {navItems.filter(item => item.id !== 'svga' && item.show !== false).map(item => (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        item.onClick();
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className={`flex items-center gap-5 p-6 rounded-[2rem] text-xl font-black transition-all active:scale-95 shadow-xl ${
-                        currentTab === item.id 
-                          ? (item as any).variant === 'red' || (item as any).color === 'red'
-                            ? 'bg-[#ff0000] text-black shadow-red-500/30'
-                            : 'bg-indigo-600 text-white shadow-indigo-600/30'
-                          : 'bg-white/5 text-slate-300 border border-white/10'
-                      }`}
-                    >
-                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${currentTab === item.id ? 'bg-white/20' : 'bg-white/5'}`}>
-                        {React.cloneElement(item.icon as React.ReactElement, { className: 'w-7 h-7' })}
-                      </div>
-                      <div className="flex-1 text-right">
-                        <span>{item.label}</span>
-                        {item.locked && <p className="text-[10px] text-amber-500 font-black mt-1">ميزة مقفولة</p>}
-                      </div>
-                      {item.locked && <Lock className="w-6 h-6 text-amber-500" />}
-                    </button>
-                  ))}
-
-                  {/* Admin Panel Button for Admins */}
-                  {isAdmin && (
-                    <button
-                      onClick={() => {
-                        onAdminToggle();
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className={`flex items-center gap-5 p-6 rounded-[2rem] text-xl font-black transition-all active:scale-95 shadow-xl ${
-                        isAdminOpen 
-                          ? 'bg-amber-500 text-white shadow-amber-500/30'
-                          : 'bg-white/5 text-slate-300 border border-white/10'
-                      }`}
-                    >
-                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${isAdminOpen ? 'bg-white/20' : 'bg-white/5'}`}>
-                        <Settings className="w-7 h-7" />
-                      </div>
-                      <div className="flex-1 text-right">
-                        <span>لوحة التحكم</span>
-                      </div>
-                      <BadgeCheck className="w-6 h-6 text-amber-500" />
-                    </button>
-                  )}
-
-                  {/* Logout Button */}
-                  <button
-                    onClick={() => {
-                      onLogout();
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className="flex items-center gap-5 p-6 rounded-[2rem] text-xl font-black transition-all active:scale-95 shadow-xl bg-red-500/10 text-red-400 border border-red-500/20"
-                  >
-                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-red-500/20">
-                      <LogOut className="w-7 h-7" />
-                    </div>
-                    <div className="flex-1 text-right">
-                      <span>تسجيل الخروج</span>
-                    </div>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-10 bg-white/5 border-t border-white/10 flex justify-center mt-auto">
-              <div className="w-full max-w-md text-center">
-                <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Ahmed Designer - Professional Tools</p>
-              </div>
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  </>
-);
-};
-
-interface NavButtonProps {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
+interface ToolDefinition {
+  id: string;
   label: string;
-  color?: string;
+  icon: React.ReactNode;
+  actionKey: keyof HeaderProps;
+  descAr: string;
+  descEn: string;
+  highlight?: boolean;
   locked?: boolean;
 }
 
-const uniformInactive = 'bg-gradient-to-b from-slate-800 to-slate-900 text-slate-400 border-slate-700 border-b-slate-950 hover:from-slate-700 hover:to-slate-800 hover:text-white shadow-[0_4px_8px_rgba(0,0,0,0.3)] border-b-4';
+interface CategoryDefinition {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  color: string;
+  tools: ToolDefinition[];
+}
 
-const colorMap: Record<string, { active: string, inactive: string }> = {
-  indigo: {
-    active: 'bg-gradient-to-b from-indigo-500 to-indigo-600 text-white border-indigo-400 border-b-indigo-800 shadow-[0_0_15px_rgba(99,102,241,0.6)] translate-y-0.5 border-b-2',
-    inactive: uniformInactive
+const categories: CategoryDefinition[] = [
+  {
+    id: 'svga',
+    label: 'أنيميشن و SVGA',
+    icon: <Layers className="w-5 h-5" />,
+    color: 'indigo',
+    tools: [
+      { id: 'svga', label: 'SVGA Editor', icon: <Layers className="w-4 h-4" />, actionKey: 'onLogoClick', descAr: 'محرر متقدم لملفات SVGA مع طبقات وتعديل مباشر', descEn: 'Advanced SVGA editor with layers and direct editing.' },
+      { id: 'svga-ex', label: 'SVGA Editor EX', icon: <Layers className="w-4 h-4" />, actionKey: 'onSvgaExOpen', descAr: 'محرر احترافي لعمل تركيبات معقدة ومدمجة من عدة ملفات SVGA', descEn: 'Professional editor for complex compositions of multiple SVGA files.', highlight: true },
+      { id: 'multi-svga', label: 'Multi SVGA Preview', icon: <LayoutGrid className="w-4 h-4" />, actionKey: 'onMultiSvgaOpen', descAr: 'استعراض ومقارنة عدة ملفات SVGA في نفس الوقت بخصائص دقيقة', descEn: 'Preview and compare multiple SVGA files simultaneously.' },
+      { id: 'image-converter', label: 'Image to SVGA', icon: <Image className="w-4 h-4" />, actionKey: 'onImageConverterOpen', descAr: 'تحويل الصور الثابتة إلى ملفات SVGA متحركة مع تأثيرات دخول', descEn: 'Convert static images into animated SVGA files with entry effects.' },
+    ]
   },
-  red: {
-    active: 'bg-gradient-to-b from-red-500 to-red-600 text-white border-red-400 border-b-red-800 shadow-[0_0_15px_rgba(239,68,68,0.6)] translate-y-0.5 border-b-2',
-    inactive: uniformInactive
+  {
+    id: 'image',
+    label: 'معالجة الصور والذكاء الاصطناعي',
+    icon: <Sparkles className="w-5 h-5" />,
+    color: 'emerald',
+    tools: [
+      { id: 'image-enhancer', label: 'AI Image Enhancer', icon: <Sparkles className="w-4 h-4" />, actionKey: 'onImageEnhancerOpen', descAr: 'تحسين جودة الصور وترقيتها بالذكاء الاصطناعي مع الحفاظ على التفاصيل بشكل مذهل', descEn: 'Enhance image quality using AI while preserving details amazingly.', highlight: true },
+      { id: 'image-processor', label: 'Image Processor', icon: <Wand2 className="w-4 h-4" />, actionKey: 'onImageProcessorOpen', descAr: 'معالجة وتعديل ألوان وإضاءة الصور بدقة عالية مع أدوات تنقية حساسة', descEn: 'Process and adjust colors/lighting of images accurately with fine-tuning tools.' },
+      { id: 'image-editor', label: 'Image Editor', icon: <Scissors className="w-4 h-4" />, actionKey: 'onImageEditorOpen', descAr: 'محرر صور متكامل يوفر أدوات تعديل احترافية للطبقات والأشكال', descEn: 'Comprehensive image editor offering professional tools for layers and shapes.' },
+      { id: 'image-matcher', label: 'Image Matcher', icon: <Maximize className="w-4 h-4" />, actionKey: 'onImageMatcherOpen', descAr: 'مطابقة الألوان والستايلات بين صورة وأخرى للحصول على طابع موحد ومتناسق', descEn: 'Match colors and styles between two images for a consistent and unified look.' },
+    ]
   },
-  emerald: {
-    active: 'bg-gradient-to-b from-emerald-500 to-emerald-600 text-white border-emerald-400 border-b-emerald-800 shadow-[0_0_15px_rgba(16,185,129,0.6)] translate-y-0.5 border-b-2',
-    inactive: uniformInactive
+  {
+    id: 'batch',
+    label: 'المعالجة الجماعية',
+    icon: <Zap className="w-5 h-5" />,
+    color: 'orange',
+    tools: [
+      { id: 'batch-image-processor', label: 'Batch Image Processor', icon: <Image className="w-4 h-4" />, actionKey: 'onBatchImageProcessorOpen', descAr: 'تطبيق التعديلات والتحسينات على مجلد كامل من الصور بضغطة واحدة', descEn: 'Apply enhancements and edits to a whole folder of images with one click.' },
+      { id: 'batch', label: 'Batch Compress', icon: <Layers className="w-4 h-4" />, actionKey: 'onBatchOpen', descAr: 'ضغط وتقليل حجم كمية كبيرة من الصور بكفاءة دون فقدان مسموع للجودة', descEn: 'Compress a large batch of images efficiently without noticeable quality loss.' },
+      { id: 'cropper', label: 'Batch Cropper', icon: <Scissors className="w-4 h-4" />, actionKey: 'onCropperOpen', descAr: 'قص واقتطاع وتغيير أحجام مجموعة صور بشكل آلي لنفس الأبعاد المطلوبة', descEn: 'Auto-crop and resize a batch of images to the exact required dimensions.' },
+      { id: 'converter', label: 'Video Converter', icon: <Video className="w-4 h-4" />, actionKey: 'onConverterOpen', descAr: 'أداة سريعة لتحويل مقاطع الفيديو (مثل MP4) وتفريغها إلى صيغ أخرى كالـ SVGA', descEn: 'Fast tool to convert videos (e.g., MP4) and composite them to other formats like SVGA.' },
+    ]
   },
-  purple: {
-    active: 'bg-gradient-to-b from-purple-500 to-purple-600 text-white border-purple-400 border-b-purple-800 shadow-[0_0_15px_rgba(168,85,247,0.6)] translate-y-0.5 border-b-2',
-    inactive: uniformInactive
-  },
-  pink: {
-    active: 'bg-gradient-to-b from-pink-500 to-pink-600 text-white border-pink-400 border-b-pink-800 shadow-[0_0_15px_rgba(236,72,153,0.6)] translate-y-0.5 border-b-2',
-    inactive: uniformInactive
-  },
-  orange: {
-    active: 'bg-gradient-to-b from-orange-500 to-orange-600 text-white border-orange-400 border-b-orange-800 shadow-[0_0_15px_rgba(249,115,22,0.6)] translate-y-0.5 border-b-2',
-    inactive: uniformInactive
-  },
-  amber: {
-    active: 'bg-gradient-to-b from-amber-500 to-amber-600 text-white border-amber-400 border-b-amber-800 shadow-[0_0_15px_rgba(245,158,11,0.6)] translate-y-0.5 border-b-2',
-    inactive: uniformInactive
-  },
-  cyan: {
-    active: 'bg-gradient-to-b from-cyan-500 to-cyan-600 text-white border-cyan-400 border-b-cyan-800 shadow-[0_0_15px_rgba(6,182,212,0.6)] translate-y-0.5 border-b-2',
-    inactive: uniformInactive
-  },
-  blue: {
-    active: 'bg-gradient-to-b from-blue-500 to-blue-600 text-white border-blue-400 border-b-blue-800 shadow-[0_0_15px_rgba(59,130,246,0.6)] translate-y-0.5 border-b-2',
-    inactive: uniformInactive
-  },
-  rose: {
-    active: 'bg-gradient-to-b from-rose-500 to-rose-600 text-white border-rose-400 border-b-rose-800 shadow-[0_0_15px_rgba(244,63,94,0.6)] translate-y-0.5 border-b-2',
-    inactive: uniformInactive
-  },
-  fuchsia: {
-    active: 'bg-gradient-to-b from-fuchsia-500 to-fuchsia-600 text-white border-fuchsia-400 border-b-fuchsia-800 shadow-[0_0_15px_rgba(217,70,239,0.6)] translate-y-0.5 border-b-2',
-    inactive: uniformInactive
-  },
-  teal: {
-    active: 'bg-gradient-to-b from-teal-500 to-teal-600 text-white border-teal-400 border-b-teal-800 shadow-[0_0_15px_rgba(20,184,166,0.6)] translate-y-0.5 border-b-2',
-    inactive: uniformInactive
-  },
-  default: {
-    active: 'bg-gradient-to-b from-slate-500 to-slate-600 text-white border-slate-400 border-b-slate-800 shadow-[0_0_15px_rgba(100,116,139,0.6)] translate-y-0.5 border-b-2',
-    inactive: uniformInactive
+  {
+    id: 'store',
+    label: 'المتجر والأصول',
+    icon: <ShoppingBag className="w-5 h-5" />,
+    color: 'fuchsia',
+    tools: [
+      { id: 'store', label: 'SVGA Store', icon: <ShoppingBag className="w-4 h-4" />, actionKey: 'onStoreOpen', descAr: 'متجر احترافي ضخم يحتوي على مئات المؤثرات، الإطارات، والتركيبات الجاهزة للتحميل والاستخدام الفوري', descEn: 'Huge professional store with hundreds of effects, frames, and ready-to-use assets.', highlight: true },
+    ]
   }
-};
+];
 
-const NavButton: React.FC<NavButtonProps> = ({ active, onClick, icon, label, color = 'default', locked = false }) => {
-  const styles = colorMap[color] || colorMap.default;
+export const Header: React.FC<HeaderProps> = (props) => {
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [infoModalTool, setInfoModalTool] = useState<ToolDefinition | null>(null);
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const allTools = useMemo(() => categories.flatMap(c => c.tools), []);
+  const filteredTools = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const query = searchQuery.toLowerCase();
+    return allTools.filter(t => 
+      t.label.toLowerCase().includes(query) || 
+      t.descAr.toLowerCase().includes(query) || 
+      t.descEn.toLowerCase().includes(query)
+    );
+  }, [searchQuery, allTools]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsSearchOpen(true);
+      }
+      if (e.key === 'Escape') {
+        setIsSearchOpen(false);
+        setInfoModalTool(null);
+        setActiveMenu(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (isSearchOpen && searchInputRef.current) {
+      setTimeout(() => searchInputRef.current?.focus(), 100);
+    } else {
+      setSearchQuery('');
+    }
+  }, [isSearchOpen]);
+
+  const handleToolClick = (tool: ToolDefinition) => {
+    const action = props[tool.actionKey] as () => void;
+    if (action) action();
+    setIsMobileMenuOpen(false);
+    setIsSearchOpen(false);
+    setActiveMenu(null);
+  };
+
+  const TopLevelNavigation = () => (
+    <nav className="hidden lg:flex items-center gap-1.5 mr-6 text-xs lg:text-sm font-bold overflow-x-auto no-scrollbar flex-1 whitespace-nowrap mask-edges">
+      {allTools.map((tool) => {
+        const isToolActive = props.currentTab === tool.id;
+        
+        return (
+          <button
+            key={tool.id}
+            onClick={() => handleToolClick(tool)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-full transition-all duration-300 shrink-0 ${
+              isToolActive 
+                ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.15)]' 
+                : tool.highlight
+                  ? 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 border border-transparent hover:border-indigo-500/20'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10'
+            }`}
+            title={tool.descAr}
+          >
+            {React.cloneElement(tool.icon as React.ReactElement, { className: 'w-4 h-4' })}
+            <span>{tool.label}</span>
+          </button>
+        )
+      })}
+    </nav>
+  );
+
   return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all duration-200 relative border-t active:border-b-0 active:translate-y-1 ${
-        active ? styles.active : styles.inactive
-      }`}
-    >
-      {icon}
-      <span className="drop-shadow-sm">{label}</span>
-      {locked && (
-          <div className="absolute -top-2 -right-2 bg-slate-900 rounded-full p-1 border border-white/10 shadow-lg">
-              <Lock className="w-3 h-3 text-amber-500" />
+    <>
+      <header className="fixed top-0 left-0 right-0 h-20 bg-[#020617]/70 backdrop-blur-2xl border-b border-white/5 z-[1000] px-4 md:px-8 flex items-center justify-between transition-all duration-300">
+        
+        {/* Logo and Right Side */}
+        <div className="flex items-center gap-4 shrink-0 max-w-[25%] lg:max-w-none">
+          <button onClick={props.onLogoClick} className="flex items-center gap-3 group shrink-0">
+            <div className="w-11 h-11 bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-900 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/30 group-hover:scale-105 group-active:scale-95 transition-all duration-300 border border-white/10 relative overflow-hidden shrink-0">
+               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 mix-blend-overlay"></div>
+               {props.settings?.logoUrl ? (
+                 <img src={props.settings.logoUrl} alt="Logo" className="w-full h-full object-cover relative z-10" />
+               ) : (
+                 <span className="text-white font-black text-2xl drop-shadow-md relative z-10">S</span>
+               )}
+            </div>
+            <div className="flex flex-col items-start hidden sm:flex shrink-0">
+              <h1 className="text-xl md:text-2xl font-black animated-brand-text tracking-tight whitespace-nowrap overflow-visible">
+                {props.settings?.appName?.trim() ? props.settings.appName : 'SVGA Studio'}
+              </h1>
+              <span className="text-[9px] text-indigo-400 font-bold tracking-[0.2em] uppercase whitespace-nowrap mt-0.5">Professional Platform</span>
+            </div>
+          </button>
+          
+          <TopLevelNavigation />
+        </div>
+
+        {/* Left Side Controls (Search, Admin, Profile) */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          
+          {/* Search Trigger */}
+          <button
+            onClick={() => setIsSearchOpen(true)}
+            className="hidden sm:flex items-center gap-3 px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 rounded-full transition-all text-slate-400 hover:text-white group"
+          >
+            <Search className="w-4 h-4 group-hover:scale-110 transition-transform" />
+            <span className="text-sm font-medium mr-2">البحث عن أداة...</span>
+            <div className="flex items-center gap-1 font-sans text-[10px] bg-slate-900 px-2 py-0.5 rounded-md border border-slate-700 opacity-70">
+              <Command className="w-3 h-3" />
+              <span>K</span>
+            </div>
+          </button>
+          
+          <button
+            onClick={() => setIsSearchOpen(true)}
+            className="sm:hidden p-2.5 rounded-xl bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <Search className="w-5 h-5" />
+          </button>
+
+          <div className="w-px h-8 bg-white/10 hidden sm:block mx-1"></div>
+
+          {props.isAdmin && (
+            <button
+              onClick={props.onAdminToggle}
+              className={`p-2.5 rounded-xl transition-all duration-300 border ${
+                props.isAdminOpen 
+                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.15)]' 
+                  : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent hover:border-white/10'
+              }`}
+              title="Admin Panel"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+          )}
+          <button
+            onClick={props.onLogout}
+            className="p-2.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all duration-300"
+            title="تسجيل الخروج"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
+
+          {/* Mobile Menu Trigger */}
+          <button 
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="lg:hidden p-2.5 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 border border-indigo-500/30 rounded-xl transition-all"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        </div>
+      </header>
+
+      {/* --- Search Command Palette (Modal) --- */}
+      <AnimatePresence>
+        {isSearchOpen && (
+          <div className="fixed inset-0 z-[2000] flex items-start justify-center pt-20 px-4 sm:pt-32">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setIsSearchOpen(false)}
+              className="absolute inset-0 bg-[#020617]/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -10 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="relative w-full max-w-2xl bg-slate-950/90 border border-white/10 backdrop-blur-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+            >
+              <div className="p-4 border-b border-white/5 flex items-center gap-3">
+                <Search className="w-6 h-6 text-indigo-400 ml-2" />
+                <input 
+                  ref={searchInputRef}
+                  type="text" 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="ابحث عن أداة أو وظيفة..."
+                  className="flex-1 bg-transparent border-none text-xl text-white outline-none placeholder:text-slate-600 font-bold"
+                  dir="rtl"
+                />
+                <button onClick={() => setIsSearchOpen(false)} className="p-2 bg-white/5 hover:bg-white/10 rounded-full text-slate-400 transition-colors">
+                  <CloseIcon className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="overflow-y-auto p-4 flex flex-col gap-2 custom-scrollbar">
+                {searchQuery.trim() === '' ? (
+                  <div className="text-center py-10 text-slate-500">
+                    <Command className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                    <p className="font-bold">ابدأ بكتابة اسم الأداة أو الوظيفة للبحث</p>
+                  </div>
+                ) : filteredTools.length === 0 ? (
+                  <div className="text-center py-10 text-slate-500">
+                    <p className="font-bold text-lg">لم يتم العثور على نتائج لـ "{searchQuery}"</p>
+                    <p className="text-sm mt-2 opacity-70">جرب كلمات مفتاحية أخرى (مثل: قص، دمج، تعديل)</p>
+                  </div>
+                ) : (
+                  filteredTools.map(tool => (
+                    <button
+                      key={tool.id}
+                      onClick={() => handleToolClick(tool)}
+                      className="flex items-center gap-4 p-4 rounded-2xl hover:bg-white/5 border border-transparent hover:border-white/10 transition-all text-right group w-full"
+                    >
+                      <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-500/20 group-hover:scale-110 transition-transform">
+                        {tool.icon}
+                      </div>
+                      <div className="flex-1 flex flex-col items-start gap-1">
+                        <span className="font-black text-lg text-slate-200 group-hover:text-indigo-300 transition-colors">{tool.label}</span>
+                        <span className="text-xs text-slate-500 leading-relaxed font-medium line-clamp-1">{tool.descAr}</span>
+                      </div>
+                      <ChevronDown className="w-5 h-5 text-slate-600 rotate-90 opacity-0 group-hover:opacity-100 transition-all -translate-x-4 group-hover:translate-x-0" />
+                    </button>
+                  ))
+                )}
+              </div>
+            </motion.div>
           </div>
-      )}
-    </button>
+        )}
+      </AnimatePresence>
+
+      {/* --- Tool Info Popup (Tooltip / Modal) --- */}
+      <AnimatePresence>
+        {infoModalTool && (
+          <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setInfoModalTool(null)}
+              className="absolute inset-0 bg-[#020617]/80 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="relative w-full max-w-lg bg-[#0f172a] border border-white/10 rounded-[2rem] shadow-2xl overflow-hidden p-1 box-border"
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-transparent to-purple-500/10 pointer-events-none"></div>
+              
+              <div className="bg-[#020617] rounded-[1.8rem] p-8 relative z-10 w-full h-full flex flex-col gap-6">
+                 {/* Close Button */}
+                 <button onClick={() => setInfoModalTool(null)} className="absolute top-6 left-6 p-2 bg-white/5 hover:bg-white/10 rounded-full text-slate-400 transition-colors">
+                    <CloseIcon className="w-5 h-5" />
+                 </button>
+
+                 <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-600/20 border border-indigo-500/30 text-indigo-400 flex items-center justify-center shadow-lg shadow-indigo-500/10">
+                      {React.cloneElement(infoModalTool.icon as React.ReactElement, { className: 'w-8 h-8' })}
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <h3 className="text-2xl font-black text-white">{infoModalTool.label}</h3>
+                      {infoModalTool.highlight && <span className="text-[10px] text-indigo-400 font-bold bg-indigo-500/10 px-2 py-0.5 rounded-full inline-block w-fit">وظيفة متقدمة ⚡</span>}
+                    </div>
+                 </div>
+
+                 <div className="h-px w-full bg-gradient-to-r from-transparent via-white/10 to-transparent"></div>
+
+                 <div className="flex flex-col gap-5 text-right">
+                    <div className="space-y-2">
+                       <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest text-left font-sans">Description (AR)</h4>
+                       <p className="text-sm text-slate-300 leading-relaxed font-medium bg-white/5 p-4 rounded-2xl border border-white/5">{infoModalTool.descAr}</p>
+                    </div>
+                    <div className="space-y-2">
+                       <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest text-left font-sans">Description (EN)</h4>
+                       <p className="text-sm text-slate-400 leading-relaxed font-medium font-sans bg-slate-900/50 p-4 rounded-2xl border border-white/5" dir="ltr">{infoModalTool.descEn}</p>
+                    </div>
+                 </div>
+
+                 <div className="pt-4 flex items-center justify-between mt-auto">
+                    <button onClick={() => setInfoModalTool(null)} className="px-6 py-3 rounded-xl font-bold text-slate-400 hover:text-white hover:bg-white/5 transition-colors">إغلاق</button>
+                    <button 
+                      onClick={() => { handleToolClick(infoModalTool); setInfoModalTool(null); }} 
+                      className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/30 transition-all hover:scale-105 active:scale-95 flex items-center gap-2"
+                    >
+                      بدء استخدام الأداة <ChevronDown className="w-4 h-4 rotate-90" />
+                    </button>
+                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- Mobile Full Screen Menu --- */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <div className="fixed inset-0 z-[1001] lg:hidden flex flex-col">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="absolute inset-0 bg-[#020617]/95 backdrop-blur-3xl"
+            />
+            
+            <motion.div 
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="relative z-10 flex flex-col h-full bg-[#020617] overflow-y-auto"
+            >
+              <div className="p-4 border-b border-white/10 flex items-center justify-between sticky top-0 bg-[#020617]/80 backdrop-blur-md z-20">
+                <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 bg-white/5 hover:bg-white/10 rounded-full text-white">
+                  <CloseIcon className="w-6 h-6" />
+                </button>
+                <span className="font-black text-xl text-white">الأدوات والتطبيقات</span>
+                <div className="w-10"></div>
+              </div>
+
+              <div className="p-4 flex flex-col gap-6 pt-6">
+                {categories.map((category) => (
+                  <div key={category.id} className="flex flex-col gap-3">
+                    <div className="flex items-center gap-2 px-2 text-indigo-400">
+                      {category.icon}
+                      <h3 className="font-black text-lg">{category.label}</h3>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2">
+                       {category.tools.map(tool => {
+                         const isActive = props.currentTab === tool.id;
+                         return (
+                           <div key={tool.id} className="relative group">
+                             <button
+                               onClick={() => handleToolClick(tool)}
+                               className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all ${
+                                 isActive 
+                                   ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' 
+                                   : 'bg-white/5 text-slate-300 border border-white/5 active:bg-white/10'
+                               }`}
+                             >
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isActive ? 'bg-white/20' : 'bg-[#020617]/50'}`}>
+                                  {React.cloneElement(tool.icon as React.ReactElement, { className: 'w-6 h-6' })}
+                                </div>
+                                <div className="flex-1 flex flex-col items-start gap-1 text-right">
+                                  <span className="font-black text-lg">{tool.label}</span>
+                                  <span className="text-[10px] text-slate-400 opacity-80">{tool.descAr}</span>
+                                </div>
+                             </button>
+                             {/* Mobile Info Button */}
+                             <button 
+                               onClick={(e) => { e.stopPropagation(); setInfoModalTool(tool); }}
+                               className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-white/10 rounded-full text-slate-300"
+                             >
+                               <Info className="w-4 h-4" />
+                             </button>
+                           </div>
+                         )
+                       })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+    </>
   );
 };
