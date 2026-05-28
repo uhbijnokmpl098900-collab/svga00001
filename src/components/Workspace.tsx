@@ -307,11 +307,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           };
         });
 
-        const newVideoItem = {
-          ...videoItem,
+        Object.assign(videoItem, {
           images: newImages,
           sprites: newSprites
-        };
+        });
+        const newVideoItem = videoItem;
 
         const newMeta: FileMetadata = {
           name: compName,
@@ -450,7 +450,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       return;
     }
 
-    const targetFramesCount = mainComp.metadata.frames || 1;
+    const targetFramesCount = Math.max(mainComp.metadata.frames || 1, sourceComp.metadata.frames || 1);
     const mainImages = { ...(mainVideoItem.images || {}) };
     let spritesToMerge = [...(sourceVideoItem.sprites || [])];
 
@@ -470,30 +470,51 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       return;
     }
 
-    const newSprites = [...(mainVideoItem.sprites || [])];
+    // Extend main sprites frames if the new composition increases the total frames count
+    const newSprites = (mainVideoItem.sprites || []).map((sprite: any) => {
+      const sourceLength = sprite.frames?.length || 0;
+      if (sourceLength > 0 && sourceLength < targetFramesCount) {
+        const extendedFrames = [...sprite.frames];
+        for (let i = sourceLength; i < targetFramesCount; i++) {
+          extendedFrames.push(JSON.parse(JSON.stringify(extendedFrames[i % sourceLength])));
+        }
+        return { ...sprite, frames: extendedFrames };
+      }
+      return sprite;
+    });
 
     // Compute mathematically correct mapping from Source SVGA to Main SVGA coordinate space
-    const S = sourceComp.svgaScale || 1;
+    const S = sourceComp.svgaScale !== undefined && !isNaN(sourceComp.svgaScale) ? sourceComp.svgaScale : 1;
     const rad = ((sourceComp.svgaRotation || 0) * Math.PI) / 180;
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
     const svgaPosX = sourceComp.svgaPos?.x || 0;
     const svgaPosY = sourceComp.svgaPos?.y || 0;
 
-    const mainOrigW = mainComp.metadata.dimensions?.width || mainVideoItem?.videoSize?.width || videoWidth;
-    const mainOrigH = mainComp.metadata.dimensions?.height || mainVideoItem?.videoSize?.height || videoHeight;
-    const mainContainScale = Math.min(videoWidth / mainOrigW, videoHeight / mainOrigH);
-    const mainScreenLx = (videoWidth - mainOrigW * mainContainScale) / 2;
-    const mainScreenLy = (videoHeight - mainOrigH * mainContainScale) / 2;
+    const mainDefaults = getDefaultDimensions(mainComp.metadata);
+    const mainPreviewW = mainComp.customDimensions?.width || mainDefaults.width || 1334;
+    const mainPreviewH = mainComp.customDimensions?.height || mainDefaults.height || 750;
 
-    const sourceOrigW = sourceComp.metadata.dimensions?.width || sourceVideoItem?.videoSize?.width || videoWidth;
-    const sourceOrigH = sourceComp.metadata.dimensions?.height || sourceVideoItem?.videoSize?.height || videoHeight;
-    const sourceContainScale = Math.min(videoWidth / sourceOrigW, videoHeight / sourceOrigH);
-    const sourceScreenLx = (videoWidth - sourceOrigW * sourceContainScale) / 2;
-    const sourceScreenLy = (videoHeight - sourceOrigH * sourceContainScale) / 2;
+    const sourceDefaults = getDefaultDimensions(sourceComp.metadata);
+    const sourcePreviewW = sourceComp.customDimensions?.width || sourceDefaults.width || 1334;
+    const sourcePreviewH = sourceComp.customDimensions?.height || sourceDefaults.height || 750;
 
-    const cx = videoWidth / 2;
-    const cy = videoHeight / 2;
+    const mainOrigW = mainComp.metadata.dimensions?.width || mainVideoItem?.videoSize?.width || mainPreviewW;
+    const mainOrigH = mainComp.metadata.dimensions?.height || mainVideoItem?.videoSize?.height || mainPreviewH;
+    const mainContainScale = Math.min(mainPreviewW / mainOrigW, mainPreviewH / mainOrigH);
+    const mainScreenLx = (mainPreviewW - mainOrigW * mainContainScale) / 2;
+    const mainScreenLy = (mainPreviewH - mainOrigH * mainContainScale) / 2;
+
+    const sourceOrigW = sourceComp.metadata.dimensions?.width || sourceVideoItem?.videoSize?.width || sourcePreviewW;
+    const sourceOrigH = sourceComp.metadata.dimensions?.height || sourceVideoItem?.videoSize?.height || sourcePreviewH;
+    const sourceContainScale = Math.min(sourcePreviewW / sourceOrigW, sourcePreviewH / sourceOrigH);
+    const sourceScreenLx = (sourcePreviewW - sourceOrigW * sourceContainScale) / 2;
+    const sourceScreenLy = (sourcePreviewH - sourceOrigH * sourceContainScale) / 2;
+
+    const cx_src = sourcePreviewW / 2;
+    const cy_src = sourcePreviewH / 2;
+    const cx_main = mainPreviewW / 2;
+    const cy_main = mainPreviewH / 2;
 
     const multiplyMat = (m1: any, m2: any) => ({
       a: m1.a * m2.a + m1.b * m2.c,
@@ -504,21 +525,30 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       ty: m1.tx * m2.b + m1.ty * m2.d + m2.ty
     });
 
+    // 1. Convert Source Native (0,0) to Source Preview Space
     const mat1 = { a: sourceContainScale, b: 0, c: 0, d: sourceContainScale, tx: sourceScreenLx, ty: sourceScreenLy };
+    // 2. Apply Source Workspace Transformations (Scale, Rotation, Translation around center of Source Preview)
     const mat2 = {
       a: S * cos, b: S * sin,
       c: -S * sin, d: S * cos,
-      tx: cx - cx * S * cos + cy * S * sin + svgaPosX,
-      ty: cy - cx * S * sin - cy * S * cos + svgaPosY
+      tx: cx_src - cx_src * S * cos + cy_src * S * sin + svgaPosX,
+      ty: cy_src - cx_src * S * sin - cy_src * S * cos + svgaPosY
     };
+    // 3. Align centers of Source Preview and Main Preview space
+    const centerAlignTx = cx_main - cx_src;
+    const centerAlignTy = cy_main - cy_src;
+    const mat2_b = { a: 1, b: 0, c: 0, d: 1, tx: centerAlignTx, ty: centerAlignTy };
+    
+    // 4. Map from Main Preview Space back down to Main Native coordinate space
     const mat3 = {
       a: 1 / mainContainScale, b: 0,
       c: 0, d: 1 / mainContainScale,
       tx: -mainScreenLx / mainContainScale, ty: -mainScreenLy / mainContainScale
     };
 
-    const mTemp = multiplyMat(mat1, mat2);
-    const M_final = multiplyMat(mTemp, mat3);
+    const mTemp1 = multiplyMat(mat1, mat2);
+    const mTemp2 = multiplyMat(mTemp1, mat2_b);
+    const M_final = multiplyMat(mTemp2, mat3);
 
     // Parent affine variables mapped properly
     const ap = M_final.a;
@@ -527,8 +557,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     const dp = M_final.d;
     const txp = M_final.tx;
     const typ = M_final.ty;
-    const layoutScale = M_final.a; // Usually uniform scaling
-    
+    const layoutScale = Math.sqrt(ap * ap + bp * bp); // Average scale, works for uniform scaling
+
     const alphaMultiplier = sourceComp.svgaOpacity !== undefined ? sourceComp.svgaOpacity : 1;
 
     spritesToMerge.forEach((sprite: any) => {
@@ -601,11 +631,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       });
     });
 
-    const updatedMainVideoItem = {
-      ...mainVideoItem,
+    Object.assign(mainVideoItem, {
       images: mainImages,
       sprites: newSprites
-    };
+    });
+    const updatedMainVideoItem = mainVideoItem;
 
     const updatedMainLayerImages = { ...mainComp.layerImages };
     const updatedMainDisplayNames = { ...mainComp.layerDisplayNames };
@@ -628,10 +658,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
     const finalCompositions = currentActive.map(c => {
       if (c.id === 'main') {
+        const updatedMainMeta = { ...c.metadata };
+        updatedMainMeta.frames = targetFramesCount;
+        updatedMainVideoItem.frames = targetFramesCount;
+
         return {
           ...c,
           metadata: {
-            ...c.metadata,
+            ...updatedMainMeta,
             videoItem: updatedMainVideoItem
           },
           layerImages: updatedMainLayerImages,
@@ -652,6 +686,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       setActiveCompositionId('main');
       setMetadata({
         ...mainComp.metadata,
+        frames: targetFramesCount,
         videoItem: updatedMainVideoItem
       });
       setLayerImages(updatedMainLayerImages);
@@ -664,8 +699,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       setSvgaScale(1);
       setSvgaRotation(0);
       setSvgaOpacity(1);
+      setCustomDimensions(mainComp.customDimensions || null);
     } else {
-      setMetadata(prev => ({ ...prev, videoItem: updatedMainVideoItem }));
+      setMetadata(prev => ({ ...prev, frames: targetFramesCount, videoItem: updatedMainVideoItem }));
       setLayerImages(updatedMainLayerImages);
       setLayerDisplayNames(updatedMainDisplayNames);
       setAssetColors(updatedMainColors);
