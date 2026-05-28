@@ -77,37 +77,9 @@ interface SVGAComposition {
   svgaOpacity?: number;
   selectedKeys?: Set<string>;
   playbackSpeed?: number;
-  customDimensions?: {width: number, height: number} | null;
 }
 
 const TRANSPARENT_PIXEL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
-
-
-const cloneFrame = (frame: any) => {
-  if (!frame) return frame;
-  return {
-    ...frame,
-    layout: frame.layout ? { ...frame.layout } : undefined,
-    transform: frame.transform ? { ...frame.transform } : undefined
-  };
-};
-
-const cloneSprite = (sprite: any) => {
-  if (!sprite) return sprite;
-  return {
-    ...sprite,
-    frames: sprite.frames ? sprite.frames.map(cloneFrame) : []
-  };
-};
-
-const cloneSvgaItem = (item: any) => {
-  if (!item) return item;
-  return {
-    ...item,
-    images: { ...(item.images || {}) },
-    sprites: item.sprites ? item.sprites.map(cloneSprite) : []
-  };
-};
 
 export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata, onCancel, settings, currentUser, onLoginRequired, onSubscriptionRequired, globalQuality: initialGlobalQuality = 'high', onFileReplace, mode = 'normal', onImageConverterOpen }) => {
   const { checkAccess } = useAccessControl();
@@ -236,12 +208,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleSwitchComposition = (targetId: string) => {
     if (targetId === activeCompositionId) return;
 
-    // targetComp can be found immediately from current state
-    const targetComp = compositions.find(c => c.id === targetId);
-    if (!targetComp) return;
-
     setCompositions(prev => {
-      return prev.map(c => {
+      const updated = prev.map(c => {
         if (c.id === activeCompositionId) {
           return {
             ...c,
@@ -260,34 +228,34 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             svgaScale,
             svgaRotation,
             svgaOpacity,
-            selectedKeys,
-            customDimensions
+            selectedKeys
           };
         }
         return c;
       });
-    });
 
-    setTimeout(() => {
+      const target = updated.find(c => c.id === targetId);
+      if (target) {
         setActiveCompositionId(targetId);
-        setMetadata(targetComp.metadata);
-        setLayerImages(targetComp.layerImages);
-        setAssetColors(targetComp.assetColors);
-        setAssetColorModes(targetComp.assetColorModes);
-        setAssetBlurs(targetComp.assetBlurs);
-        setDeletedKeys(targetComp.deletedKeys);
-        setCustomLayers(targetComp.customLayers);
-        setLayerDisplayNames(targetComp.layerDisplayNames);
-        setLayerTextOptions(targetComp.layerTextOptions);
-        setCurrentFrame(targetComp.currentFrame);
-        setIsPlaying(targetComp.isPlaying);
-        setSvgaPos(targetComp.svgaPos);
-        setSvgaScale(targetComp.svgaScale);
-        setSvgaRotation(targetComp.svgaRotation || 0);
-        setSvgaOpacity(targetComp.svgaOpacity !== undefined ? targetComp.svgaOpacity : 1);
-        setSelectedKeys(targetComp.selectedKeys || new Set());
-        setCustomDimensions(targetComp.customDimensions || null);
-    }, 0);
+        setMetadata(target.metadata);
+        setLayerImages(target.layerImages);
+        setAssetColors(target.assetColors);
+        setAssetColorModes(target.assetColorModes);
+        setAssetBlurs(target.assetBlurs);
+        setDeletedKeys(target.deletedKeys);
+        setCustomLayers(target.customLayers);
+        setLayerDisplayNames(target.layerDisplayNames);
+        setLayerTextOptions(target.layerTextOptions);
+        setCurrentFrame(target.currentFrame);
+        setIsPlaying(target.isPlaying);
+        setSvgaPos(target.svgaPos);
+        setSvgaScale(target.svgaScale);
+        setSvgaRotation(target.svgaRotation || 0);
+        setSvgaOpacity(target.svgaOpacity !== undefined ? target.svgaOpacity : 1);
+        setSelectedKeys(target.selectedKeys || new Set());
+      }
+      return updated;
+    });
   };
 
   const handleImportCompositionFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -334,17 +302,17 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           };
         });
 
-        Object.assign(videoItem, {
+        const newVideoItem = {
+          ...videoItem,
           images: newImages,
           sprites: newSprites
-        });
-        const newVideoItem = videoItem;
+        };
 
         const newMeta: FileMetadata = {
           name: compName,
           size: file.size,
           type: 'SVGA',
-          dimensions: { width: videoItem.videoSize?.width || 1334, height: videoItem.videoSize?.height || 750 },
+          dimensions: { width: videoItem.videoSize.width, height: videoItem.videoSize.height },
           fps: extractedFps,
           frames: videoItem.frames,
           assets: [],
@@ -397,27 +365,25 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             }
             return c;
           });
+
+          setActiveCompositionId(compId);
+          setMetadata(newMeta);
+          setLayerImages(extractedImages);
+          setAssetColors({});
+          setAssetColorModes({});
+          setAssetBlurs({});
+          setDeletedKeys(new Set());
+          setCustomLayers([]);
+          setLayerDisplayNames({});
+          setLayerTextOptions({});
+          setCurrentFrame(0);
+          setIsPlaying(false);
+          setSvgaPos({ x: 0, y: 0 });
+          setSvgaScale(1);
+          setSelectedKeys(new Set());
+
           return [...updated, newComp];
         });
-
-        setTimeout(() => {
-            setActiveCompositionId(compId);
-            setMetadata(newMeta);
-            setLayerImages(extractedImages);
-            setAssetColors({});
-            setAssetColorModes({});
-            setAssetBlurs({});
-            setDeletedKeys(new Set());
-            setCustomLayers([]);
-            setLayerDisplayNames({});
-            setLayerTextOptions({});
-            setCurrentFrame(0);
-            setIsPlaying(false);
-            setSvgaPos({ x: 0, y: 0 });
-            setSvgaScale(1);
-            setSelectedKeys(new Set());
-            setCustomDimensions(null);
-        }, 0);
 
         setIsExporting(false);
         setProgress(100);
@@ -477,7 +443,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       return;
     }
 
-    const targetFramesCount = Math.max(mainComp.metadata.frames || 1, sourceComp.metadata.frames || 1);
+    const targetFramesCount = mainComp.metadata.frames || 1;
     const mainImages = { ...(mainVideoItem.images || {}) };
     let spritesToMerge = [...(sourceVideoItem.sprites || [])];
 
@@ -497,97 +463,21 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       return;
     }
 
-    const cloneFrame = (frame: any) => {
-      if (!frame) return frame;
-      return {
-        ...frame,
-        layout: frame.layout ? { ...frame.layout } : undefined,
-        transform: frame.transform ? { ...frame.transform } : undefined
-        // We DO NOT deep clone `shapes` or `clipPath`. This saves huge amounts of memory and prevents browser crashes on large SVGA files.
-      };
-    };
+    const newSprites = [...(mainVideoItem.sprites || [])];
 
-    // Extend main sprites frames if the new composition increases the total frames count
-    const newSprites = (mainVideoItem.sprites || []).map((sprite: any) => {
-      const sourceLength = sprite.frames?.length || 0;
-      if (sourceLength > 0 && sourceLength < targetFramesCount) {
-        const extendedFrames = [...sprite.frames];
-        for (let i = sourceLength; i < targetFramesCount; i++) {
-          extendedFrames.push(cloneFrame(extendedFrames[i % sourceLength]));
-        }
-        return { ...sprite, frames: extendedFrames };
-      }
-      return sprite;
-    });
-
-    // Compute mathematically correct mapping from Source SVGA to Main SVGA coordinate space
-    const S = sourceComp.svgaScale !== undefined && !isNaN(sourceComp.svgaScale) ? sourceComp.svgaScale : 1;
+    // Compute transformation variables based on scale, position and rotation
+    const S = sourceComp.svgaScale || 1;
     const rad = ((sourceComp.svgaRotation || 0) * Math.PI) / 180;
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
-    const svgaPosX = sourceComp.svgaPos?.x || 0;
-    const svgaPosY = sourceComp.svgaPos?.y || 0;
 
-    const mainDefaults = getDefaultDimensions(mainComp.metadata);
-    const mainPreviewW = mainComp.customDimensions?.width || mainDefaults.width || 1334;
-    const mainPreviewH = mainComp.customDimensions?.height || mainDefaults.height || 750;
-
-    const sourceDefaults = getDefaultDimensions(sourceComp.metadata);
-    const sourcePreviewW = sourceComp.customDimensions?.width || sourceDefaults.width || 1334;
-    const sourcePreviewH = sourceComp.customDimensions?.height || sourceDefaults.height || 750;
-
-    const mainOrigW = mainComp.metadata.dimensions?.width || mainVideoItem?.videoSize?.width || mainPreviewW;
-    const mainOrigH = mainComp.metadata.dimensions?.height || mainVideoItem?.videoSize?.height || mainPreviewH;
-    const mainContainScale = Math.min(mainPreviewW / mainOrigW, mainPreviewH / mainOrigH);
-    const mainScreenLx = (mainPreviewW - mainOrigW * mainContainScale) / 2;
-    const mainScreenLy = (mainPreviewH - mainOrigH * mainContainScale) / 2;
-
-    const sourceOrigW = sourceComp.metadata.dimensions?.width || sourceVideoItem?.videoSize?.width || sourcePreviewW;
-    const sourceOrigH = sourceComp.metadata.dimensions?.height || sourceVideoItem?.videoSize?.height || sourcePreviewH;
-    const sourceContainScale = Math.min(sourcePreviewW / sourceOrigW, sourcePreviewH / sourceOrigH);
-    const sourceScreenLx = (sourcePreviewW - sourceOrigW * sourceContainScale) / 2;
-    const sourceScreenLy = (sourcePreviewH - sourceOrigH * sourceContainScale) / 2;
-
-    const cx_src = sourcePreviewW / 2;
-    const cy_src = sourcePreviewH / 2;
-    const cx_main = mainPreviewW / 2;
-    const cy_main = mainPreviewH / 2;
-
-    const multiplyMat = (m1: any, m2: any) => ({
-      a: m1.a * m2.a + m1.c * m2.b,
-      b: m1.b * m2.a + m1.d * m2.b,
-      c: m1.a * m2.c + m1.c * m2.d,
-      d: m1.b * m2.c + m1.d * m2.d,
-      tx: m1.a * m2.tx + m1.c * m2.ty + m1.tx,
-      ty: m1.b * m2.tx + m1.d * m2.ty + m1.ty
-    });
-
-    // 1. Convert Source Native (0,0) to Source Preview Space
-    const mat1 = { a: sourceContainScale, b: 0, c: 0, d: sourceContainScale, tx: sourceScreenLx, ty: sourceScreenLy };
-    // 2. Apply Source Workspace Transformations (Scale, Rotation, Translation around center of Source Preview)
-    const mat2 = {
-      a: S * cos, b: S * sin,
-      c: -S * sin, d: S * cos,
-      tx: cx_src - cx_src * S * cos + cy_src * S * sin + svgaPosX,
-      ty: cy_src - cx_src * S * sin - cy_src * S * cos + svgaPosY
-    };
-    // 3. Align centers of Source Preview and Main Preview space
-    const centerAlignTx = cx_main - cx_src;
-    const centerAlignTy = cy_main - cy_src;
-    const mat2_b = { a: 1, b: 0, c: 0, d: 1, tx: centerAlignTx, ty: centerAlignTy };
-    
-    // 4. Map from Main Preview Space back down to Main Native coordinate space
-    const mat3 = {
-      a: 1 / mainContainScale, b: 0,
-      c: 0, d: 1 / mainContainScale,
-      tx: -mainScreenLx / mainContainScale, ty: -mainScreenLy / mainContainScale
-    };
-
-    // Correct sequential matrix application: M_final = mat3 * mat2_b * mat2 * mat1
-    const M21 = multiplyMat(mat2, mat1);
-    const M_b21 = multiplyMat(mat2_b, M21);
-    const M_final = multiplyMat(mat3, M_b21);
-
+    // Parent affine variables
+    const ap = S * cos;
+    const bp = S * sin;
+    const cp = -S * sin;
+    const dp = S * cos;
+    const txp = sourceComp.svgaPos.x || 0;
+    const typ = sourceComp.svgaPos.y || 0;
     const alphaMultiplier = sourceComp.svgaOpacity !== undefined ? sourceComp.svgaOpacity : 1;
 
     spritesToMerge.forEach((sprite: any) => {
@@ -608,32 +498,48 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
         };
 
-        const frameCopy = cloneFrame(originalFrameObj);
+        const frameCopy = JSON.parse(JSON.stringify(originalFrameObj));
 
         // Multiply opacity
         frameCopy.alpha = widthCheck((originalFrameObj.alpha !== undefined ? originalFrameObj.alpha : 1.0) * alphaMultiplier);
 
         if (frameCopy.layout) {
-          // DO NOT MUTATE LAYOUT COORDS OR DIMENSIONS!
-          // We apply the entire transformation properly into `frameCopy.transform`.
-          const mOrig = {
-            a: frameCopy.transform?.a !== undefined ? frameCopy.transform.a : 1,
-            b: frameCopy.transform?.b || 0,
-            c: frameCopy.transform?.c || 0,
-            d: frameCopy.transform?.d !== undefined ? frameCopy.transform.d : 1,
-            tx: frameCopy.transform?.tx || 0,
-            ty: frameCopy.transform?.ty || 0
-          };
+          const lx = frameCopy.layout.x !== undefined ? frameCopy.layout.x : 0;
+          const ly = frameCopy.layout.y !== undefined ? frameCopy.layout.y : 0;
+          const lw = frameCopy.layout.width !== undefined ? frameCopy.layout.width : 100;
+          const lh = frameCopy.layout.height !== undefined ? frameCopy.layout.height : 100;
 
-          const mNew = multiplyMat(M_final, mOrig);
+          // Compute transformed layout
+          frameCopy.layout.x = widthCheck(ap * lx + cp * ly + txp);
+          frameCopy.layout.y = heightCheck(bp * lx + dp * ly + typ);
+          frameCopy.layout.width = widthCheck(lw * S);
+          frameCopy.layout.height = heightCheck(lh * S);
 
-          if (!frameCopy.transform) frameCopy.transform = {};
-          frameCopy.transform.a = mNew.a;
-          frameCopy.transform.b = mNew.b;
-          frameCopy.transform.c = mNew.c;
-          frameCopy.transform.d = mNew.d;
-          frameCopy.transform.tx = widthCheck(mNew.tx);
-          frameCopy.transform.ty = heightCheck(mNew.ty);
+          if (frameCopy.transform) {
+            const ac = frameCopy.transform.a !== undefined ? frameCopy.transform.a : 1;
+            const bc = frameCopy.transform.b !== undefined ? frameCopy.transform.b : 0;
+            const cc = frameCopy.transform.c !== undefined ? frameCopy.transform.c : 0;
+            const dc = frameCopy.transform.d !== undefined ? frameCopy.transform.d : 1;
+            const txc = frameCopy.transform.tx !== undefined ? frameCopy.transform.tx : 0;
+            const tyc = frameCopy.transform.ty !== undefined ? frameCopy.transform.ty : 0;
+
+            // Compute exact composed 2D affine matrix multiplication
+            frameCopy.transform.a = ap * ac + cp * bc;
+            frameCopy.transform.b = bp * ac + dp * bc;
+            frameCopy.transform.c = ap * cc + cp * dc;
+            frameCopy.transform.d = bp * cc + dp * dc;
+            frameCopy.transform.tx = widthCheck(ap * txc + cp * tyc + txp);
+            frameCopy.transform.ty = heightCheck(bp * txc + dp * tyc + typ);
+          } else {
+            frameCopy.transform = {
+              a: ap,
+              b: bp,
+              c: cp,
+              d: dp,
+              tx: widthCheck(txp),
+              ty: heightCheck(typ)
+            };
+          }
         }
         finalFrames.push(frameCopy);
       }
@@ -644,11 +550,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       });
     });
 
-    Object.assign(mainVideoItem, {
+    const updatedMainVideoItem = {
+      ...mainVideoItem,
       images: mainImages,
       sprites: newSprites
-    });
-    const updatedMainVideoItem = mainVideoItem;
+    };
 
     const updatedMainLayerImages = { ...mainComp.layerImages };
     const updatedMainDisplayNames = { ...mainComp.layerDisplayNames };
@@ -671,14 +577,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
     const finalCompositions = currentActive.map(c => {
       if (c.id === 'main') {
-        const updatedMainMeta = { ...c.metadata };
-        updatedMainMeta.frames = targetFramesCount;
-        updatedMainVideoItem.frames = targetFramesCount;
-
         return {
           ...c,
           metadata: {
-            ...updatedMainMeta,
+            ...c.metadata,
             videoItem: updatedMainVideoItem
           },
           layerImages: updatedMainLayerImages,
@@ -699,7 +601,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       setActiveCompositionId('main');
       setMetadata({
         ...mainComp.metadata,
-        frames: targetFramesCount,
         videoItem: updatedMainVideoItem
       });
       setLayerImages(updatedMainLayerImages);
@@ -712,9 +613,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       setSvgaScale(1);
       setSvgaRotation(0);
       setSvgaOpacity(1);
-      setCustomDimensions(mainComp.customDimensions || null);
     } else {
-      setMetadata(prev => ({ ...prev, frames: targetFramesCount, videoItem: updatedMainVideoItem }));
+      setMetadata(prev => ({ ...prev, videoItem: updatedMainVideoItem }));
       setLayerImages(updatedMainLayerImages);
       setLayerDisplayNames(updatedMainDisplayNames);
       setAssetColors(updatedMainColors);
@@ -733,7 +633,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
     setCopiedLayer({
       key,
-      sprite: cloneSprite(sprite),
+      sprite: JSON.parse(JSON.stringify(sprite)),
       image: layerImages[key] || TRANSPARENT_PIXEL,
       displayName: layerDisplayNames[key],
       color: assetColors[key],
@@ -758,7 +658,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           layout: { x: 0, y: 0, width: 200, height: 200 },
           transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
         };
-        const pads = Array(compFrames - newSprite.frames.length).fill(null).map(() => cloneFrame(lastFrame));
+        const pads = Array(compFrames - newSprite.frames.length).fill(null).map(() => JSON.parse(JSON.stringify(lastFrame)));
         newSprite.frames = [...newSprite.frames, ...pads];
       } else {
         newSprite.frames = newSprite.frames.slice(0, compFrames);
@@ -811,7 +711,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     });
 
     const exportedObj = {
-      sprite: cloneSprite(sprite),
+      sprite: JSON.parse(JSON.stringify(sprite)),
       image: layerImages[key] || TRANSPARENT_PIXEL,
       displayName: layerDisplayNames[key],
       color: assetColors[key],
@@ -831,7 +731,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
               layout: { x: 0, y: 0, width: 200, height: 200 },
               transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
             };
-            const pads = Array(compFrames - targetSprite.frames.length).fill(null).map(() => cloneFrame(lastFrame));
+            const pads = Array(compFrames - targetSprite.frames.length).fill(null).map(() => JSON.parse(JSON.stringify(lastFrame)));
             targetSprite.frames = [...targetSprite.frames, ...pads];
           } else {
             targetSprite.frames = targetSprite.frames.slice(0, compFrames);
@@ -982,12 +882,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const { videoWidth, videoHeight } = useMemo(() => {
     const defaults = getDefaultDimensions(metadata);
-    const w = customDimensions?.width || defaults.width;
-    const h = customDimensions?.height || defaults.height;
-    
     return {
-      videoWidth: w > 0 && !isNaN(w) ? w : 1334,
-      videoHeight: h > 0 && !isNaN(h) ? h : 750
+      videoWidth: customDimensions?.width || defaults.width,
+      videoHeight: customDimensions?.height || defaults.height
     };
   }, [customDimensions, metadata]);
 
@@ -1049,8 +946,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   useEffect(() => {
     return () => {
       Object.values(layerImages).forEach((url) => {
-        if (url && typeof url === 'string' && url.startsWith('blob:')) {
-          URL.revokeObjectURL(url);
+        if ((url as string).startsWith('blob:')) {
+          URL.revokeObjectURL(url as string);
         }
       });
     };
@@ -1241,7 +1138,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           
           // Revoke old URLs before setting new ones
           Object.values(layerImages).forEach((url) => {
-              if (url && typeof url === 'string' && url.startsWith('blob:')) URL.revokeObjectURL(url);
+              if ((url as string).startsWith('blob:')) URL.revokeObjectURL(url as string);
           });
 
           setLayerImages(newLayerImages);
@@ -1699,8 +1596,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             currentFrame: 0,
             isPlaying: true,
             svgaPos: { x: 0, y: 0 },
-            svgaScale: 1,
-            customDimensions: null
+            svgaScale: 1
           }
         ];
       });
@@ -1717,71 +1613,60 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       player = new SVGA.Player(playerRef.current);
       player.loops = 0; player.clearsAfterStop = false;
       
-      try {
-        player.setContentMode('Fill'); 
-        player.setVideoItem(metadata.videoItem);
-        
-        // Calculate "contain" scale to fit perfectly inside the 1334x750 workspace
-        const svgaWidth = metadata.dimensions?.width || metadata.videoItem?.videoSize?.width || 1;
-        const svgaHeight = metadata.dimensions?.height || metadata.videoItem?.videoSize?.height || 1;
-        const scale = Math.min(videoWidth / svgaWidth, videoHeight / svgaHeight);
-        
-        const finalWidth = svgaWidth * scale;
-        const finalHeight = svgaHeight * scale;
+      // We manually scale and center the container, so use Fill
+      player.setContentMode('Fill'); 
+      player.setVideoItem(metadata.videoItem);
+      
+      // Calculate "contain" scale to fit perfectly inside the 1334x750 workspace
+      const svgaWidth = metadata.dimensions?.width || 1;
+      const svgaHeight = metadata.dimensions?.height || 1;
+      const scale = Math.min(videoWidth / svgaWidth, videoHeight / svgaHeight);
+      
+      const finalWidth = svgaWidth * scale;
+      const finalHeight = svgaHeight * scale;
 
-        // Size the inner container to exactly match the scaled SVGA dimensions
-        Object.assign(playerRef.current.style, {
-          width: `${finalWidth}px`,
-          height: `${finalHeight}px`,
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: `translate(-50%, -50%)`,
-          transformOrigin: 'center center'
-        });
+      // Size the inner container to exactly match the scaled SVGA dimensions
+      Object.assign(playerRef.current.style, {
+        width: `${finalWidth}px`,
+        height: `${finalHeight}px`,
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: `translate(-50%, -50%)`,
+        transformOrigin: 'center center'
+      });
 
-        // Override any inline styles SVGA.Player might set on the canvas
-        const updateCanvas = () => {
-          const canvas = playerRef.current?.querySelector('canvas');
-          if (canvas) {
-            Object.assign(canvas.style, {
-              width: '100%',
-              height: '100%',
-              display: 'block',
-              objectFit: 'fill'
-            });
-          }
-        };
-
-        updateCanvas();
-        const timer = setTimeout(updateCanvas, 100);
-
-        // Restore frame if we were playing/paused at a specific frame
-        if (currentFrame > 0 && currentFrame < (metadata.videoItem?.frames || 9999)) {
-            player.stepToFrame(currentFrame, isPlayingRef.current);
+      // Override any inline styles SVGA.Player might set on the canvas
+      const updateCanvas = () => {
+        const canvas = playerRef.current?.querySelector('canvas');
+        if (canvas) {
+          Object.assign(canvas.style, {
+            width: '100%',
+            height: '100%',
+            display: 'block',
+            objectFit: 'fill'
+          });
         }
-        
-        if (isPlayingRef.current) {
-            player.startAnimation();
-        }
-        
-        player.onFrame((frame: number) => setCurrentFrame(frame));
-        setSvgaInstance(player);
-        
-        return () => { 
-          clearTimeout(timer);
-          if (player) { 
-              try {
-                  player.stopAnimation(); 
-                  player.clear(); 
-              } catch (e) {
-                  console.warn("SVGA Player clear failed:", e);
-              }
-          } 
-        };
-      } catch (err) {
-        console.error("SVGA Player Init Error:", err);
+      };
+
+      updateCanvas();
+      const timer = setTimeout(updateCanvas, 100);
+
+      // Restore frame if we were playing/paused at a specific frame
+      if (currentFrame > 0) {
+          player.stepToFrame(currentFrame, isPlayingRef.current);
       }
+      
+      if (isPlayingRef.current) {
+          player.startAnimation();
+      }
+      
+      player.onFrame((frame: number) => setCurrentFrame(frame));
+      setSvgaInstance(player);
+      return () => { 
+        clearTimeout(timer);
+        if (player) { player.stopAnimation(); player.clear(); } 
+      };
     }
   }, [metadata.videoItem, videoWidth, videoHeight, metadata.dimensions]);
 
@@ -1794,67 +1679,59 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     if (activeCompositionId !== 'main' && backgroundPlayerRef.current && mainVideoItem && typeof SVGA !== 'undefined') {
       backgroundPlayerRef.current.innerHTML = '';
       bgPlayer = new SVGA.Player(backgroundPlayerRef.current);
-      try {
-        bgPlayer.loops = 0;
-        bgPlayer.clearsAfterStop = false;
-        bgPlayer.setContentMode('Fill');
-        bgPlayer.setVideoItem(mainVideoItem);
+      bgPlayer.loops = 0;
+      bgPlayer.clearsAfterStop = false;
+      bgPlayer.setContentMode('Fill');
+      bgPlayer.setVideoItem(mainVideoItem);
 
-        const svgaWidth = mainComp?.metadata?.dimensions?.width || mainVideoItem?.videoSize?.width || 1;
-        const svgaHeight = mainComp?.metadata?.dimensions?.height || mainVideoItem?.videoSize?.height || 1;
-        const scale = Math.min(videoWidth / svgaWidth, videoHeight / svgaHeight);
-        const finalWidth = svgaWidth * scale;
-        const finalHeight = svgaHeight * scale;
+      const svgaWidth = mainComp?.metadata?.dimensions?.width || 1;
+      const svgaHeight = mainComp?.metadata?.dimensions?.height || 1;
+      const scale = Math.min(videoWidth / svgaWidth, videoHeight / svgaHeight);
+      const finalWidth = svgaWidth * scale;
+      const finalHeight = svgaHeight * scale;
 
-        Object.assign(backgroundPlayerRef.current.style, {
-          width: `${finalWidth}px`,
-          height: `${finalHeight}px`,
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: `translate(-50%, -50%)`,
-          transformOrigin: 'center center'
-        });
+      Object.assign(backgroundPlayerRef.current.style, {
+        width: `${finalWidth}px`,
+        height: `${finalHeight}px`,
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: `translate(-50%, -50%)`,
+        transformOrigin: 'center center'
+      });
 
-        const updateBgCanvas = () => {
-          const canvas = backgroundPlayerRef.current?.querySelector('canvas');
-          if (canvas) {
-            Object.assign(canvas.style, {
-              width: '100%',
-              height: '100%',
-              display: 'block',
-              objectFit: 'fill'
-            });
-          }
-        };
-
-        updateBgCanvas();
-        const timer = setTimeout(updateBgCanvas, 100);
-
-        if (currentFrame >= 0 && mainComp?.metadata?.frames) {
-          bgPlayer.stepToFrame(currentFrame % (mainComp.metadata.frames || 1), isPlaying);
+      const updateBgCanvas = () => {
+        const canvas = backgroundPlayerRef.current?.querySelector('canvas');
+        if (canvas) {
+          Object.assign(canvas.style, {
+            width: '100%',
+            height: '100%',
+            display: 'block',
+            objectFit: 'fill'
+          });
         }
-        if (isPlaying) {
-          bgPlayer.startAnimation();
-        }
+      };
 
-        setBackgroundPlayerInstance(bgPlayer);
+      updateBgCanvas();
+      const timer = setTimeout(updateBgCanvas, 100);
 
-        return () => {
-          clearTimeout(timer);
-          if (bgPlayer) {
-            try {
-              bgPlayer.stopAnimation();
-              bgPlayer.clear();
-            } catch (e) {
-              console.warn("SVGA Background Player clear failed:", e);
-            }
-          }
-          setBackgroundPlayerInstance(null);
-        };
-      } catch (err) {
-        console.error("SVGA Background Player Init Error:", err);
+      if (currentFrame >= 0) {
+        bgPlayer.stepToFrame(currentFrame % (mainComp?.metadata?.frames || 1), isPlaying);
       }
+      if (isPlaying) {
+        bgPlayer.startAnimation();
+      }
+
+      setBackgroundPlayerInstance(bgPlayer);
+
+      return () => {
+        clearTimeout(timer);
+        if (bgPlayer) {
+          bgPlayer.stopAnimation();
+          bgPlayer.clear();
+        }
+        setBackgroundPlayerInstance(null);
+      };
     } else {
       setBackgroundPlayerInstance(null);
     }
@@ -2026,7 +1903,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         setLayerImages(p => ({ ...p, [textReplaceTarget]: base64 }));
         
         if (metadata.videoItem) {
-            const newVideoItem = cloneSvgaItem(metadata.videoItem);
+            const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
             if (!newVideoItem.images) newVideoItem.images = {};
             newVideoItem.images[textReplaceTarget] = base64;
             
@@ -2055,7 +1932,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
               setLayerImages(prev => ({ ...prev, [key]: previousBase64 }));
               
               if (metadata.videoItem) {
-                  const newVideoItem = cloneSvgaItem(metadata.videoItem);
+                  const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
                   if (!newVideoItem.images) newVideoItem.images = {};
                   newVideoItem.images[key] = previousBase64;
                   setMetadata({ ...metadata, videoItem: newVideoItem });
@@ -2408,7 +2285,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                     
                     // Update Metadata to persist changes
                     if (metadata.videoItem) {
-                        const newVideoItem = cloneSvgaItem(metadata.videoItem);
+                        const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
                         if (!newVideoItem.images) newVideoItem.images = {};
                         newVideoItem.images[replacingAssetKey] = base64;
                         
@@ -2638,7 +2515,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       if (!metadata.videoItem) return;
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
       
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       let updated = false;
 
       if (newVideoItem.sprites) {
@@ -2663,7 +2540,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleDuplicateSprite = (key: string) => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       const spriteToClone = newVideoItem.sprites.find((s: any) => s.imageKey === key);
 
       if (!spriteToClone) return;
@@ -2671,7 +2548,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       const newKey = `${key}_copy_${Date.now()}`;
       
       // Clone the sprite
-      const newSprite = cloneSprite(spriteToClone);
+      const newSprite = JSON.parse(JSON.stringify(spriteToClone));
       newSprite.imageKey = newKey;
 
       // Offset the new sprite slightly so it's visible
@@ -2723,7 +2600,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
       if (!metadata.videoItem) return;
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       const spriteToClone = newVideoItem.sprites.find((s: any) => s.imageKey === key);
 
       if (!spriteToClone) return;
@@ -2731,7 +2608,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       const newKey = `${key}_isolated_${Date.now()}`;
       
       // Clone the sprite
-      const newSprite = cloneSprite(spriteToClone);
+      const newSprite = JSON.parse(JSON.stringify(spriteToClone));
       newSprite.imageKey = newKey;
 
       // Reset sprites to only contain this new sprite
@@ -2770,7 +2647,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
       if (!metadata.videoItem) return;
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       
       // Keep only selected sprites
       newVideoItem.sprites = newVideoItem.sprites.filter((s: any) => selectedKeys.has(s.imageKey));
@@ -2848,7 +2725,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleFlipSprite = (key: string, direction: 'horizontal' | 'vertical') => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       let updated = false;
 
       newVideoItem.sprites.forEach((sprite: any) => {
@@ -2898,7 +2775,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleReorderSprite = (key: string, direction: 'up' | 'down' | 'top' | 'bottom') => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       const sprites = newVideoItem.sprites;
       const index = sprites.findIndex((s: any) => s.imageKey === key);
 
@@ -2931,7 +2808,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleMirrorCopy = (key: string) => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       const spriteToClone = newVideoItem.sprites.find((s: any) => s.imageKey === key);
 
       if (!spriteToClone) return;
@@ -2939,7 +2816,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       const newKey = `${key}_mirror_${Date.now()}`;
       
       // Clone the sprite
-      const newSprite = cloneSprite(spriteToClone);
+      const newSprite = JSON.parse(JSON.stringify(spriteToClone));
       newSprite.imageKey = newKey;
 
       newSprite.frames.forEach((frame: any) => {
@@ -3001,7 +2878,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       let updated = false;
 
       newVideoItem.sprites.forEach((sprite: any) => {
@@ -3063,7 +2940,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       let updated = false;
 
       newVideoItem.sprites.forEach((sprite: any) => {
@@ -3103,7 +2980,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleDuplicatePair = (key: string) => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       const spriteToClone = newVideoItem.sprites.find((s: any) => s.imageKey === key);
 
       if (!spriteToClone) return;
@@ -3113,7 +2990,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       const mirrorKey = `${key}_mirror_${timestamp}`;
       
       // 1. Create Normal Copy
-      const copySprite = cloneSprite(spriteToClone);
+      const copySprite = JSON.parse(JSON.stringify(spriteToClone));
       copySprite.imageKey = copyKey;
       // Offset slightly
       copySprite.frames.forEach((frame: any) => {
@@ -3125,7 +3002,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       newVideoItem.sprites.push(copySprite);
 
       // 2. Create Mirrored Copy
-      const mirrorSprite = cloneSprite(spriteToClone);
+      const mirrorSprite = JSON.parse(JSON.stringify(spriteToClone));
       mirrorSprite.imageKey = mirrorKey;
       mirrorSprite.frames.forEach((frame: any) => {
           if (!frame.transform) frame.transform = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
@@ -3176,7 +3053,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
       
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       let updated = false;
 
       if (newVideoItem.sprites) {
@@ -3211,7 +3088,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           audioRef.current?.pause();
       }
       
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       let updated = false;
 
       if (newVideoItem.sprites) {
@@ -3371,7 +3248,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
               // Use metadata.videoItem.sprites as the source of truth if it exists, 
               // but preserve original sprite data if we're just filtering/editing.
               // For duplicated layers, we MUST use metadata.videoItem.sprites.
-              message.sprites = (metadata.videoItem.sprites || message.sprites).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => cloneSprite(s));
+              message.sprites = (metadata.videoItem.sprites || message.sprites).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => JSON.parse(JSON.stringify(s)));
           }
           if (message.images) {
               // Ensure all images from metadata.videoItem.images are included
@@ -3393,7 +3270,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                   frames: metadata.frames || 0
               },
               images: {},
-              sprites: (metadata.videoItem.sprites || []).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => cloneSprite(s)),
+              sprites: (metadata.videoItem.sprites || []).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => JSON.parse(JSON.stringify(s))),
               audios: [...(metadata.videoItem.audios || [])]
           };
           
@@ -3865,8 +3742,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       exportContainer.style.position = 'fixed';
       exportContainer.style.left = '-9999px';
       exportContainer.style.top = '-9999px';
-      exportContainer.style.width = `${videoItem?.videoSize?.width || videoWidth}px`;
-      exportContainer.style.height = `${videoItem?.videoSize?.height || videoHeight}px`;
+      exportContainer.style.width = `${videoItem.videoSize.width}px`;
+      exportContainer.style.height = `${videoItem.videoSize.height}px`;
       document.body.appendChild(exportContainer);
 
       const exportPlayer = new SVGA.Player(exportContainer);
@@ -4601,202 +4478,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     } catch (e) {
         console.error(e);
         alert("فشل تصدير WebP: " + (e as any).message);
-        setIsExporting(false);
-    }
-  };
-
-
-  const handleExportAnimatedSVG = async (options: { decrement?: boolean } = {}) => {
-    const { decrement = true } = options;
-    if (!svgaInstance || !playerRef.current) return;
-
-    if (!currentUser) {
-      onLoginRequired();
-      return;
-    }
-
-    const { allowed } = await checkAccess('Animated SVG Export', { decrement, subscriptionOnly: true });
-    if (!allowed) {
-      onSubscriptionRequired();
-      return;
-    }
-
-    setIsExporting(true);
-    setExportPhase('جاري إنشاء ملف Animated SVG...');
-
-    try {
-        svgaInstance.pauseAnimation();
-        const originalFrame = currentFrame;
-        const totalFrames = metadata.frames || svgaInstance.videoItem?.frames || 0;
-        const fps = Math.round(parseFloat(metadata.fps as any)) || Math.round(parseFloat(svgaInstance.videoItem?.FPS || 30));
-        const totalDuration = totalFrames / fps;
-        
-        if (totalFrames === 0) {
-            alert("No frames data found in metadata. Cannot export.");
-            setIsExporting(false);
-            return;
-        }
-        
-        const safeWidth = videoWidth;
-        const safeHeight = videoHeight;
-        
-        const canvas = playerRef.current?.querySelector('canvas');
-        if (!canvas) throw new Error("Canvas not found");
-        
-        const compCanvas = document.createElement('canvas');
-        compCanvas.width = safeWidth;
-        compCanvas.height = safeHeight;
-        const cCtx = compCanvas.getContext('2d', { willReadFrequently: true });
-        if (!cCtx) throw new Error("Failed to create context");
-
-        const framesBase64: string[] = [];
-
-        const loadImage = (src: string): Promise<HTMLImageElement> => {
-            return new Promise((resolve) => {
-                const img = new Image();
-                img.crossOrigin = "anonymous";
-                img.onload = () => resolve(img);
-                img.onerror = () => resolve(img);
-                img.src = src;
-            });
-        };
-
-        let bgImg: HTMLImageElement | null = null;
-        if (previewBg) bgImg = await loadImage(previewBg);
-        
-        let wmImg: HTMLImageElement | null = null;
-        if (watermark) wmImg = await loadImage(watermark);
-
-        const loadedLayers = await Promise.all(customLayers.map(async l => {
-            const img = await loadImage(l.url);
-            return { ...l, img };
-        }));
-
-        // Use isolated player for export to guarantee clean canvas without interfering with UI
-        const exportContainer = document.createElement('div');
-        exportContainer.style.position = 'fixed';
-        exportContainer.style.left = '-9999px';
-        exportContainer.style.top = '-9999px';
-        const videoItem = svgaInstance.videoItem || metadata.videoItem;
-        exportContainer.style.width = `${videoItem?.videoSize?.width || videoWidth}px`;
-        exportContainer.style.height = `${videoItem?.videoSize?.height || videoHeight}px`;
-        document.body.appendChild(exportContainer);
-
-        const exportPlayer = new SVGA.Player(exportContainer);
-        exportPlayer.setContentMode('AspectFill');
-        if (videoItem) {
-             exportPlayer.setVideoItem(videoItem);
-        }
-
-        for (let i = 0; i < totalFrames; i++) {
-            exportPlayer.stepToFrame(i, false);
-            await new Promise(r => setTimeout(r, 40));
-            
-            const currentCanvas = exportContainer.querySelector('canvas');
-            if (!currentCanvas) continue;
-
-            cCtx.clearRect(0, 0, safeWidth, safeHeight);
-
-            if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
-                const bgW = (safeWidth * bgScale) / 100;
-                const bgH = bgW * (bgImg.height / bgImg.width);
-                const bgX = (safeWidth - bgW) * (bgPos.x / 100);
-                const bgY = (safeHeight - bgH) * (bgPos.y / 100);
-                cCtx.drawImage(bgImg, bgX, bgY, bgW, bgH);
-            }
-
-            loadedLayers.filter(l => l.zIndexMode === 'back').forEach(l => {
-                if (l.img.complete && l.img.naturalWidth > 0) {
-                    cCtx.drawImage(l.img, l.x, l.y, l.width * l.scale, l.height * l.scale);
-                }
-            });
-
-            const cx = safeWidth / 2;
-            const cy = safeHeight / 2;
-            cCtx.save();
-            cCtx.translate(cx + svgaPos.x, cy + svgaPos.y);
-            cCtx.scale(svgaScale, svgaScale);
-            cCtx.translate(-cx, -cy);
-            
-            const s = Math.min(safeWidth / currentCanvas.width, safeHeight / currentCanvas.height);
-            const w = currentCanvas.width * s;
-            const h = currentCanvas.height * s;
-            const x = (safeWidth - w) / 2;
-            const y = (safeHeight - h) / 2;
-            cCtx.drawImage(currentCanvas, x, y, w, h);
-            cCtx.restore();
-
-            if (wmImg && wmImg.complete && wmImg.naturalWidth > 0) {
-                const wmW = safeWidth * wmScale;
-                const wmH = wmW * (wmImg.height / wmImg.width);
-                const wmX = (safeWidth - wmW) / 2 + wmPos.x;
-                const wmY = (safeHeight - wmH) / 2 + wmPos.y;
-                cCtx.globalAlpha = 0.7;
-                cCtx.drawImage(wmImg, wmX, wmY, wmW, wmH);
-                cCtx.globalAlpha = 1.0;
-            }
-
-            loadedLayers.filter(l => l.zIndexMode === 'front').forEach(l => {
-                if (l.img.complete && l.img.naturalWidth > 0) {
-                    cCtx.drawImage(l.img, l.x, l.y, l.width * l.scale, l.height * l.scale);
-                }
-            });
-
-            applyTransparencyEffects(cCtx, safeWidth, safeHeight);
-
-            // Export to PNG max quality
-            const base64 = compCanvas.toDataURL('image/png', 1.0);
-            framesBase64.push(base64);
-            
-            setProgress(Math.floor(((i + 1) / totalFrames) * 90));
-        }
-        
-        document.body.removeChild(exportContainer);
-
-        setExportPhase('تجميع إطارات SVG المتحركة...');
-        
-        let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${safeWidth} ${safeHeight}" width="${safeWidth}" height="${safeHeight}">\n`;
-        svgContent += `<style>\n`;
-        svgContent += `image { opacity: 0; }\n`;
-        for (let i = 0; i < totalFrames; i++) {
-            svgContent += `.f${i} { animation: a${i} ${totalDuration}s infinite; }\n`;
-            
-            const pStart = ((i / totalFrames) * 100).toFixed(3);
-            const pEnd = (((i + 1) / totalFrames) * 100).toFixed(3);
-            svgContent += `@keyframes a${i} {
-    0%, ${pStart}% { opacity: 0; }
-    ${pStart}.001%, ${pEnd}% { opacity: 1; filter: none; }
-    ${pEnd}.001%, 100% { opacity: 0; }
-}\n`;
-        }
-        svgContent += `</style>\n`;
-        
-        for (let i = 0; i < totalFrames; i++) {
-            svgContent += `<image class="f${i}" href="${framesBase64[i]}" xlink:href="${framesBase64[i]}" width="${safeWidth}" height="${safeHeight}" />\n`;
-        }
-        svgContent += `</svg>`;
-
-        const blob = new Blob([svgContent], { type: 'image/svg+xml' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${metadata.name}-animated.svg`;
-        a.click();
-        URL.revokeObjectURL(url);
-        
-        if (currentUser) {
-            logActivity(currentUser, 'export', `Exported Animated SVG: ${metadata.name}-animated.svg`);
-        }
-        
-        svgaInstance.stepToFrame(originalFrame, isPlaying);
-        if (isPlaying) svgaInstance.startAnimation();
-        
-        alert("✅ تم تصدير Animated SVG بنجاح!");
-        setIsExporting(false);
-
-    } catch (e) {
-        console.error("Animated SVG Export Error: ", e);
-        alert("فشل تصدير Animated SVG: " + (e as any).message);
         setIsExporting(false);
     }
   };
@@ -5862,7 +5543,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     }
   }, [currentUser, selectedFormat]);
 
-  const availableFormats = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Lottie (Sequence)', 'SVGA → Animated SVG', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP (MP4)', 'VAP 1.0.5', 'SVGA → YYEVA'];
+  const availableFormats = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Lottie (Sequence)', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP (MP4)', 'VAP 1.0.5', 'SVGA → YYEVA'];
   
   const displayedFormats = useMemo(() => {
       // If we are in EX mode, only show SVGA 2.0 EX
@@ -5916,7 +5597,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
     if (currentFormat === 'AE Project') await handleExportAEProject({ decrement: false });
     else if (currentFormat === 'Lottie (Sequence)') await handleExportLottieSequence({ decrement: false });
-    else if (currentFormat === 'SVGA → Animated SVG') await handleExportAnimatedSVG({ decrement: false });
     else if (currentFormat === 'SVGA 2.0 EX') {
         await handleSvgaExExport({
             metadata, videoWidth, videoHeight, exportScale, svgaScale, svgaPos,
@@ -6768,7 +6448,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 const audioList: any[] = [...(metadata.videoItem.audios || [])];
                 
                 let finalSprites = (metadata.videoItem.sprites || []).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => {
-                    const sprite = cloneSprite(s);
+                    const sprite = JSON.parse(JSON.stringify(s));
                     if (layerDisplayNames[sprite.imageKey]) {
                         sprite.name = layerDisplayNames[sprite.imageKey];
                     }
@@ -6862,8 +6542,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                     }
                 }
 
-                const origW = metadata.videoItem?.videoSize?.width || videoWidth;
-                const origH = metadata.videoItem?.videoSize?.height || videoHeight;
+                const origW = metadata.videoItem.videoSize.width;
+                const origH = metadata.videoItem.videoSize.height;
                 const scaleX = videoWidth / origW;
                 const scaleY = videoHeight / origH;
                 
