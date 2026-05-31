@@ -33,19 +33,27 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   useEffect(() => {
     const loadFFmpeg = async () => {
       try {
-        const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
         const ffmpeg = ffmpegRef.current;
+        if (ffmpeg.loaded) {
+          setFfmpegLoaded(true);
+          return;
+        }
+        const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
         ffmpeg.on('log', ({ message }) => {
           console.log(message);
         });
         await ffmpeg.load({
-          coreURL: `${baseURL}/ffmpeg-core.js`,
-          wasmURL: `${baseURL}/ffmpeg-core.wasm`,
+          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
         });
         setFfmpegLoaded(true);
       } catch (err: any) {
         console.error("Failed to load FFmpeg:", err);
-        alert("فشل تحميل محرك FFmpeg: " + err.message);
+        // alert("فشل تحميل محرك FFmpeg: " + err.message);
+        // If it's already loaded or loading, just ignore
+        if (ffmpegRef.current.loaded) {
+            setFfmpegLoaded(true);
+        }
       }
     };
     loadFFmpeg();
@@ -114,13 +122,27 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
   const handleDownloadImages = async () => {
     if (!file) return;
-    if (!ffmpegLoaded) {
-       alert('جاري تجهيز محرك التحويل، يرجى الانتظار قليلاً والمحاولة مرة أخرى.');
-       return;
-    }
     setIsProcessing(true);
+    let ffmpeg = ffmpegRef.current;
+    if (!ffmpegLoaded) {
+       try {
+           if (!ffmpeg.loaded) {
+               const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
+               await ffmpeg.load({
+                 coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+                 wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+               });
+           }
+           setFfmpegLoaded(true);
+       } catch (err) {
+           console.error(err);
+           alert("تعذر تحميل المحرك، يرجى تحديث الصفحة.");
+           setIsProcessing(false);
+           return;
+       }
+    }
+    
     try {
-        const ffmpeg = ffmpegRef.current;
         const uint8 = new Uint8Array(await file.arrayBuffer());
         const inputName = `input_${file.name.replace(/\s+/g, '_')}`;
         await ffmpeg.writeFile(inputName, uint8);
@@ -205,15 +227,27 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     
     if (!file) return;
 
-    if (!ffmpegLoaded) {
-       alert('جاري تجهيز محرك التحويل، يرجى الانتظار قليلاً والمحاولة مرة أخرى.');
-       return;
-    }
-
     setIsProcessing(true);
+    let ffmpeg = ffmpegRef.current;
+    if (!ffmpegLoaded) {
+       try {
+           if (!ffmpeg.loaded) {
+               const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
+               await ffmpeg.load({
+                 coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+                 wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+               });
+           }
+           setFfmpegLoaded(true);
+       } catch (err) {
+           console.error(err);
+           alert("تعذر تحميل المحرك، يرجى تحديث الصفحة.");
+           setIsProcessing(false);
+           return;
+       }
+    }
     
     try {
-        const ffmpeg = ffmpegRef.current;
         const uint8 = new Uint8Array(await file.arrayBuffer());
         const inputName = `input_${file.name.replace(/\s+/g, '_')}`;
         await ffmpeg.writeFile(inputName, uint8);
@@ -446,8 +480,9 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             {/* Left Col - Player */}
             <div className="flex-1 flex flex-col bg-[#14151B] relative border-r border-[#ffffff0a] overflow-hidden">
                <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
-                 <button onClick={handleDownloadImages} className="flex items-center gap-2 px-4 py-2 bg-slate-800/80 rounded border border-white/5 hover:bg-slate-700 transition text-white no-underline cursor-pointer">
-                   <Download className="w-4 h-4" /> تحميل الصور متسلسلة (ZIP)
+                 <button onClick={handleDownloadImages} disabled={isProcessing} className="flex items-center gap-2 px-4 py-2 bg-slate-800/80 rounded border border-white/5 hover:bg-slate-700 transition text-white disabled:opacity-50 disabled:cursor-not-allowed no-underline cursor-pointer">
+                   {isProcessing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                   {isProcessing ? 'جاري المعالجة...' : 'تحميل الصور متسلسلة (ZIP)'}
                  </button>
                </div>
                
