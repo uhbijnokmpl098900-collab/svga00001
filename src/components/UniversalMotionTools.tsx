@@ -74,9 +74,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const availableFormats = [
-    'SVGA 2.0', 'SVGA 2.0 EX', 'AE Project', 'SVGA → Animated SVG',
-    'Lottie (Sequence)', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)',
-    'WebM (Video)', 'WebP (Animated)', 'VAP (MP4)', 'VAP 1.0.5', 'SVGA → YYEVA'
+    'WebM (Video)', 'VAP 1.0.5', 'VAP (MP4)', 'WebP (Animated)',
+    'Image Sequence', 'GIF (Animation)', 'APNG (Animation)'
   ];
 
   const handleFileDrop = (e: React.DragEvent) => {
@@ -400,7 +399,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             link.click();
             ffmpeg.deleteFile(outName);
         } else {
-            alert('تم استلام الملف، وجاري تحويله! (صيغة تحت التطوير)');
+            alert('عفواً، هذه الصيغة (' + convertFormat + ') غير مدعومة للتصدير في هذه النسخة حالياً. يرجى اختيار صيغة مدعومة مثل: VAP 1.0.5, GIF, WebM, WebP, APNG, أو Image Sequence.');
         }
 
         ffmpeg.deleteFile(inputName);
