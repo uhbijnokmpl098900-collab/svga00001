@@ -383,20 +383,36 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             const outName = 'out.mp4';
             const args = ['-i', inputName];
             
+            // If the input is already a video and alphaMode is right/left (which means it's ALREADY side-by-side)
+            // AND they are asking for VAP, we might just be copying it. But they might want to 
+            // convert WebM or GIF to VAP!
+            // Let's ensure format=rgba is forced before split to ensure alphaextract succeeds.
             const sourceStream = filterComplex ? '[out]' : '0:v';
             
-            const vapFilter = `${filterComplex ? filterComplex + ';' : ''}${sourceStream}split[rgb][a];[rgb]format=rgb24[rgb_out];[a]alphaextract[a_out];[rgb_out][a_out]hstack[vap_out]`;
+            const vapFilter = `${filterComplex ? filterComplex + ';' : ''}${sourceStream}format=rgba,split[rgb][a];[rgb]format=rgb24[rgb_out];[a]alphaextract[a_out];[rgb_out][a_out]hstack[vap_out]`;
             
             args.push('-filter_complex', vapFilter, '-map', '[vap_out]');
             args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p');
             args.push(outName);
-            await ffmpeg.exec(args);
+            
+            let ffmpegLogs = '';
+            const logHandler = ({ message }: { message: string }) => { ffmpegLogs += message + '\n'; };
+            ffmpeg.on('log', logHandler);
+            
+            const ret = await ffmpeg.exec(args);
+            ffmpeg.off('log', logHandler);
+            
+            if (ret !== 0) {
+               console.error(ffmpegLogs);
+               throw new Error(`FFmpeg error (code ${ret}): Check console for details. ` + ffmpegLogs.slice(-200));
+            }
+            
             const data = await ffmpeg.readFile(outName);
             const blob = new Blob([data], { type: 'video/mp4' });
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `${baseName}_vap.mp4`;
+            link.download = convertFormat.includes('YYEVA') ? `${baseName}_yyeva.mp4` : `${baseName}_vap.mp4`;
             link.click();
             ffmpeg.deleteFile(outName);
         } else if (convertFormat === 'SVGA 2.0') {
