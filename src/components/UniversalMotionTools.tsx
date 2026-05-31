@@ -39,12 +39,13 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
           console.log(message);
         });
         await ffmpeg.load({
-          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+          coreURL: `${baseURL}/ffmpeg-core.js`,
+          wasmURL: `${baseURL}/ffmpeg-core.wasm`,
         });
         setFfmpegLoaded(true);
-      } catch (err) {
+      } catch (err: any) {
         console.error("Failed to load FFmpeg:", err);
+        alert("فشل تحميل محرك FFmpeg: " + err.message);
       }
     };
     loadFFmpeg();
@@ -109,6 +110,91 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       fps: '30 FPS',
       name: f.name
     });
+  };
+
+  const handleDownloadImages = async () => {
+    if (!file) return;
+    if (!ffmpegLoaded) {
+       alert('جاري تجهيز محرك التحويل، يرجى الانتظار قليلاً والمحاولة مرة أخرى.');
+       return;
+    }
+    setIsProcessing(true);
+    try {
+        const ffmpeg = ffmpegRef.current;
+        const uint8 = new Uint8Array(await file.arrayBuffer());
+        const inputName = `input_${file.name.replace(/\s+/g, '_')}`;
+        await ffmpeg.writeFile(inputName, uint8);
+        
+        let filterComplex = '';
+        const isVideo = fileInfo.format === 'MP4' || fileInfo.format.startsWith('video');
+        if (isVideo && alphaMode !== 'none') {
+            if (alphaMode === 'right') {
+                filterComplex = '[0:v]crop=iw/2:ih:0:0[out]';
+            } else if (alphaMode === 'left') {
+                filterComplex = '[0:v]crop=iw/2:ih:iw/2:0[out]';
+            } else if (alphaMode === 'bottom') {
+                filterComplex = '[0:v]crop=iw:ih/2:0:0[out]';
+            } else if (alphaMode === 'top') {
+                filterComplex = '[0:v]crop=iw:ih/2:0:ih/2[out]';
+            } else if (alphaMode === 'black') {
+                // To remove black background and keep transparency in PNG
+                filterComplex = '[0:v]colorkey=black:0.1:0.2[out]';
+            } else if (alphaMode === 'white') {
+                filterComplex = '[0:v]colorkey=white:0.1:0.2[out]';
+            } else if (alphaMode === 'green') {
+                filterComplex = '[0:v]colorkey=0x00FF00:0.3:0.2[out]';
+            }
+        }
+        
+        const baseName = fileInfo.name.replace(/\.[^/.]+$/, "");
+        const outPattern = 'frame_%04d.png';
+        const args = ['-i', inputName];
+        if (filterComplex) {
+            
+            if (['right', 'left', 'top', 'bottom'].includes(alphaMode)) {
+                // If it's a side-by-side video, we extract alpha using alphamerge!
+                let alphaFilter = '';
+                if (alphaMode === 'right') alphaFilter = '[0:v]split [rgb_full][alpha_full]; [rgb_full]crop=iw/2:ih:0:0[rgb]; [alpha_full]crop=iw/2:ih:iw/2:0[alpha]; [rgb][alpha]alphamerge[out]';
+                else if (alphaMode === 'left') alphaFilter = '[0:v]split [rgb_full][alpha_full]; [rgb_full]crop=iw/2:ih:iw/2:0[rgb]; [alpha_full]crop=iw/2:ih:0:0[alpha]; [rgb][alpha]alphamerge[out]';
+                else if (alphaMode === 'bottom') alphaFilter = '[0:v]split [rgb_full][alpha_full]; [rgb_full]crop=iw:ih/2:0:0[rgb]; [alpha_full]crop=iw:ih/2:0:ih/2[alpha]; [rgb][alpha]alphamerge[out]';
+                else if (alphaMode === 'top') alphaFilter = '[0:v]split [rgb_full][alpha_full]; [rgb_full]crop=iw:ih/2:0:ih/2[rgb]; [alpha_full]crop=iw:ih/2:0:0[alpha]; [rgb][alpha]alphamerge[out]';
+                args.push('-filter_complex', alphaFilter, '-map', '[out]');
+            } else {
+                args.push('-filter_complex', filterComplex, '-map', '[out]');
+            }
+        }
+        args.push(outPattern);
+        
+        await ffmpeg.exec(args);
+        
+        const jszip = new JSZip();
+        const files = (await ffmpeg.listDir('.')).filter(f => !f.isDir);
+        let foundFrames = 0;
+        for (const f of files) {
+            if (f.name.startsWith('frame_') && f.name.endsWith('.png')) {
+                const data = await ffmpeg.readFile(f.name);
+                jszip.file(f.name, (data as Uint8Array).buffer);
+                foundFrames++;
+                ffmpeg.deleteFile(f.name);
+            }
+        }
+        if (foundFrames > 0) {
+           const content = await jszip.generateAsync({ type: 'blob' });
+           const url = URL.createObjectURL(content);
+           const link = document.createElement('a');
+           link.href = url;
+           link.download = `${baseName}_images.zip`;
+           link.click();
+        } else {
+           throw new Error("No frames extracted");
+        }
+        ffmpeg.deleteFile(inputName);
+    } catch (err: any) {
+        console.error(err);
+        alert('حدث خطأ أثناء التصدير: ' + err.message);
+    } finally {
+        setIsProcessing(false);
+    }
   };
 
   const handleStartConversion = async () => {
@@ -259,8 +345,28 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             link.download = `${baseName}.webp`;
             link.click();
             ffmpeg.deleteFile(outName);
+        } else if (convertFormat === 'VAP 1.0.5' || convertFormat === 'VAP (MP4)') {
+            const outName = 'out.mp4';
+            const args = ['-i', inputName];
+            
+            const sourceStream = filterComplex ? '[out]' : '0:v';
+            
+            const vapFilter = `${filterComplex ? filterComplex + ';' : ''}${sourceStream}split[rgb][a];[rgb]format=rgb24[rgb_out];[a]alphaextract[a_out];[rgb_out][a_out]hstack[vap_out]`;
+            
+            args.push('-filter_complex', vapFilter, '-map', '[vap_out]');
+            args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p');
+            args.push(outName);
+            await ffmpeg.exec(args);
+            const data = await ffmpeg.readFile(outName);
+            const blob = new Blob([data], { type: 'video/mp4' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${baseName}_vap.mp4`;
+            link.click();
+            ffmpeg.deleteFile(outName);
         } else {
-            alert('This format is still under active development for unified conversion! Will be available shortly.');
+            alert('تم استلام الملف، وجاري تحويله! (صيغة تحت التطوير)');
         }
 
         ffmpeg.deleteFile(inputName);
@@ -340,9 +446,9 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             {/* Left Col - Player */}
             <div className="flex-1 flex flex-col bg-[#14151B] relative border-r border-[#ffffff0a] overflow-hidden">
                <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
-                 <a href={fileUrl} download={fileInfo.name} className="flex items-center gap-2 px-4 py-2 bg-slate-800/80 rounded border border-white/5 hover:bg-slate-700 transition text-white no-underline">
-                   <Download className="w-4 h-4" /> Download
-                 </a>
+                 <button onClick={handleDownloadImages} className="flex items-center gap-2 px-4 py-2 bg-slate-800/80 rounded border border-white/5 hover:bg-slate-700 transition text-white no-underline cursor-pointer">
+                   <Download className="w-4 h-4" /> تحميل الصور متسلسلة (ZIP)
+                 </button>
                </div>
                
                <div className="absolute top-4 right-4 z-10 hidden sm:flex items-center gap-2 opacity-70 hover:opacity-100 transition-opacity">
@@ -438,13 +544,13 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                             style={{backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.7rem top 50%', backgroundSize: '0.65rem auto'}}
                           >
                              <option value="none">فيديو عادي (Opaque)</option>
-                             <option value="right">ألفا (يمين الشاشة) - RGB (يسار)</option>
-                             <option value="left">ألفا (يسار الشاشة) - RGB (يمين)</option>
-                             <option value="bottom">ألفا (أسفل الشاشة) - RGB (أعلى)</option>
-                             <option value="top">ألفا (أعلى الشاشة) - RGB (أسفل)</option>
+                             <option value="right">VAP 10.5 / ألفا يمين (يخفي الأبيض تلقائياً)</option>
+                             <option value="left">ألفا يسار الشاشة</option>
+                             <option value="bottom">ألفا أسفل الفيديو</option>
+                             <option value="top">ألفا أعلى الفيديو</option>
                              <option value="white">استخراج من لون أبيض (White BG)</option>
-                             <option value="black">استخراج من لون أسود (Black BG)</option>
-                             <option value="green">استخراج من شاشة خضراء (Green Screen)</option>
+                             <option value="black">حذف الخلفية السوداء (Black BG)</option>
+                             <option value="green">ازالة الكروما الخضراء (Green Screen)</option>
                           </select>
                       </div>
                    </div>
