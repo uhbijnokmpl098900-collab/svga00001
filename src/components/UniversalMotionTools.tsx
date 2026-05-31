@@ -8,6 +8,7 @@ import { VapPlayer } from './VapPlayer';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import JSZip from 'jszip';
+import { encodeSVGA } from '../utils/svgaEncoder';
 
 interface UniversalMotionToolsProps {
   currentUser: UserRecord | null;
@@ -74,7 +75,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const availableFormats = [
-    'SVGA 2.0', 'WebM (Video)', 'VAP 1.0.5', 'VAP (MP4)', 'WebP (Animated)',
+    'SVGA 2.0', 'WebM (Video)', 'VAP 1.0.5', 'VAP (MP4)', 'YYEVA (MP4)', 'WebP (Animated)',
     'Image Sequence', 'GIF (Animation)', 'APNG (Animation)'
   ];
 
@@ -378,7 +379,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             link.download = `${baseName}.webp`;
             link.click();
             ffmpeg.deleteFile(outName);
-        } else if (convertFormat === 'VAP 1.0.5' || convertFormat === 'VAP (MP4)') {
+        } else if (convertFormat === 'VAP 1.0.5' || convertFormat === 'VAP (MP4)' || convertFormat === 'YYEVA (MP4)') {
             const outName = 'out.mp4';
             const args = ['-i', inputName];
             
@@ -399,7 +400,6 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             link.click();
             ffmpeg.deleteFile(outName);
         } else if (convertFormat === 'SVGA 2.0') {
-            alert('يتم الآن تحويل الفيديو إلى تسلسل صور (Image Sequence) أولاً. تحويل الـ SVGA المباشر يتطلب محول خارجي أو أداة تجميع، لذلك سيتم توفير الصور لك لسهولة التجميع.');
             const outPattern = 'frame_%04d.png';
             const args = ['-i', inputName];
             if (filterComplex) {
@@ -408,29 +408,72 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             args.push(outPattern);
             await ffmpeg.exec(args);
             
-            const jszip = new JSZip();
             const files = await ffmpeg.listDir('.');
-            let foundFrames = 0;
-            for (const f of files) {
-                if (f.name.startsWith('frame_') && f.name.endsWith('.png')) {
-                    const data = await ffmpeg.readFile(f.name);
-                    jszip.file(f.name, (data as Uint8Array).buffer);
-                    foundFrames++;
+            const frameFiles = files.filter(f => !f.isDir && f.name.startsWith('frame_') && f.name.endsWith('.png')).sort((a: any, b: any) => a.name.localeCompare(b.name));
+            
+            if (frameFiles.length > 0) {
+                const imagesMap: Record<string, Uint8Array> = {};
+                const sprites: any[] = [];
+                let imgW = 0, imgH = 0;
+
+                for (let i = 0; i < frameFiles.length; i++) {
+                    const f = frameFiles[i];
+                    const data = await ffmpeg.readFile(f.name) as Uint8Array;
+                    if (i === 0) {
+                        const dims = await new Promise<{w: number, h: number}>((resolve, reject) => {
+                            const blob = new Blob([data], {type: 'image/png'});
+                             const url = URL.createObjectURL(blob);
+                             const img = new Image();
+                             img.onload = () => { resolve({w: img.width, h: img.height}); URL.revokeObjectURL(url); };
+                             img.onerror = () => reject("Failed");
+                             img.src = url;
+                        });
+                        imgW = dims.w; imgH = dims.h;
+                    }
+                    
+                    const imageKey = `img_${i}`;
+                    imagesMap[imageKey] = data;
+                    
+                    const frames = [];
+                    for (let fIdx = 0; fIdx < frameFiles.length; fIdx++) {
+                        frames.push({
+                            alpha: fIdx === i ? 1 : 0,
+                            layout: { x: 0, y: 0, width: imgW, height: imgH },
+                            transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
+                        });
+                    }
+                    
+                    sprites.push({
+                        imageKey,
+                        frames
+                    });
+                    
                     ffmpeg.deleteFile(f.name);
                 }
-            }
-            if (foundFrames > 0) {
-               const content = await jszip.generateAsync({ type: 'blob' });
-               const url = URL.createObjectURL(content);
-               const link = document.createElement('a');
-               link.href = url;
-               link.download = `${baseName}_svga_frames.zip`;
-               link.click();
+                
+                const movieData = {
+                    version: "2.0",
+                    params: {
+                        viewBoxWidth: imgW,
+                        viewBoxHeight: imgH,
+                        fps: 24,
+                        frames: frameFiles.length
+                    },
+                    images: imagesMap,
+                    sprites: sprites
+                };
+                
+                const svgaBlob = await encodeSVGA(movieData);
+                const url = URL.createObjectURL(svgaBlob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${baseName}.svga`;
+                link.click();
             } else {
                throw new Error("No frames extracted");
             }
         } else {
-            alert('عفواً، هذه الصيغة (' + convertFormat + ') غير مدعومة للتصدير في هذه النسخة حالياً. يرجى اختيار صيغة مدعومة مثل: VAP 1.0.5, GIF, WebM, WebP, APNG, أو Image Sequence.');
+            alert('عفواً، هذه الصيغة (' + convertFormat + ') غير مدعومة للتصدير في هذه النسخة حالياً. يرجى اختيار صيغة مدعومة مثل:  SVGA 2.0, VAP 1.0.5, GIF, WebM, WebP, APNG, أو Image Sequence.');
         }
 
         ffmpeg.deleteFile(inputName);
