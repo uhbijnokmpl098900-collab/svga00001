@@ -2,7 +2,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import { fetchFile } from '@ffmpeg/util';
+import { loadFFmpegWithFallbacks } from '../utils/ffmpegLoader';
 import { FileMetadata, UserRecord } from '../types';
 import { 
   Video, 
@@ -97,18 +98,14 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
 
   useEffect(() => {
     const loadFFmpeg = async () => {
-      const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-      const ffmpeg = ffmpegRef.current;
-      
-      ffmpeg.on('log', ({ message }) => {
-        console.log(message);
-      });
-
-      await ffmpeg.load({
-        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-      });
-      setFfmpegLoaded(true);
+      try {
+        await loadFFmpegWithFallbacks(ffmpegRef.current, (msg) => {
+          console.log(msg);
+        });
+        setFfmpegLoaded(true);
+      } catch (err) {
+        console.error("FFmpeg Load Error:", err);
+      }
     };
     loadFFmpeg();
   }, []);

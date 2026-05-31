@@ -5,7 +5,7 @@ import {
   LogOut, Settings, ShoppingBag, Image, Video, Layers, Wand2, 
   BadgeCheck, Maximize, Lock, Scissors, Menu, X as CloseIcon, 
   Zap, Sparkles, Info, Search, ChevronDown, Check, LayoutGrid, 
-  Command
+  Command, Wand, Cpu, Repeat, RefreshCw, User
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -28,6 +28,9 @@ interface HeaderProps {
   onImageProcessorOpen: () => void;
   onImageEnhancerOpen: () => void;
   onBatchImageProcessorOpen: () => void;
+  onUniversalConverterOpen: () => void;
+  onPagConverterOpen: () => void;
+  onBatchImageOpen: () => void;
   onLoginClick: () => void;
   onProfileClick: () => void;
   currentTab: string;
@@ -63,6 +66,8 @@ const categories: CategoryDefinition[] = [
       { id: 'svga-ex', label: 'SVGA Editor EX', icon: <Layers className="w-4 h-4" />, actionKey: 'onSvgaExOpen', descAr: 'محرر احترافي لعمل تركيبات معقدة ومدمجة من عدة ملفات SVGA', descEn: 'Professional editor for complex compositions of multiple SVGA files.', highlight: true },
       { id: 'multi-svga', label: 'Multi SVGA Preview', icon: <LayoutGrid className="w-4 h-4" />, actionKey: 'onMultiSvgaOpen', descAr: 'استعراض ومقارنة عدة ملفات SVGA في نفس الوقت بخصائص دقيقة', descEn: 'Preview and compare multiple SVGA files simultaneously.' },
       { id: 'image-converter', label: 'Image to SVGA', icon: <Image className="w-4 h-4" />, actionKey: 'onImageConverterOpen', descAr: 'تحويل الصور الثابتة إلى ملفات SVGA متحركة مع تأثيرات دخول', descEn: 'Convert static images into animated SVGA files with entry effects.' },
+      { id: 'universal', label: 'Universal Motion Tools', icon: <RefreshCw className="w-4 h-4" />, actionKey: 'onUniversalConverterOpen', descAr: 'أدوات مجمعة للتحويل بين صيغ الحركة المختلفة', descEn: 'Unified tools for converting between various motion formats.', highlight: true },
+      { id: 'pag-converter', label: 'PAG Converter', icon: <Wand className="w-4 h-4" />, actionKey: 'onPagConverterOpen', descAr: 'تحويل وإنشاء ملفات PAG المتحركة بدقة عالية', descEn: 'Convert and create high-precision animated PAG files.' },
     ]
   },
   {
@@ -73,7 +78,7 @@ const categories: CategoryDefinition[] = [
     tools: [
       { id: 'image-enhancer', label: 'AI Image Enhancer', icon: <Sparkles className="w-4 h-4" />, actionKey: 'onImageEnhancerOpen', descAr: 'تحسين جودة الصور وترقيتها بالذكاء الاصطناعي مع الحفاظ على التفاصيل بشكل مذهل', descEn: 'Enhance image quality using AI while preserving details amazingly.', highlight: true },
       { id: 'image-processor', label: 'Image Processor', icon: <Wand2 className="w-4 h-4" />, actionKey: 'onImageProcessorOpen', descAr: 'معالجة وتعديل ألوان وإضاءة الصور بدقة عالية مع أدوات تنقية حساسة', descEn: 'Process and adjust colors/lighting of images accurately with fine-tuning tools.' },
-      { id: 'image-editor', label: 'Image Editor', icon: <Scissors className="w-4 h-4" />, actionKey: 'onImageEditorOpen', descAr: 'محرر صور متكامل يوفر أدوات تعديل احترافية للطبقات والأشكال', descEn: 'Comprehensive image editor offering professional tools for layers and shapes.' },
+      { id: 'image-editor', label: 'Image Editor', icon: <User className="w-4 h-4" />, actionKey: 'onImageEditorOpen', descAr: 'محرر صور متكامل يوفر أدوات تعديل احترافية للطبقات والأشكال', descEn: 'Comprehensive image editor offering professional tools for layers and shapes.' },
       { id: 'image-matcher', label: 'Image Matcher', icon: <Maximize className="w-4 h-4" />, actionKey: 'onImageMatcherOpen', descAr: 'مطابقة الألوان والستايلات بين صورة وأخرى للحصول على طابع موحد ومتناسق', descEn: 'Match colors and styles between two images for a consistent and unified look.' },
     ]
   },
@@ -84,6 +89,7 @@ const categories: CategoryDefinition[] = [
     color: 'orange',
     tools: [
       { id: 'batch-image-processor', label: 'Batch Image Processor', icon: <Image className="w-4 h-4" />, actionKey: 'onBatchImageProcessorOpen', descAr: 'تطبيق التعديلات والتحسينات على مجلد كامل من الصور بضغطة واحدة', descEn: 'Apply enhancements and edits to a whole folder of images with one click.' },
+      { id: 'batch-image-converter', label: 'Batch Image Converter', icon: <Repeat className="w-4 h-4" />, actionKey: 'onBatchImageOpen', descAr: 'تحويل صيغ مجلد كامل من الصور بين المنتشرة مثل PNG و WEBP', descEn: 'Batch convert image formats for entire folders.' },
       { id: 'batch', label: 'Batch Compress', icon: <Layers className="w-4 h-4" />, actionKey: 'onBatchOpen', descAr: 'ضغط وتقليل حجم كمية كبيرة من الصور بكفاءة دون فقدان مسموع للجودة', descEn: 'Compress a large batch of images efficiently without noticeable quality loss.' },
       { id: 'cropper', label: 'Batch Cropper', icon: <Scissors className="w-4 h-4" />, actionKey: 'onCropperOpen', descAr: 'قص واقتطاع وتغيير أحجام مجموعة صور بشكل آلي لنفس الأبعاد المطلوبة', descEn: 'Auto-crop and resize a batch of images to the exact required dimensions.' },
       { id: 'converter', label: 'Video Converter', icon: <Video className="w-4 h-4" />, actionKey: 'onConverterOpen', descAr: 'أداة سريعة لتحويل مقاطع الفيديو (مثل MP4) وتفريغها إلى صيغ أخرى كالـ SVGA', descEn: 'Fast tool to convert videos (e.g., MP4) and composite them to other formats like SVGA.' },
@@ -152,21 +158,37 @@ export const Header: React.FC<HeaderProps> = (props) => {
     setActiveMenu(null);
   };
 
+  const scrollRef = useRef<HTMLElement>(null);
+
+  // Auto-scroll the active tab into view
+  useEffect(() => {
+    if (scrollRef.current) {
+      const activeElement = scrollRef.current.querySelector<HTMLButtonElement>('[data-active="true"]');
+      if (activeElement) {
+        // Scroll so the element is centered
+        const container = scrollRef.current;
+        const scrollLeft = activeElement.offsetLeft - (container.clientWidth / 2) + (activeElement.clientWidth / 2);
+        container.scrollTo({ left: scrollLeft, behavior: 'smooth' });
+      }
+    }
+  }, [props.currentTab]);
+
   const TopLevelNavigation = () => (
-    <nav className="hidden lg:flex items-center gap-1.5 mr-6 text-xs lg:text-sm font-bold overflow-x-auto no-scrollbar flex-1 whitespace-nowrap mask-edges">
+    <nav ref={scrollRef} className="flex items-center gap-1.5 md:gap-2 mx-4 text-xs md:text-[13px] font-bold overflow-x-auto no-scrollbar flex-1 whitespace-nowrap mask-edges min-w-0 px-8 scroll-smooth will-change-scroll" dir="rtl">
       {allTools.map((tool) => {
         const isToolActive = props.currentTab === tool.id;
         
         return (
           <button
             key={tool.id}
+            data-active={isToolActive}
             onClick={() => handleToolClick(tool)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-full transition-all duration-300 shrink-0 ${
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-full transition-all duration-300 shrink-0 select-none ${
               isToolActive 
-                ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.15)]' 
+                ? 'bg-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)]' 
                 : tool.highlight
                   ? 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 border border-transparent hover:border-indigo-500/20'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10 bg-white/[0.02]'
             }`}
             title={tool.descAr}
           >
@@ -180,32 +202,33 @@ export const Header: React.FC<HeaderProps> = (props) => {
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 h-20 bg-[#020617]/70 backdrop-blur-2xl border-b border-white/5 z-[1000] px-4 md:px-8 flex items-center justify-between transition-all duration-300">
+      <header className="fixed top-0 left-0 right-0 h-16 md:h-20 bg-[#020617]/70 backdrop-blur-2xl border-b border-white/5 z-[1000] px-2 md:px-8 flex items-center justify-between transition-all duration-300">
         
-        {/* Logo and Right Side */}
-        <div className="flex items-center gap-4 shrink-0 max-w-[25%] lg:max-w-none">
-          <button onClick={props.onLogoClick} className="flex items-center gap-3 group shrink-0">
-            <div className="w-11 h-11 bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-900 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/30 group-hover:scale-105 group-active:scale-95 transition-all duration-300 border border-white/10 relative overflow-hidden shrink-0">
+        {/* Logo */}
+        <div className="flex items-center shrink-0">
+          <button onClick={props.onLogoClick} className="flex items-center gap-2 md:gap-3 group shrink-0">
+            <div className="w-9 h-9 md:w-11 md:h-11 bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-900 rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/30 group-hover:scale-105 group-active:scale-95 transition-all duration-300 border border-white/10 relative overflow-hidden shrink-0">
                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 mix-blend-overlay"></div>
                {props.settings?.logoUrl ? (
                  <img src={props.settings.logoUrl} alt="Logo" className="w-full h-full object-cover relative z-10" />
                ) : (
-                 <span className="text-white font-black text-2xl drop-shadow-md relative z-10">S</span>
+                 <span className="text-white font-black text-xl md:text-2xl drop-shadow-md relative z-10">S</span>
                )}
             </div>
-            <div className="flex flex-col items-start hidden sm:flex shrink-0">
+            <div className="flex flex-col items-start hidden lg:flex shrink-0">
               <h1 className="text-xl md:text-2xl font-black animated-brand-text tracking-tight whitespace-nowrap overflow-visible">
                 {props.settings?.appName?.trim() ? props.settings.appName : 'SVGA Studio'}
               </h1>
               <span className="text-[9px] text-indigo-400 font-bold tracking-[0.2em] uppercase whitespace-nowrap mt-0.5">Professional Platform</span>
             </div>
           </button>
-          
-          <TopLevelNavigation />
         </div>
 
-        {/* Left Side Controls (Search, Admin, Profile) */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        {/* Scrollable Horizontal Navigation */}
+        <TopLevelNavigation />
+
+        {/* Right Side Controls (Search, Admin, Profile) */}
+        <div className="flex items-center gap-1 sm:gap-3 shrink-0">
           
           {/* Search Trigger */}
           <button

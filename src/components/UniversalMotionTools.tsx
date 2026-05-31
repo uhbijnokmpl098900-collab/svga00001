@@ -6,7 +6,8 @@ import SVGAPlayer from './SVGAPlayer';
 import { VapPlayer } from './VapPlayer';
 
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import { fetchFile } from '@ffmpeg/util';
+import { loadFFmpegWithFallbacks } from '../utils/ffmpegLoader';
 import JSZip from 'jszip';
 import { encodeSVGA } from '../utils/svgaEncoder';
 
@@ -34,24 +35,10 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   useEffect(() => {
     const loadFFmpeg = async () => {
       try {
-        const ffmpeg = ffmpegRef.current;
-        if (ffmpeg.loaded) {
-          setFfmpegLoaded(true);
-          return;
-        }
-        const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-        ffmpeg.on('log', ({ message }) => {
-          console.log(message);
-        });
-        await ffmpeg.load({
-          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-        });
+        await loadFFmpegWithFallbacks(ffmpegRef.current);
         setFfmpegLoaded(true);
       } catch (err: any) {
         console.error("Failed to load FFmpeg:", err);
-        // alert("فشل تحميل محرك FFmpeg: " + err.message);
-        // If it's already loaded or loading, just ignore
         if (ffmpegRef.current.loaded) {
             setFfmpegLoaded(true);
         }
@@ -71,6 +58,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   });
 
   const [convertFormat, setConvertFormat] = useState('VAP 1.0.5');
+  const [compressionQuality, setCompressionQuality] = useState(15);
   const [alphaMode, setAlphaMode] = useState<'none'|'right'|'left'|'bottom'|'top'|'white'|'black'|'green'>('right');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -127,11 +115,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     if (!ffmpegLoaded) {
        try {
            if (!ffmpeg.loaded) {
-               const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-               await ffmpeg.load({
-                 coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-                 wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-               });
+               await loadFFmpegWithFallbacks(ffmpeg);
            }
            setFfmpegLoaded(true);
        } catch (err) {
@@ -232,11 +216,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     if (!ffmpegLoaded) {
        try {
            if (!ffmpeg.loaded) {
-               const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-               await ffmpeg.load({
-                 coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-                 wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-               });
+               await loadFFmpegWithFallbacks(ffmpeg);
            }
            setFfmpegLoaded(true);
        } catch (err) {
@@ -334,7 +314,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             if (filterComplex) {
                 args.push('-filter_complex', filterComplex, '-map', '[out]');
             }
-            args.push('-c:v', 'libvpx-vp9', '-auto-alt-ref', '0', '-pix_fmt', 'yuva420p');
+            const crf = Math.floor(51 - (compressionQuality * 51 / 100));
+            args.push('-c:v', 'libvpx-vp9', '-auto-alt-ref', '0', '-pix_fmt', 'yuva420p', '-crf', crf.toString(), '-b:v', '0');
             args.push(outName);
             await ffmpeg.exec(args);
             const data = await ffmpeg.readFile(outName);
@@ -368,7 +349,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             if (filterComplex) {
                 args.push('-filter_complex', filterComplex, '-map', '[out]');
             }
-            args.push('-vcodec', 'libwebp', '-lossless', '0', '-compression_level', '4', '-q:v', '75', '-loop', '0');
+            args.push('-vcodec', 'libwebp', '-lossless', '0', '-compression_level', '4', '-q:v', compressionQuality.toString(), '-loop', '0');
             args.push(outName);
             await ffmpeg.exec(args);
             const data = await ffmpeg.readFile(outName);
@@ -392,7 +373,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             const vapFilter = `${filterComplex ? filterComplex + ';' : ''}${sourceStream}format=rgba,split[rgb][a];[rgb]format=rgb24[rgb_out];[a]alphaextract[a_out];[rgb_out][a_out]hstack[vap_out]`;
             
             args.push('-filter_complex', vapFilter, '-map', '[vap_out]');
-            args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p');
+            const crf = Math.floor(51 - (compressionQuality * 51 / 100));
+            args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', crf.toString());
             args.push(outName);
             
             let ffmpegLogs = '';
@@ -701,9 +683,17 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                            </select>
                         </div>
                         
-                        <div className="flex items-center justify-between">
-                           <span className="text-xs text-slate-300 font-medium">Compression Quality</span>
-                           <input type="number" defaultValue="15" className="bg-[#0E0F14] border border-white/10 rounded px-2 py-1 text-xs text-white w-16 text-center focus:outline-none focus:border-sky-500" />
+                        
+                        <div className="flex flex-col gap-2 mt-4">
+                           <div className="flex justify-between text-xs font-bold mb-1">
+                             <span className="text-sky-400 font-mono">{compressionQuality}</span>
+                             <span className="text-slate-200">Compression Quality</span>
+                           </div>
+                           <input 
+                             type="range" min="0" max="100" 
+                             value={compressionQuality} onChange={(e) => setCompressionQuality(Number(e.target.value))}
+                             className="w-full h-1.5 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-sky-500 [&::-webkit-slider-thumb]:rounded-full cursor-pointer accent-sky-500"
+                           />
                         </div>
                     </div>
                  </div>

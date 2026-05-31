@@ -6,7 +6,8 @@ import { Layers, Download, Copy, Trash2, Lock, ListOrdered, Upload, CheckCircle2
 import { logActivity } from '../utils/logger';
 import * as Mp4Muxer from 'mp4-muxer';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import { fetchFile } from '@ffmpeg/util';
+import { loadFFmpegWithFallbacks } from '../utils/ffmpegLoader';
 
 declare var SVGA: any;
 declare var JSZip: any;
@@ -899,23 +900,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         console.warn("SharedArrayBuffer is not available. FFmpeg might fail or be slow.");
     }
 
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-    const ffmpeg = ffmpegRef.current;
-    ffmpeg.on('log', ({ message }) => {
-        console.log(message);
-    });
-    
     try {
-        const loadPromise = ffmpeg.load({
-            coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-            wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-        });
-
-        const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("FFmpeg load timeout (20s)")), 20000)
-        );
-
-        await Promise.race([loadPromise, timeoutPromise]);
+        await loadFFmpegWithFallbacks(ffmpegRef.current);
         setFfmpegLoaded(true);
     } catch (e) {
         console.error("FFmpeg load error:", e);

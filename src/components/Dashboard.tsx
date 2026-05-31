@@ -54,7 +54,6 @@ const categories = [
       { id: 'batch', label: 'Batch Compress', icon: <Layers className="w-8 h-8" />, actionKey: 'batchCompress', descAr: 'ضغط وتقليل حجم كمية كبيرة من الصور بكفاءة دون فقدان ملحوظ للجودة الأصلية.', descEn: 'Compress a large batch of images efficiently without noticeable quality loss.' },
       { id: 'cropper', label: 'Batch Cropper', icon: <Scissors className="w-8 h-8" />, actionKey: 'batchCropper', descAr: 'قص واقتطاع وتغيير أحجام مجموعة صور بشكل آلي لنفس الأبعاد المطلوبة بدقة.', descEn: 'Auto-crop and resize a batch of images to the exact required dimensions.' },
       { id: 'universal', label: 'Universal Motion Tools', icon: <Video className="w-8 h-8" />, actionKey: 'universalConverter', descAr: 'بيئة احترافية شاملة لمعاينة وضغط وتحويل كافة صيغ الأنيميشن بسهولة.', descEn: 'Professional universal environment to preview, compress, and convert all animation formats.' },
-      { id: 'gift-processor', label: 'Professional Gift Processor', icon: <Box className="w-8 h-8" />, actionKey: 'giftProcessor', descAr: 'نظام احترافي لمعالجة الهدايا، إزالة الخلفية البيضاء، وتحويلها لشفافية 100%.', descEn: 'Professional system to process gifts, remove white background with true alpha.' },
       { id: 'converter', label: 'Video Converter', icon: <Video className="w-8 h-8" />, actionKey: 'videoConverter', descAr: 'أداة سريعة لتحويل مقاطع الفيديو وتفريغها إلى صيغ أخرى كـ SVGA.', descEn: 'Fast tool to convert videos and composite them to other formats like SVGA.' },
     ]
   },
@@ -119,43 +118,43 @@ export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction }) => {
                     <h2 className="text-3xl font-black text-white font-arabic tracking-wide">{cat.label}</h2>
                  </div>
 
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 px-2">
+                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-6 px-1 sm:px-2">
                     {cat.tools.map(tool => (
                        <button
                           key={tool.id}
                           onClick={() => onAction(tool.actionKey)}
-                          className={`group relative text-right flex flex-col items-start gap-5 p-6 sm:p-8 rounded-[2.5rem] bg-[#0f172a]/80 hover:bg-[#1e293b]/90 border transition-all duration-500 cursor-pointer overflow-hidden shadow-xl hover:-translate-y-2 active:translate-y-1 ${
+                          className={`group relative text-right flex flex-col items-start gap-3 sm:gap-5 p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] bg-[#0f172a]/80 hover:bg-[#1e293b]/90 border transition-all duration-500 cursor-pointer overflow-hidden shadow-xl hover:-translate-y-2 active:translate-y-1 ${
                              tool.highlight 
-                              ? 'border-indigo-500/40 hover:border-indigo-400/80 shadow-[0_0_40px_rgba(99,102,241,0.15)] hover:shadow-[0_0_60px_rgba(99,102,241,0.3)]' 
-                              : 'border-white/10 hover:border-white/30 hover:shadow-[0_20px_40px_rgba(0,0,0,0.4)]'
+                              ? 'border-indigo-500/40 hover:border-indigo-400/80 shadow-[0_0_20px_rgba(99,102,241,0.15)] hover:shadow-[0_0_40px_rgba(99,102,241,0.3)]' 
+                              : 'border-white/10 hover:border-white/30 hover:shadow-[0_10px_20px_rgba(0,0,0,0.4)]'
                           }`}
                        >
                           {/* Hover Background Gradient */}
                           <div className={`absolute inset-0 bg-gradient-to-br transition-all duration-500 opacity-0 group-hover:opacity-100 pointer-events-none ${cat.hoverColor}`}></div>
                           
                           {/* Icon Container */}
-                          <div className={`relative z-10 p-4 rounded-2xl transition-transform duration-500 group-hover:scale-110 shadow-lg ${
+                          <div className={`relative z-10 p-2 sm:p-4 rounded-xl sm:rounded-2xl transition-transform duration-500 group-hover:scale-110 shadow-lg ${
                              tool.highlight ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.4)]' : 'bg-white/10 text-slate-300 border border-white/10'
                           }`}>
-                            {tool.icon}
+                            {React.cloneElement(tool.icon as React.ReactElement, { className: 'w-6 h-6 sm:w-8 sm:h-8' })}
                           </div>
 
-                          <div className="relative z-10 flex flex-col gap-4 w-full h-full flex-grow">
-                             <h3 className={`text-2xl font-black transition-colors ${tool.highlight ? 'text-indigo-100 group-hover:text-white' : 'text-slate-100 group-hover:text-white'}`}>
+                          <div className="relative z-10 flex flex-col gap-2 sm:gap-4 w-full h-full flex-grow">
+                             <h3 className={`text-sm sm:text-xl md:text-2xl font-black transition-colors ${tool.highlight ? 'text-indigo-100 group-hover:text-white' : 'text-slate-100 group-hover:text-white'}`}>
                                 {tool.label}
                              </h3>
                              
-                             <div className="flex flex-col gap-3 mt-auto">
+                             <div className="hidden sm:flex flex-col gap-3 mt-auto">
                                 {/* Arabic Description - Distinct Color */}
-                                <div className="bg-sky-500/10 p-4 rounded-2xl border border-sky-500/30 shadow-inner group-hover:bg-sky-500/20 transition-colors">
-                                   <p className="text-[14px] leading-relaxed font-bold text-sky-300 font-arabic">
+                                <div className="bg-sky-500/10 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-sky-500/30 shadow-inner group-hover:bg-sky-500/20 transition-colors">
+                                   <p className="text-[10px] sm:text-[14px] leading-relaxed font-bold text-sky-300 font-arabic">
                                       {tool.descAr}
                                    </p>
                                 </div>
                                 
                                 {/* English Description - Distinct Color */}
-                                <div className="bg-emerald-500/5 p-4 rounded-2xl border border-emerald-500/20 shadow-inner group-hover:bg-emerald-500/10 transition-colors" dir="ltr">
-                                   <p className="text-[12px] leading-relaxed font-bold text-emerald-400 font-sans tracking-wide">
+                                <div className="bg-emerald-500/5 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-emerald-500/20 shadow-inner group-hover:bg-emerald-500/10 transition-colors" dir="ltr">
+                                   <p className="text-[9px] sm:text-[12px] leading-relaxed font-bold text-emerald-400 font-sans tracking-wide">
                                       {tool.descEn}
                                    </p>
                                 </div>
@@ -163,9 +162,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction }) => {
                           </div>
 
                           {/* Arrow overlay top left */}
-                          <div className="absolute top-8 left-8 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-4 group-hover:translate-x-0">
-                             <div className="w-10 h-10 rounded-full bg-white/20 text-white flex items-center justify-center backdrop-blur-md shadow-lg">
-                                <ArrowLeft className="w-5 h-5 -rotate-45 group-hover:rotate-0 transition-transform duration-500" />
+                          <div className="hidden sm:block absolute top-6 left-6 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-4 group-hover:translate-x-0">
+                             <div className="w-8 h-8 rounded-full bg-white/20 text-white flex items-center justify-center backdrop-blur-md shadow-lg">
+                                <ArrowLeft className="w-4 h-4 -rotate-45 group-hover:rotate-0 transition-transform duration-500" />
                              </div>
                           </div>
                        </button>
