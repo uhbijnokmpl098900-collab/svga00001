@@ -10,6 +10,7 @@ import { VideoConverter } from './components/VideoConverter';
 import { UniversalMotionTools } from './components/UniversalMotionTools';
 import { MultiSvgaViewer } from './components/MultiSvgaViewer';
 import { ImageToSvga } from './components/ImageToSvga';
+import { GiftProcessor } from './components/GiftProcessor';
 import { ImageProcessor } from './components/ImageProcessor';
 import { ImageEnhancer } from './components/ImageEnhancer';
 import { BatchImageProcessor } from './components/BatchImageProcessor';
@@ -526,6 +527,7 @@ const App: React.FC = () => {
                      switch(actionKey) {
                         case 'videoConverter': handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter'); break;
                         case 'universalConverter': handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools'); break;
+                        case 'giftProcessor': handleFeatureAccess(AppState.GIFT_PROCESSOR, 'Professional Gift Processor'); break;
                         case 'multiSvga': handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview'); break;
                         case 'batchImageProcessor': handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor'); break;
                         case 'batchCompress': handleFeatureAccess(AppState.BATCH_COMPRESSOR, 'Batch Compressor'); break;
@@ -585,6 +587,13 @@ const App: React.FC = () => {
                 onCancel={handleReset} 
                 onLoginRequired={() => {}}
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.GIFT_PROCESSOR && (
+              <GiftProcessor 
+                currentUser={currentUser} 
+                onCancel={handleReset} 
+                onLoginRequired={() => {}}
               />
             )}
             {state === AppState.IMAGE_CONVERTER && (

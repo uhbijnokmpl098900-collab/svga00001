@@ -61,7 +61,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   });
 
   const [convertFormat, setConvertFormat] = useState('VAP 1.0.5');
-  const [alphaMode, setAlphaMode] = useState<'none'|'right'|'left'|'bottom'|'top'>('right');
+  const [alphaMode, setAlphaMode] = useState<'none'|'right'|'left'|'bottom'|'top'|'white'|'black'|'green'>('right');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const availableFormats = [
@@ -145,6 +145,12 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                 filterComplex = '[0:v]split [rgb_full][alpha_full]; [rgb_full]crop=iw:ih/2:0:0[rgb]; [alpha_full]crop=iw:ih/2:0:ih/2[alpha]; [rgb][alpha]alphamerge[out]';
             } else if (alphaMode === 'top') {
                 filterComplex = '[0:v]split [rgb_full][alpha_full]; [rgb_full]crop=iw:ih/2:0:ih/2[rgb]; [alpha_full]crop=iw:ih/2:0:0[alpha]; [rgb][alpha]alphamerge[out]';
+            } else if (alphaMode === 'white') {
+                filterComplex = '[0:v]colorkey=white:0.1:0.2[out]';
+            } else if (alphaMode === 'black') {
+                filterComplex = '[0:v]colorkey=black:0.1:0.2[out]';
+            } else if (alphaMode === 'green') {
+                filterComplex = '[0:v]colorkey=0x00FF00:0.3:0.2[out]';
             }
         }
         
@@ -236,6 +242,23 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             link.download = `${baseName}.apng`;
             link.click();
             ffmpeg.deleteFile(outName);
+        } else if (convertFormat === 'WebP (Animated)') {
+            const outName = 'out.webp';
+            const args = ['-i', inputName];
+            if (filterComplex) {
+                args.push('-filter_complex', filterComplex, '-map', '[out]');
+            }
+            args.push('-vcodec', 'libwebp', '-lossless', '0', '-compression_level', '4', '-q:v', '75', '-loop', '0');
+            args.push(outName);
+            await ffmpeg.exec(args);
+            const data = await ffmpeg.readFile(outName);
+            const blob = new Blob([data], { type: 'image/webp' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${baseName}.webp`;
+            link.click();
+            ffmpeg.deleteFile(outName);
         } else {
             alert('This format is still under active development for unified conversion! Will be available shortly.');
         }
@@ -317,9 +340,9 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             {/* Left Col - Player */}
             <div className="flex-1 flex flex-col bg-[#14151B] relative border-r border-[#ffffff0a] overflow-hidden">
                <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
-                 <button className="flex items-center gap-2 px-4 py-2 bg-slate-800/80 rounded border border-white/5 hover:bg-slate-700 transition">
+                 <a href={fileUrl} download={fileInfo.name} className="flex items-center gap-2 px-4 py-2 bg-slate-800/80 rounded border border-white/5 hover:bg-slate-700 transition text-white no-underline">
                    <Download className="w-4 h-4" /> Download
-                 </button>
+                 </a>
                </div>
                
                <div className="absolute top-4 right-4 z-10 hidden sm:flex items-center gap-2 opacity-70 hover:opacity-100 transition-opacity">
@@ -407,9 +430,9 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                    <div className="animate-in fade-in slide-in-from-top-4 duration-300">
                       <h3 className="text-white font-bold mb-4 text-sm tracking-wide">Player Rendering (WebGL)</h3>
                       <div className="space-y-4 bg-[#1A1C23] p-4 rounded-lg border border-indigo-500/20 text-xs">
-                          <p className="text-indigo-400 font-medium mb-2 font-arabic" dir="rtl">تحديد مكان قناة الشفافية لعزل الخلفية عبر كارت الشاشة (GPU):</p>
+                          <p className="text-indigo-400 font-medium mb-2 font-arabic" dir="rtl">تحديد مكان شاشة الألفا لعزل الخلفية عبر كارت الشاشة (GPU):</p>
                           <select 
-                            value={alphaMode}
+                            value={alphaMode} 
                             onChange={(e) => setAlphaMode(e.target.value as any)}
                             className="w-full bg-[#0E0F14] border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 cursor-pointer appearance-none"
                             style={{backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ffffff%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.7rem top 50%', backgroundSize: '0.65rem auto'}}
@@ -419,6 +442,9 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                              <option value="left">ألفا (يسار الشاشة) - RGB (يمين)</option>
                              <option value="bottom">ألفا (أسفل الشاشة) - RGB (أعلى)</option>
                              <option value="top">ألفا (أعلى الشاشة) - RGB (أسفل)</option>
+                             <option value="white">استخراج من لون أبيض (White BG)</option>
+                             <option value="black">استخراج من لون أسود (Black BG)</option>
+                             <option value="green">استخراج من شاشة خضراء (Green Screen)</option>
                           </select>
                       </div>
                    </div>

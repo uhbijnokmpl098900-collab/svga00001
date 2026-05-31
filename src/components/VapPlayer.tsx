@@ -5,7 +5,7 @@ interface VapPlayerProps {
     width?: number;
     height?: number;
     className?: string;
-    alphaMode?: 'none' | 'right' | 'left' | 'top' | 'bottom';
+    alphaMode?: 'none' | 'right' | 'left' | 'top' | 'bottom' | 'white' | 'black' | 'green';
 }
 
 export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, className, alphaMode = 'right' }) => {
@@ -33,7 +33,7 @@ export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, classN
             }
         `;
 
-        // Fragment Shader for Side-by-Side (Left: RGB, Right: Alpha)
+        // Fragment Shader for Side-by-Side (Left: RGB, Right: Alpha) and Luma keys
         const fsSource = `
             precision mediump float;
             uniform sampler2D u_image;
@@ -47,26 +47,59 @@ export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, classN
                 // 1: left (Alpha Left, RGB Right)
                 // 2: bottom (Alpha Bottom, RGB Top)
                 // 3: top (Alpha Top, RGB Bottom)
+                // 4: white (Extract alpha from white background)
+                // 5: black (Extract alpha from black background)
+                // 6: green (Extract alpha from green screen)
                 
-                if (u_alphaMode == 0) {
-                    rgbUV.x = v_texCoord.x * 0.5;
-                    alphaUV.x = v_texCoord.x * 0.5 + 0.5;
-                } else if (u_alphaMode == 1) {
-                    rgbUV.x = v_texCoord.x * 0.5 + 0.5;
-                    alphaUV.x = v_texCoord.x * 0.5;
-                } else if (u_alphaMode == 2) {
-                    // Top-Bottom split
-                    rgbUV.y = v_texCoord.y * 0.5 + 0.5;
-                    alphaUV.y = v_texCoord.y * 0.5;
-                } else if (u_alphaMode == 3) {
-                    rgbUV.y = v_texCoord.y * 0.5;
-                    alphaUV.y = v_texCoord.y * 0.5 + 0.5;
+                if (u_alphaMode < 4) {
+                    if (u_alphaMode == 0) {
+                        rgbUV.x = v_texCoord.x * 0.5;
+                        alphaUV.x = v_texCoord.x * 0.5 + 0.5;
+                    } else if (u_alphaMode == 1) {
+                        rgbUV.x = v_texCoord.x * 0.5 + 0.5;
+                        alphaUV.x = v_texCoord.x * 0.5;
+                    } else if (u_alphaMode == 2) {
+                        // Top-Bottom split
+                        rgbUV.y = v_texCoord.y * 0.5 + 0.5;
+                        alphaUV.y = v_texCoord.y * 0.5;
+                    } else if (u_alphaMode == 3) {
+                        rgbUV.y = v_texCoord.y * 0.5;
+                        alphaUV.y = v_texCoord.y * 0.5 + 0.5;
+                    }
+                    
+                    vec4 color = texture2D(u_image, rgbUV);
+                    vec4 alphaStr = texture2D(u_image, alphaUV);
+                    
+                    gl_FragColor = vec4(color.rgb, alphaStr.r);
+                } else if (u_alphaMode == 4) {
+                    // White Background
+                    vec4 color = texture2D(u_image, v_texCoord);
+                    float minColor = min(min(color.r, color.g), color.b);
+                    float alpha = 1.0 - minColor;
+                    if (alpha <= 0.0) {
+                        gl_FragColor = vec4(0.0);
+                    } else {
+                        vec3 rgb = clamp((color.rgb - 1.0 + alpha) / max(alpha, 0.001), 0.0, 1.0);
+                        gl_FragColor = vec4(rgb, alpha);
+                    }
+                } else if (u_alphaMode == 5) {
+                    // Black Background
+                    vec4 color = texture2D(u_image, v_texCoord);
+                    float maxColor = max(max(color.r, color.g), color.b);
+                    float alpha = maxColor;
+                    if (alpha <= 0.0) {
+                        gl_FragColor = vec4(0.0);
+                    } else {
+                        gl_FragColor = vec4(color.rgb / max(alpha, 0.001), alpha);
+                    }
+                } else if (u_alphaMode == 6) {
+                    // Green Screen (basic chroma key)
+                    vec4 color = texture2D(u_image, v_texCoord);
+                    float maxRB = max(color.r, color.b);
+                    float key = color.g - maxRB;
+                    float alpha = smoothstep(0.05, 0.25, 1.0 - max(0.0, key * 2.0));
+                    gl_FragColor = vec4(color.rgb, alpha);
                 }
-                
-                vec4 color = texture2D(u_image, rgbUV);
-                vec4 alphaStr = texture2D(u_image, alphaUV);
-                
-                gl_FragColor = vec4(color.rgb, alphaStr.r);
             }
         `;
 
@@ -148,13 +181,18 @@ export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, classN
                 if (alphaMode === 'left') am = 1;
                 else if (alphaMode === 'bottom') am = 2;
                 else if (alphaMode === 'top') am = 3;
+                else if (alphaMode === 'white') am = 4;
+                else if (alphaMode === 'black') am = 5;
+                else if (alphaMode === 'green') am = 6;
                 gl.uniform1i(alphaModeLocation, am);
                 
                 // Dynamically resize canvas to match the expected actual size
                 if (video.videoWidth > 0 && video.videoHeight > 0) {
                     const isHorizontal = alphaMode === 'right' || alphaMode === 'left';
+                    const isSplit = isHorizontal || alphaMode === 'top' || alphaMode === 'bottom';
+                    
                     const targetWidth = isHorizontal ? video.videoWidth / 2 : video.videoWidth;
-                    const targetHeight = isHorizontal ? video.videoHeight : video.videoHeight / 2;
+                    const targetHeight = isSplit && !isHorizontal ? video.videoHeight / 2 : video.videoHeight;
                     
                     if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
                         canvas.width = targetWidth;
