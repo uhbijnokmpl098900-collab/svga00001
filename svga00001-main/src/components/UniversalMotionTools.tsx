@@ -5,10 +5,6 @@ import { UserRecord } from '../types';
 import SVGAPlayer from './SVGAPlayer';
 import { VapPlayer } from './VapPlayer';
 
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
-import JSZip from 'jszip';
-
 interface UniversalMotionToolsProps {
   currentUser: UserRecord | null;
   onCancel: () => void;
@@ -26,29 +22,6 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   const [fileUrl, setFileUrl] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState<'Motion' | 'Image' | 'Docs'>('Motion');
-  
-  const ffmpegRef = useRef(new FFmpeg());
-  const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
-
-  useEffect(() => {
-    const loadFFmpeg = async () => {
-      try {
-        const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
-        const ffmpeg = ffmpegRef.current;
-        ffmpeg.on('log', ({ message }) => {
-          console.log(message);
-        });
-        await ffmpeg.load({
-          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-        });
-        setFfmpegLoaded(true);
-      } catch (err) {
-        console.error("Failed to load FFmpeg:", err);
-      }
-    };
-    loadFFmpeg();
-  }, []);
   
   const [fileInfo, setFileInfo] = useState({
     format: '',
@@ -111,142 +84,17 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     });
   };
 
-  const handleStartConversion = async () => {
+  const handleStartConversion = () => {
     if (!currentUser) {
       onLoginRequired();
       return;
     }
-    
-    if (!file) return;
-
-    if (!ffmpegLoaded) {
-       alert('جاري تجهيز محرك التحويل، يرجى الانتظار قليلاً والمحاولة مرة أخرى.');
-       return;
-    }
-
     setIsProcessing(true);
-    
-    try {
-        const ffmpeg = ffmpegRef.current;
-        const uint8 = new Uint8Array(await file.arrayBuffer());
-        const inputName = `input_${file.name.replace(/\s+/g, '_')}`;
-        await ffmpeg.writeFile(inputName, uint8);
-        
-        let filterComplex = '';
-        
-        const isVideo = fileInfo.format === 'MP4' || fileInfo.format.startsWith('video');
-        
-        if (isVideo && alphaMode !== 'none') {
-            if (alphaMode === 'right') {
-                filterComplex = '[0:v]split [rgb_full][alpha_full]; [rgb_full]crop=iw/2:ih:0:0[rgb]; [alpha_full]crop=iw/2:ih:iw/2:0[alpha]; [rgb][alpha]alphamerge[out]';
-            } else if (alphaMode === 'left') {
-                filterComplex = '[0:v]split [rgb_full][alpha_full]; [rgb_full]crop=iw/2:ih:iw/2:0[rgb]; [alpha_full]crop=iw/2:ih:0:0[alpha]; [rgb][alpha]alphamerge[out]';
-            } else if (alphaMode === 'bottom') {
-                filterComplex = '[0:v]split [rgb_full][alpha_full]; [rgb_full]crop=iw:ih/2:0:0[rgb]; [alpha_full]crop=iw:ih/2:0:ih/2[alpha]; [rgb][alpha]alphamerge[out]';
-            } else if (alphaMode === 'top') {
-                filterComplex = '[0:v]split [rgb_full][alpha_full]; [rgb_full]crop=iw:ih/2:0:ih/2[rgb]; [alpha_full]crop=iw:ih/2:0:0[alpha]; [rgb][alpha]alphamerge[out]';
-            }
-        }
-        
-        const baseName = fileInfo.name.replace(/\.[^/.]+$/, "");
-        
-        if (convertFormat === 'Image Sequence') {
-            const outPattern = 'frame_%04d.png';
-            const args = ['-i', inputName];
-            if (filterComplex) {
-                args.push('-filter_complex', filterComplex, '-map', '[out]');
-            }
-            args.push(outPattern);
-            
-            await ffmpeg.exec(args);
-            
-            const jszip = new JSZip();
-            const files = await ffmpeg.listDir('.');
-            let foundFrames = 0;
-            for (const f of files) {
-                if (f.name.startsWith('frame_') && f.name.endsWith('.png')) {
-                    const data = await ffmpeg.readFile(f.name);
-                    jszip.file(f.name, (data as Uint8Array).buffer);
-                    foundFrames++;
-                    ffmpeg.deleteFile(f.name);
-                }
-            }
-            if (foundFrames > 0) {
-               const content = await jszip.generateAsync({ type: 'blob' });
-               const url = URL.createObjectURL(content);
-               const link = document.createElement('a');
-               link.href = url;
-               link.download = `${baseName}_images.zip`;
-               link.click();
-            } else {
-               throw new Error("No frames extracted");
-            }
-            
-        } else if (convertFormat === 'GIF (Animation)') {
-            const outName = 'out.gif';
-            const args = ['-i', inputName];
-            if (filterComplex) {
-                const fullFilter = `${filterComplex}; [out]split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse[gifout]`;
-                args.push('-filter_complex', fullFilter, '-map', '[gifout]');
-            } else {
-                args.push('-filter_complex', 'split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse', '-map', '0:v');
-            }
-            args.push(outName);
-            await ffmpeg.exec(args);
-            const data = await ffmpeg.readFile(outName);
-            const blob = new Blob([data], { type: 'image/gif' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `${baseName}.gif`;
-            link.click();
-            ffmpeg.deleteFile(outName);
-            
-        } else if (convertFormat === 'WebM (Video)') {
-            const outName = 'out.webm';
-            const args = ['-i', inputName];
-            if (filterComplex) {
-                args.push('-filter_complex', filterComplex, '-map', '[out]');
-            }
-            args.push('-c:v', 'libvpx-vp9', '-auto-alt-ref', '0', '-pix_fmt', 'yuva420p');
-            args.push(outName);
-            await ffmpeg.exec(args);
-            const data = await ffmpeg.readFile(outName);
-            const blob = new Blob([data], { type: 'video/webm' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `${baseName}.webm`;
-            link.click();
-            ffmpeg.deleteFile(outName);
-        } else if (convertFormat === 'APNG (Animation)') {
-            const outName = 'out.apng';
-            const args = ['-i', inputName];
-            if (filterComplex) {
-                args.push('-filter_complex', filterComplex, '-map', '[out]');
-            }
-            args.push('-f', 'apng', '-plays', '0');
-            args.push(outName);
-            await ffmpeg.exec(args);
-            const data = await ffmpeg.readFile(outName);
-            const blob = new Blob([data], { type: 'image/apng' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `${baseName}.apng`;
-            link.click();
-            ffmpeg.deleteFile(outName);
-        } else {
-            alert('This format is still under active development for unified conversion! Will be available shortly.');
-        }
-
-        ffmpeg.deleteFile(inputName);
-    } catch (err) {
-        console.error(err);
-        alert('حدث خطأ أثناء المعالجة!');
-    } finally {
-        setIsProcessing(false);
-    }
+    // Dummy simulate
+    setTimeout(() => {
+      setIsProcessing(false);
+      alert('تم استلام الملف وجاري تطوير محرك التحويل الموحد لهذه الأداة.');
+    }, 2000);
   };
 
   return (
@@ -339,7 +187,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                        alphaMode === 'none' ? (
                          <video src={fileUrl} controls autoPlay loop className="w-[80%] h-[80%] object-contain shadow-2xl rounded mx-auto" />
                        ) : (
-                         <VapPlayer src={fileUrl} className="w-[80%] h-[80%]" alphaMode={alphaMode} />
+                         <VapPlayer src={fileUrl} width={800} height={800} className="w-[80%] h-[80%]" alphaMode={alphaMode} />
                        )
                     ) : fileInfo.format.includes('image') ? (
                        <img src={fileUrl} className="max-w-[80%] max-h-[80%] object-contain" />

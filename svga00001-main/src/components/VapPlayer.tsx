@@ -150,19 +150,6 @@ export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, classN
                 else if (alphaMode === 'top') am = 3;
                 gl.uniform1i(alphaModeLocation, am);
                 
-                // Dynamically resize canvas to match the expected actual size
-                if (video.videoWidth > 0 && video.videoHeight > 0) {
-                    const isHorizontal = alphaMode === 'right' || alphaMode === 'left';
-                    const targetWidth = isHorizontal ? video.videoWidth / 2 : video.videoWidth;
-                    const targetHeight = isHorizontal ? video.videoHeight : video.videoHeight / 2;
-                    
-                    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
-                        canvas.width = targetWidth;
-                        canvas.height = targetHeight;
-                        gl.viewport(0, 0, targetWidth, targetHeight);
-                    }
-                }
-
                 gl.bindTexture(gl.TEXTURE_2D, texture);
                 gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
                 gl.drawArrays(gl.TRIANGLES, 0, 6);

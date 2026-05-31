@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { FileMetadata, MaterialAsset, AppSettings, UserRecord, PresetBackground } from '../types';
-import { Layers, Download, Copy, Trash2, Lock, ListOrdered, Upload, CheckCircle2 } from 'lucide-react';
+import { Layers, Download, Copy, Trash2, Lock, ListOrdered, Upload, CheckCircle2, Image as ImageIcon } from 'lucide-react';
 import { logActivity } from '../utils/logger';
 import * as Mp4Muxer from 'mp4-muxer';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -212,8 +212,23 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   
   const [textReplaceTarget, setTextReplaceTarget] = useState<string | null>(null);
   const [textOptions, setTextOptions] = useState({
-      text: "", font: "Arial", size: 40, color: "#ffffff", offsetX: 0, offsetY: 0, width: 0, height: 0, originalImage: "", is3D: false, color3D: "#000000"
+      text: "", font: "Arial", size: 40, color: "#ffffff", offsetX: 0, offsetY: 0, width: 0, height: 0, originalImage: "", is3D: false, color3D: "#000000", keepTexture: false, customTexture: ""
   });
+  const [previewTextUrl, setPreviewTextUrl] = useState<string>('');
+
+  useEffect(() => {
+      let isActive = true;
+      const generate = async () => {
+          if (!textReplaceTarget || !textOptions.text.trim()) {
+              if (isActive) setPreviewTextUrl('');
+              return;
+          }
+          const dataUrl = await handlePreviewTextGenerateAsync();
+          if (isActive) setPreviewTextUrl(dataUrl);
+      };
+      generate();
+      return () => { isActive = false; };
+  }, [textOptions, textReplaceTarget]);
   const [textReplaceOriginalImages, setTextReplaceOriginalImages] = useState<Record<string, string[]>>({});
   const [layerTextOptions, setLayerTextOptions] = useState<Record<string, any>>({});
 
@@ -1963,45 +1978,85 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       });
 
       setTextOptions({
-          text: "", font: "Arial", size: Math.max(16, Math.floor(imgInfo.h / 1.5)), color: imgInfo.color, offsetX: 0, offsetY: 0, width: imgInfo.w, height: imgInfo.h, originalImage, is3D: false, color3D: "#000000"
+          text: "", font: "Arial", size: Math.max(16, Math.floor(imgInfo.h / 1.5)), color: imgInfo.color, offsetX: 0, offsetY: 0, width: imgInfo.w, height: imgInfo.h, originalImage, is3D: false, color3D: "#000000", keepTexture: false
       });
       setTextReplaceTarget(key);
   };
 
-  const handlePreviewTextGenerate = (): string => {
-      const canvas = document.createElement('canvas');
-      canvas.width = textOptions.width;
-      canvas.height = textOptions.height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return textOptions.originalImage;
-      
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.font = `bold ${textOptions.size}px ${textOptions.font}, sans-serif`;
-      
-      const x = (canvas.width / 2) + textOptions.offsetX;
-      const y = (canvas.height / 2) + textOptions.offsetY;
-      
-      if (textOptions.is3D) {
-          ctx.fillStyle = textOptions.color3D;
-          const depth = Math.max(1, Math.floor(textOptions.size / 15));
-          for (let i = depth; i > 0; i--) {
-              ctx.fillText(textOptions.text, x + i, y + i);
+  const handlePreviewTextGenerateAsync = async (): Promise<string> => {
+      return new Promise((resolve) => {
+          const canvas = document.createElement('canvas');
+          canvas.width = textOptions.width;
+          canvas.height = textOptions.height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return resolve(textOptions.originalImage);
+          
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `bold ${textOptions.size}px ${textOptions.font}, sans-serif`;
+          
+          const x = (canvas.width / 2) + textOptions.offsetX;
+          const y = (canvas.height / 2) + textOptions.offsetY;
+          
+          if (textOptions.is3D) {
+              ctx.fillStyle = textOptions.color3D;
+              const depth = Math.max(1, Math.floor(textOptions.size / 15));
+              for (let i = depth; i > 0; i--) {
+                  ctx.fillText(textOptions.text, x + i, y + i);
+              }
           }
-      }
 
-      ctx.fillStyle = textOptions.color;
-      
-      // Basic text wrapping/stroke can be added, but fill is enough for now
-      ctx.fillText(textOptions.text, x, y);
-      return canvas.toDataURL('image/png');
+          if (textOptions.keepTexture && (textOptions.customTexture || textOptions.originalImage)) {
+              const offCanvas = document.createElement('canvas');
+              offCanvas.width = canvas.width;
+              offCanvas.height = canvas.height;
+              const offCtx = offCanvas.getContext('2d');
+              
+              if (offCtx) {
+                  offCtx.textAlign = "center";
+                  offCtx.textBaseline = "middle";
+                  offCtx.font = ctx.font;
+                  offCtx.fillStyle = textOptions.color;
+                  offCtx.fillText(textOptions.text, x, y);
+
+                  const img = new Image();
+                  img.onload = () => {
+                      offCtx.globalCompositeOperation = 'source-in';
+                      const scale = Math.max(canvas.width / img.width, canvas.height / img.height);
+                      const w = img.width * scale;
+                      const h = img.height * scale;
+                      const imgX = (canvas.width - w) / 2;
+                      const imgY = (canvas.height - h) / 2;
+                      offCtx.drawImage(img, imgX, imgY, w, h);
+                      offCtx.globalCompositeOperation = 'source-over'; // reset just in case
+                      
+                      ctx.drawImage(offCanvas, 0, 0);
+                      resolve(canvas.toDataURL('image/png'));
+                  };
+                  img.onerror = () => {
+                      ctx.fillStyle = textOptions.color;
+                      ctx.fillText(textOptions.text, x, y);
+                      resolve(canvas.toDataURL('image/png'));
+                  }
+                  img.src = textOptions.customTexture || textOptions.originalImage;
+              } else {
+                  ctx.fillStyle = textOptions.color;
+                  ctx.fillText(textOptions.text, x, y);
+                  resolve(canvas.toDataURL('image/png'));
+              }
+          } else {
+              ctx.fillStyle = textOptions.color;
+              ctx.fillText(textOptions.text, x, y);
+              resolve(canvas.toDataURL('image/png'));
+          }
+      });
   };
 
   const handleApplyTextReplace = async () => {
     if (!textReplaceTarget || !textOptions.text.trim()) return;
     try {
-        const base64 = handlePreviewTextGenerate();
+        const base64 = await handlePreviewTextGenerateAsync();
         
         // Push to Undo stack
         setTextReplaceOriginalImages(p => {
@@ -9726,11 +9781,56 @@ class _MyAppState extends State<MyApp> {
                                 />
                             </div>
                         </div>
+
+                        <div className="col-span-2 mt-2 pt-2 border-t border-white/10">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    checked={textOptions.keepTexture}
+                                    onChange={(e) => setTextOptions(p => ({ ...p, keepTexture: e.target.checked }))}
+                                    className="w-4 h-4 rounded bg-black/50 border-white/10 text-yellow-500 focus:ring-yellow-500 focus:ring-offset-0"
+                                />
+                                <span className="text-xs text-white font-bold">الاحتفاظ بخامة الصورة الأصلية أو إضافة خامة جديدة (Texture)</span>
+                            </label>
+                            <p className="text-[9px] text-slate-500 mt-1 mr-6">هذا الخيار سيجعل النص يقص شكل الصورة الأصلية للاحتفاظ بألوانها وتفاصيلها.</p>
+                            
+                            {textOptions.keepTexture && (
+                                <div className="mt-3 mr-6">
+                                    <label className="flex items-center gap-2 px-3 py-2 bg-white/5 border border-white/10 rounded-lg cursor-pointer hover:bg-white/10 transition-colors w-fit">
+                                        <ImageIcon className="w-4 h-4 text-slate-400" />
+                                        <span className="text-xs text-slate-300">رفع صورة خامة (Texture) مخصصة</span>
+                                        <input 
+                                            type="file"
+                                            className="hidden"
+                                            accept="image/*"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) {
+                                                    const reader = new FileReader();
+                                                    reader.onload = (e) => {
+                                                        setTextOptions(p => ({ ...p, customTexture: e.target?.result as string }));
+                                                    };
+                                                    reader.readAsDataURL(file);
+                                                }
+                                            }}
+                                        />
+                                    </label>
+                                    {textOptions.customTexture && (
+                                        <button 
+                                            onClick={() => setTextOptions(p => ({ ...p, customTexture: '' }))}
+                                            className="text-[10px] text-red-400 hover:text-red-300 mt-2 block"
+                                        >
+                                            إزالة الخامة المخصصة (العودة للأصلية)
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     <div className="mt-4 aspect-video bg-black/50 border border-white/10 rounded-xl overflow-hidden flex items-center justify-center relative bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+CjxyZWN0IHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjA1Ii8+CjxwYXRoIGQ9Ik0wIDEwaDIwdk0xMCAwdjIwIiBzdHJva2U9IiNmZmYiIHN0cm9rZS1vcGFjaXR5PSIwLjAyIi8+Cjwvc3ZnPg==')]">
-                         {textOptions.text.trim() ? (
-                             <img src={handlePreviewTextGenerate()} alt="preview" className="max-w-full max-h-full object-contain" />
+                         {textOptions.text.trim() && previewTextUrl ? (
+                             <img src={previewTextUrl} alt="preview" className="max-w-full max-h-full object-contain" />
                          ) : (
                              <span className="text-white/20 text-xs">معاينة النص</span>
                          )}
