@@ -74,7 +74,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const availableFormats = [
-    'WebM (Video)', 'VAP 1.0.5', 'VAP (MP4)', 'WebP (Animated)',
+    'SVGA 2.0', 'WebM (Video)', 'VAP 1.0.5', 'VAP (MP4)', 'WebP (Animated)',
     'Image Sequence', 'GIF (Animation)', 'APNG (Animation)'
   ];
 
@@ -398,6 +398,37 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             link.download = `${baseName}_vap.mp4`;
             link.click();
             ffmpeg.deleteFile(outName);
+        } else if (convertFormat === 'SVGA 2.0') {
+            alert('يتم الآن تحويل الفيديو إلى تسلسل صور (Image Sequence) أولاً. تحويل الـ SVGA المباشر يتطلب محول خارجي أو أداة تجميع، لذلك سيتم توفير الصور لك لسهولة التجميع.');
+            const outPattern = 'frame_%04d.png';
+            const args = ['-i', inputName];
+            if (filterComplex) {
+                args.push('-filter_complex', filterComplex, '-map', '[out]');
+            }
+            args.push(outPattern);
+            await ffmpeg.exec(args);
+            
+            const jszip = new JSZip();
+            const files = await ffmpeg.listDir('.');
+            let foundFrames = 0;
+            for (const f of files) {
+                if (f.name.startsWith('frame_') && f.name.endsWith('.png')) {
+                    const data = await ffmpeg.readFile(f.name);
+                    jszip.file(f.name, (data as Uint8Array).buffer);
+                    foundFrames++;
+                    ffmpeg.deleteFile(f.name);
+                }
+            }
+            if (foundFrames > 0) {
+               const content = await jszip.generateAsync({ type: 'blob' });
+               const url = URL.createObjectURL(content);
+               const link = document.createElement('a');
+               link.href = url;
+               link.download = `${baseName}_svga_frames.zip`;
+               link.click();
+            } else {
+               throw new Error("No frames extracted");
+            }
         } else {
             alert('عفواً، هذه الصيغة (' + convertFormat + ') غير مدعومة للتصدير في هذه النسخة حالياً. يرجى اختيار صيغة مدعومة مثل: VAP 1.0.5, GIF, WebM, WebP, APNG, أو Image Sequence.');
         }
