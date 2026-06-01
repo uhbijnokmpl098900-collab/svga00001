@@ -20,7 +20,8 @@ import {
   Music,
   Trash2,
   Clock,
-  Scissors
+  Scissors,
+  X
 } from 'lucide-react';
 import { logActivity } from '../utils/logger';
 
@@ -77,6 +78,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
   const [whiteTolerance, setWhiteTolerance] = useState(30);
   const [removeGreen, setRemoveGreen] = useState(false);
   const [removeBlue, setRemoveBlue] = useState(false);
+  const [showTrimmer, setShowTrimmer] = useState(false);
   const [fadeConfig, setFadeConfig] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
   
   const file = files[currentFileIndex] || null;
@@ -254,13 +256,28 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
     ctx.putImageData(imageData, 0, 0);
   };
 
-  const drawVideoCentered = (ctx: CanvasRenderingContext2D, video: HTMLVideoElement, targetWidth: number, targetHeight: number) => {
-    const scale = Math.min(targetWidth / video.videoWidth, targetHeight / video.videoHeight);
-    const drawW = video.videoWidth * scale;
-    const drawH = video.videoHeight * scale;
-    const drawX = (targetWidth - drawW) / 2;
-    const drawY = (targetHeight - drawH) / 2;
-    ctx.drawImage(video, drawX, drawY, drawW, drawH);
+  const drawVideoCentered = (ctx: CanvasRenderingContext2D, video: HTMLVideoElement, targetWidth: number, targetHeight: number, isVap: boolean = false) => {
+    if (isVap) {
+      const halfTargetW = targetWidth / 2;
+      const halfVideoW = video.videoWidth / 2;
+      const scale = Math.max(halfTargetW / halfVideoW, targetHeight / video.videoHeight);
+      const drawW = halfVideoW * scale;
+      const drawH = video.videoHeight * scale;
+      const drawX = (halfTargetW - drawW) / 2;
+      const drawY = (targetHeight - drawH) / 2;
+      
+      // Draw Alpha (Left half of video -> Left half of canvas)
+      ctx.drawImage(video, 0, 0, halfVideoW, video.videoHeight, drawX, drawY, drawW, drawH);
+      // Draw RGB (Right half of video -> Right half of canvas)
+      ctx.drawImage(video, halfVideoW, 0, halfVideoW, video.videoHeight, halfTargetW + drawX, drawY, drawW, drawH);
+    } else {
+      const scale = Math.max(targetWidth / video.videoWidth, targetHeight / video.videoHeight);
+      const drawW = video.videoWidth * scale;
+      const drawH = video.videoHeight * scale;
+      const drawX = (targetWidth - drawW) / 2;
+      const drawY = (targetHeight - drawH) / 2;
+      ctx.drawImage(video, drawX, drawY, drawW, drawH);
+    }
   };
 
   const captureFrame = async (
@@ -279,7 +296,7 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
 
     ctx.clearRect(0, 0, vw, vh);
     tCtx.clearRect(0, 0, tCtx.canvas.width, tCtx.canvas.height);
-    drawVideoCentered(tCtx, video, tCtx.canvas.width, tCtx.canvas.height);
+    drawVideoCentered(tCtx, video, tCtx.canvas.width, tCtx.canvas.height, isVapInput);
 
     if (isVapInput) {
       // VAP Input: Left half is Alpha, Right half is RGB
@@ -427,8 +444,20 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
       const validScale = isNaN(exportScale) ? 1.0 : exportScale;
       
       const baseVideoWidth = isVapInput ? Math.floor(video.videoWidth / 2) : video.videoWidth;
-      const rawWidth = (customWidth && !isNaN(parsedWidth) && parsedWidth > 0) ? parsedWidth : (baseVideoWidth || 1334) * validScale;
-      const rawHeight = (customHeight && !isNaN(parsedHeight) && parsedHeight > 0) ? parsedHeight : (video.videoHeight || 750) * validScale;
+      
+      let rawWidth = baseVideoWidth * validScale;
+      let rawHeight = video.videoHeight * validScale;
+
+      if (customWidth && !isNaN(parsedWidth) && parsedWidth > 0 && customHeight && !isNaN(parsedHeight) && parsedHeight > 0) {
+        rawWidth = parsedWidth;
+        rawHeight = parsedHeight;
+      } else if (customWidth && !isNaN(parsedWidth) && parsedWidth > 0) {
+        rawWidth = parsedWidth;
+        rawHeight = Math.round((parsedWidth / baseVideoWidth) * video.videoHeight);
+      } else if (customHeight && !isNaN(parsedHeight) && parsedHeight > 0) {
+        rawHeight = parsedHeight;
+        rawWidth = Math.round((parsedHeight / video.videoHeight) * baseVideoWidth);
+      }
       
       const isVap = selectedFormat === 'VAP (MP4)' || selectedFormat === 'VAP 1.0.5';
       const maxPixels = isVap ? 6000000 : 9437184; // Cap VAP earlier because it expands dimensions
@@ -456,21 +485,21 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
       }
 
       if (selectedFormat === 'SVGA → YYEVA') {
-        await exportToVAP(video, vw, vh, totalFrames, fps, audioData, startTime, currentFile.name, true);
+        await exportToVAP(video, vw, vh, totalFrames, fps, audioData, effectiveStartTime, currentFile.name, true);
       } else if (selectedFormat === 'VAP (MP4)') {
-        await exportToVAP(video, vw, vh, totalFrames, fps, audioData, startTime, currentFile.name, false);
+        await exportToVAP(video, vw, vh, totalFrames, fps, audioData, effectiveStartTime, currentFile.name, false);
       } else if (selectedFormat === 'VAP 1.0.5') {
-        await exportToVAP105(video, vw, vh, totalFrames, fps, audioData, startTime, currentFile.name);
+        await exportToVAP105(video, vw, vh, totalFrames, fps, audioData, effectiveStartTime, currentFile.name);
       } else if (selectedFormat === 'SVGA 2.0') {
-        await exportToSVGA(video, vw, vh, totalFrames, fps, audioData, startTime, endTime, currentFile.name);
+        await exportToSVGA(video, vw, vh, totalFrames, fps, audioData, effectiveStartTime, effectiveEndTime, currentFile.name);
       } else if (selectedFormat === 'GIF (Animation)') {
-        await exportToGIF(video, vw, vh, totalFrames, fps, startTime, currentFile.name);
+        await exportToGIF(video, vw, vh, totalFrames, fps, effectiveStartTime, currentFile.name);
       } else if (selectedFormat === 'APNG (Animation)') {
-        await exportToAPNG(video, vw, vh, totalFrames, fps, startTime, currentFile.name);
+        await exportToAPNG(video, vw, vh, totalFrames, fps, effectiveStartTime, currentFile.name);
       } else if (selectedFormat === 'WebP (Animated)') {
-        await exportToWebP(video, vw, vh, totalFrames, fps, startTime, currentFile.name);
+        await exportToWebP(video, vw, vh, totalFrames, fps, effectiveStartTime, currentFile.name);
       } else if (selectedFormat === 'WebM (Video)') {
-        await exportToWebM(video, vw, vh, totalFrames, fps, startTime, currentFile.name);
+        await exportToWebM(video, vw, vh, totalFrames, fps, effectiveStartTime, currentFile.name);
       }
     } finally {
       URL.revokeObjectURL(objectUrl);
@@ -492,8 +521,19 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
     const validScale = isNaN(exportScale) ? 1.0 : exportScale;
     
     const baseVideoWidth = isVapInput ? Math.floor(firstVideo.videoWidth / 2) : firstVideo.videoWidth;
-    const rawWidth = (customWidth && !isNaN(parsedWidth) && parsedWidth > 0) ? parsedWidth : (baseVideoWidth || 1334) * validScale;
-    const rawHeight = (customHeight && !isNaN(parsedHeight) && parsedHeight > 0) ? parsedHeight : (firstVideo.videoHeight || 750) * validScale;
+    let rawWidth = baseVideoWidth * validScale;
+    let rawHeight = firstVideo.videoHeight * validScale;
+
+    if (customWidth && !isNaN(parsedWidth) && parsedWidth > 0 && customHeight && !isNaN(parsedHeight) && parsedHeight > 0) {
+      rawWidth = parsedWidth;
+      rawHeight = parsedHeight;
+    } else if (customWidth && !isNaN(parsedWidth) && parsedWidth > 0) {
+      rawWidth = parsedWidth;
+      rawHeight = Math.round((parsedWidth / baseVideoWidth) * firstVideo.videoHeight);
+    } else if (customHeight && !isNaN(parsedHeight) && parsedHeight > 0) {
+      rawHeight = parsedHeight;
+      rawWidth = Math.round((parsedHeight / firstVideo.videoHeight) * baseVideoWidth);
+    }
     
     const safe = calculateSafeDimensions(rawWidth, rawHeight);
     let vw = safe.width;
@@ -1795,7 +1835,8 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6 sm:p-10 bg-slate-900/60 backdrop-blur-3xl rounded-[3rem] border border-white/10 shadow-3xl text-right font-arabic" dir="rtl">
+    <>
+      <div className="max-w-6xl mx-auto p-6 sm:p-10 bg-slate-900/60 backdrop-blur-3xl rounded-[3rem] border border-white/10 shadow-3xl text-right font-arabic" dir="rtl">
       <div className="flex items-center justify-between mb-10">
         <button onClick={onCancel} className="p-3 hover:bg-white/10 rounded-2xl transition-all text-slate-400 hover:text-white">
           <ChevronLeft className="w-6 h-6" />
@@ -1941,32 +1982,25 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
                 <Scissors className="w-3 h-3" />
                 تحديد مدة التصدير:
               </h4>
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <div className="flex justify-between text-[10px] font-black">
-                    <span className="text-slate-500 uppercase tracking-widest">البداية</span>
-                    <span className="text-sky-400">{startTime.toFixed(2)}s</span>
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={() => setShowTrimmer(true)}
+                  className="w-full relative group overflow-hidden bg-white/5 hover:bg-white/10 border border-white/10 p-4 rounded-2xl transition-all duration-300 flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center">
+                      <Scissors className="w-5 h-5" />
+                    </div>
+                    <div className="text-right">
+                      <div className="text-white font-black text-sm">أداة القص الاحترافية</div>
+                      <div className="text-slate-400 text-[10px] uppercase font-black tracking-widest mt-1">حدد المقطع المطلوب بدقة</div>
+                    </div>
                   </div>
-                  <input 
-                    type="range" min="0" max={duration} step="0.01" value={startTime} 
-                    onChange={(e) => setStartTime(Math.min(parseFloat(e.target.value), endTime - 0.1))}
-                    className="w-full h-1.5 bg-white/5 rounded-lg appearance-none cursor-pointer accent-sky-500"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-[10px] font-black">
-                    <span className="text-slate-500 uppercase tracking-widest">النهاية</span>
-                    <span className="text-sky-400">{endTime.toFixed(2)}s</span>
+                  <div className="text-left">
+                    <div className="text-emerald-400 font-black text-sm">{(endTime - startTime).toFixed(2)}s</div>
+                    <div className="text-slate-500 text-[10px]">المدة المحددة</div>
                   </div>
-                  <input 
-                    type="range" min="0" max={duration} step="0.01" value={endTime} 
-                    onChange={(e) => setEndTime(Math.max(parseFloat(e.target.value), startTime + 0.1))}
-                    className="w-full h-1.5 bg-white/5 rounded-lg appearance-none cursor-pointer accent-sky-500"
-                  />
-                </div>
-                <div className="text-center text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                  المدة المختارة: <span className="text-emerald-400">{(endTime - startTime).toFixed(2)}s</span>
-                </div>
+                </button>
               </div>
             </div>
           )}
@@ -2447,5 +2481,139 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({ currentUser, onC
         </div>
       </div>
     </div>
+
+      {showTrimmer && file && videoUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-xl">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-slate-950 border border-white/10 rounded-[3rem] w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col"
+          >
+            <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/5">
+              <h3 className="text-white font-black flex items-center gap-2">
+                <Scissors className="w-5 h-5 text-sky-400" />
+                أداة القص الاحترافية
+              </h3>
+              <button 
+                onClick={() => setShowTrimmer(false)}
+                className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            <div className="p-8 flex flex-col items-center gap-8">
+              <div className="relative w-full aspect-video bg-black rounded-3xl overflow-hidden border border-white/10 shadow-inner">
+                <video 
+                  src={videoUrl} 
+                  className="w-full h-full object-contain" 
+                  onTimeUpdate={(e) => {
+                    const v = e.currentTarget;
+                    const effectiveStart = isAutoDuration ? 0 : startTime;
+                    const effectiveEnd = isAutoDuration ? v.duration : endTime;
+                    if (v.currentTime > effectiveEnd) v.currentTime = effectiveStart;
+                    if (v.currentTime < effectiveStart) v.currentTime = effectiveStart;
+                  }}
+                  autoPlay loop muted playsInline
+                />
+              </div>
+
+              <div className="w-full space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-slate-400 text-xs font-black uppercase tracking-widest">نمط القص</span>
+                  </div>
+                  <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
+                    <button 
+                      onClick={() => setIsAutoDuration(true)}
+                      className={`px-6 py-2 rounded-lg text-xs font-black uppercase transition-all ${isAutoDuration ? 'bg-sky-500 text-white shadow-glow-sky' : 'text-slate-500 hover:text-white'}`}
+                    >
+                      تلقائي (المدة كاملة)
+                    </button>
+                    <button 
+                      onClick={() => setIsAutoDuration(false)}
+                      className={`px-6 py-2 rounded-lg text-xs font-black uppercase transition-all ${!isAutoDuration ? 'bg-sky-500 text-white shadow-glow-sky' : 'text-slate-500 hover:text-white'}`}
+                    >
+                      تحديد يدوي
+                    </button>
+                  </div>
+                </div>
+
+                {!isAutoDuration && (
+                  <div className="w-full mt-4 space-y-6 animate-in fade-in zoom-in-95 duration-300">
+                    <div className="flex justify-between items-center px-4">
+                       <div className="text-right">
+                         <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">نقطة البداية</div>
+                         <div className="text-sky-400 font-black text-xl bg-sky-500/10 px-4 py-1 rounded-xl">{startTime.toFixed(2)}s</div>
+                       </div>
+                       <div className="text-center">
+                         <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1">المدة المحددة</div>
+                         <div className="text-emerald-400 font-black text-sm">{(endTime - startTime).toFixed(2)}s</div>
+                       </div>
+                       <div className="text-left">
+                         <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">نقطة النهاية</div>
+                         <div className="text-indigo-400 font-black text-xl bg-indigo-500/10 px-4 py-1 rounded-xl">{endTime.toFixed(2)}s</div>
+                       </div>
+                    </div>
+
+                    <div className="relative w-full h-16 bg-slate-900 rounded-2xl overflow-hidden border-2 border-white/5" dir="ltr">
+                      {/* Grid background for timeline */}
+                      <div className="absolute inset-0 opacity-20" 
+                           style={{ backgroundImage: 'linear-gradient(90deg, #ffffff 1px, transparent 1px)', backgroundSize: '10% 100%' }} />
+                      
+                      {/* Dim backgrounds for unselected parts */}
+                      <div className="absolute top-0 bottom-0 left-0 bg-black/80 backdrop-blur-sm z-0" style={{ width: `${(startTime / (duration || 1)) * 100}%` }} />
+                      <div className="absolute top-0 bottom-0 right-0 bg-black/80 backdrop-blur-sm z-0" style={{ width: `${(1 - endTime / (duration || 1)) * 100}%` }} />
+
+                      {/* Active Selection Highlight */}
+                      <div 
+                        className="absolute top-0 bottom-0 bg-sky-500/20 border-y-2 border-sky-400 z-10"
+                        style={{
+                          left: `${(startTime / (duration || 1)) * 100}%`,
+                          width: `${((endTime - startTime) / (duration || 1)) * 100}%`
+                        }}
+                      >
+                        {/* Left Handle Visual */}
+                        <div className="absolute top-0 bottom-0 left-0 w-4 bg-sky-400 flex items-center justify-center -translate-x-1/2 rounded-full shadow-[0_0_15px_rgba(56,189,248,0.6)]">
+                           <div className="w-0.5 h-6 bg-slate-900 rounded-full" />
+                        </div>
+                        {/* Right Handle Visual */}
+                        <div className="absolute top-0 bottom-0 right-0 w-4 bg-sky-400 flex items-center justify-center translate-x-1/2 rounded-full shadow-[0_0_15px_rgba(56,189,248,0.6)]">
+                           <div className="w-0.5 h-6 bg-slate-900 rounded-full" />
+                        </div>
+                      </div>
+
+                      {/* Invisible Native Sliders for Interaction */}
+                      <input 
+                        type="range" min="0" max={duration} step="0.01" value={startTime} 
+                        onChange={(e) => setStartTime(Math.min(parseFloat(e.target.value), endTime - 0.1))}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-8 [&::-webkit-slider-thumb]:h-16 [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-8 [&::-moz-range-thumb]:h-16 z-20"
+                      />
+                      <input 
+                        type="range" min="0" max={duration} step="0.01" value={endTime} 
+                        onChange={(e) => setEndTime(Math.max(parseFloat(e.target.value), startTime + 0.1))}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-8 [&::-webkit-slider-thumb]:h-16 [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-8 [&::-moz-range-thumb]:h-16 z-30"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-white/5 bg-slate-900/50 flex justify-between items-center">
+              <div className="text-sm font-black text-slate-400">
+                المدة الكلية المحددة: <span className="text-emerald-400 ml-2">{(isAutoDuration ? duration : endTime - startTime).toFixed(2)} ثانية</span>
+              </div>
+              <button
+                onClick={() => setShowTrimmer(false)}
+                className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white px-8 py-3 rounded-2xl font-black text-sm hover:scale-105 transition-all shadow-glow-emerald"
+              >
+                تأكيد القص
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </>
   );
 };
