@@ -67,7 +67,6 @@ const categories: CategoryDefinition[] = [
       { id: 'multi-svga', label: 'Multi SVGA Preview', icon: <LayoutGrid className="w-4 h-4" />, actionKey: 'onMultiSvgaOpen', descAr: 'استعراض ومقارنة عدة ملفات SVGA في نفس الوقت بخصائص دقيقة', descEn: 'Preview and compare multiple SVGA files simultaneously.' },
       { id: 'image-converter', label: 'Image to SVGA', icon: <Image className="w-4 h-4" />, actionKey: 'onImageConverterOpen', descAr: 'تحويل الصور الثابتة إلى ملفات SVGA متحركة مع تأثيرات دخول', descEn: 'Convert static images into animated SVGA files with entry effects.' },
       { id: 'universal', label: 'Universal Motion Tools', icon: <RefreshCw className="w-4 h-4" />, actionKey: 'onUniversalConverterOpen', descAr: 'أدوات مجمعة للتحويل بين صيغ الحركة المختلفة', descEn: 'Unified tools for converting between various motion formats.', highlight: true },
-      { id: 'pag-converter', label: 'PAG Converter', icon: <Wand className="w-4 h-4" />, actionKey: 'onPagConverterOpen', descAr: 'تحويل وإنشاء ملفات PAG المتحركة بدقة عالية', descEn: 'Convert and create high-precision animated PAG files.' },
     ]
   },
   {
@@ -89,7 +88,6 @@ const categories: CategoryDefinition[] = [
     color: 'orange',
     tools: [
       { id: 'batch-image-processor', label: 'Batch Image Processor', icon: <Image className="w-4 h-4" />, actionKey: 'onBatchImageProcessorOpen', descAr: 'تطبيق التعديلات والتحسينات على مجلد كامل من الصور بضغطة واحدة', descEn: 'Apply enhancements and edits to a whole folder of images with one click.' },
-      { id: 'batch-image-converter', label: 'Batch Image Converter', icon: <Repeat className="w-4 h-4" />, actionKey: 'onBatchImageOpen', descAr: 'تحويل صيغ مجلد كامل من الصور بين المنتشرة مثل PNG و WEBP', descEn: 'Batch convert image formats for entire folders.' },
       { id: 'batch', label: 'Batch Compress', icon: <Layers className="w-4 h-4" />, actionKey: 'onBatchOpen', descAr: 'ضغط وتقليل حجم كمية كبيرة من الصور بكفاءة دون فقدان مسموع للجودة', descEn: 'Compress a large batch of images efficiently without noticeable quality loss.' },
       { id: 'cropper', label: 'Batch Cropper', icon: <Scissors className="w-4 h-4" />, actionKey: 'onCropperOpen', descAr: 'قص واقتطاع وتغيير أحجام مجموعة صور بشكل آلي لنفس الأبعاد المطلوبة', descEn: 'Auto-crop and resize a batch of images to the exact required dimensions.' },
       { id: 'converter', label: 'Video Converter', icon: <Video className="w-4 h-4" />, actionKey: 'onConverterOpen', descAr: 'أداة سريعة لتحويل مقاطع الفيديو (مثل MP4) وتفريغها إلى صيغ أخرى كالـ SVGA', descEn: 'Fast tool to convert videos (e.g., MP4) and composite them to other formats like SVGA.' },
