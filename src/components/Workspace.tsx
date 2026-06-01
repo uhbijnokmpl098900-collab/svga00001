@@ -212,8 +212,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [fadeModalValues, setFadeModalValues] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
   
   const [textReplaceTarget, setTextReplaceTarget] = useState<string | null>(null);
-  const [textOptions, setTextOptions] = useState({
-      text: "", font: "Arial", size: 40, color: "#ffffff", offsetX: 0, offsetY: 0, width: 0, height: 0, originalImage: "", is3D: false, color3D: "#000000"
+  const [textOptions, setTextOptions] = useState<{
+      text: string; font: string; size: number; color: string; offsetX: number; offsetY: number; width: number; height: number; originalImage: string; is3D: boolean; color3D: string; patternImgEl: HTMLImageElement | null;
+  }>({
+      text: "", font: "Arial", size: 40, color: "#ffffff", offsetX: 0, offsetY: 0, width: 0, height: 0, originalImage: "", is3D: false, color3D: "#000000", patternImgEl: null
   });
   const [textReplaceOriginalImages, setTextReplaceOriginalImages] = useState<Record<string, string[]>>({});
   const [layerTextOptions, setLayerTextOptions] = useState<Record<string, any>>({});
@@ -1949,7 +1951,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       });
 
       setTextOptions({
-          text: "", font: "Arial", size: Math.max(16, Math.floor(imgInfo.h / 1.5)), color: imgInfo.color, offsetX: 0, offsetY: 0, width: imgInfo.w, height: imgInfo.h, originalImage, is3D: false, color3D: "#000000"
+          text: "", font: "Arial", size: Math.max(16, Math.floor(imgInfo.h / 1.5)), color: imgInfo.color, offsetX: 0, offsetY: 0, width: imgInfo.w, height: imgInfo.h, originalImage, is3D: false, color3D: "#000000", patternImgEl: null
       });
       setTextReplaceTarget(key);
   };
@@ -1977,7 +1979,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           }
       }
 
-      ctx.fillStyle = textOptions.color;
+      if (textOptions.patternImgEl) {
+          const pattern = ctx.createPattern(textOptions.patternImgEl, 'repeat');
+          ctx.fillStyle = pattern || textOptions.color;
+      } else {
+          ctx.fillStyle = textOptions.color;
+      }
       
       // Basic text wrapping/stroke can be added, but fill is enough for now
       ctx.fillText(textOptions.text, x, y);
@@ -9653,15 +9660,50 @@ class _MyAppState extends State<MyApp> {
                         </div>
 
                         <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 uppercase font-black">لون النص (Color)</label>
-                            <div className="flex gap-2 items-center">
+                            <label className="text-[10px] text-slate-400 uppercase font-black">لون أو صورة النص (Color / Image)</label>
+                            <div className="flex gap-2 items-center flex-wrap">
                                 <input 
                                     type="color"
                                     value={textOptions.color}
-                                    onChange={(e) => setTextOptions(p => ({ ...p, color: e.target.value }))}
+                                    onChange={(e) => {
+                                        setTextOptions(p => ({ ...p, color: e.target.value, patternImgEl: null }))
+                                    }}
                                     className="w-8 h-8 rounded border border-white/10 bg-transparent cursor-pointer"
+                                    title="اختر لوناً عادياً"
                                 />
-                                <span className="text-white text-xs">{textOptions.color}</span>
+                                <span className="text-white text-xs">{textOptions.patternImgEl ? 'صورة' : textOptions.color}</span>
+                                
+                                <label className="cursor-pointer bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded text-xs font-bold transition-colors ml-auto flex items-center gap-1">
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                                    رفع صورة كخلفية للنص
+                                    <input 
+                                        type="file" 
+                                        accept="image/*" 
+                                        className="hidden" 
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) {
+                                                const reader = new FileReader();
+                                                reader.onload = (ev) => {
+                                                    const img = new Image();
+                                                    img.onload = () => {
+                                                        setTextOptions(p => ({ ...p, patternImgEl: img }));
+                                                    };
+                                                    img.src = ev.target?.result as string;
+                                                };
+                                                reader.readAsDataURL(file);
+                                            }
+                                        }}
+                                    />
+                                </label>
+                                {textOptions.patternImgEl && (
+                                    <button 
+                                        onClick={() => setTextOptions(p => ({ ...p, patternImgEl: null }))}
+                                        className="text-rose-400 hover:text-rose-300 text-[10px] font-bold"
+                                    >
+                                        إزالة الصورة
+                                    </button>
+                                )}
                             </div>
                         </div>
 
