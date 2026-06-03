@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import AgoraRTC, { IAgoraRTCClient, IMicrophoneAudioTrack, IRemoteAudioTrack, IRemoteUser } from 'agora-rtc-sdk-ng';
+import AgoraRTC from 'agora-rtc-sdk-ng';
+import type { IAgoraRTCClient, IMicrophoneAudioTrack, IRemoteAudioTrack, IAgoraRTCRemoteUser } from 'agora-rtc-sdk-ng';
+
+type IRemoteUser = IAgoraRTCRemoteUser;
 
 export const AGORA_APP_ID = '0070879b369c4918a9e7543966d9a02b';
 

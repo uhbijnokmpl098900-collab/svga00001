@@ -27,6 +27,8 @@ export const handleSvgaExExport = async (params: {
     audioFile: File | null,
     originalAudioUrl: string | null,
     fadeConfig: { top: number, bottom: number, left: number, right: number },
+    cropConfig: { top: number, bottom: number, left: number, right: number },
+    cropFeather: { top: number, bottom: number, left: number, right: number },
     applyTransparencyEffects: (ctx: CanvasRenderingContext2D, w: number, h: number) => void,
     setProgress: (p: number) => void,
     setExportPhase: (ph: string) => void,
@@ -37,12 +39,12 @@ export const handleSvgaExExport = async (params: {
     const {
         metadata, videoWidth, videoHeight, exportScale, svgaScale, svgaPos,
         layerImages, assetColors, assetColorModes, assetBlurs, deletedKeys, layerDisplayNames, customLayers, watermark,
-        wmScale, wmPos, audioUrl, audioFile, originalAudioUrl, fadeConfig,
+        wmScale, wmPos, audioUrl, audioFile, originalAudioUrl, fadeConfig, cropConfig, cropFeather,
         applyTransparencyEffects, setProgress, setExportPhase, setIsExporting,
         protobuf, globalQuality
     } = params;
 
-    const isEdgeFadeActive = fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0;
+    const isEdgeFadeActive = fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0 || cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0;
 
     setIsExporting(true);
     setExportPhase('جاري تصدير SVGA 2.0 EX (برمجة خاصة)...');
