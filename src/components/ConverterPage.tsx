@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile } from '@ffmpeg/util';
-import { loadFFmpegWithFallbacks } from '../utils/ffmpegLoader';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import { Upload, CheckCircle2 } from 'lucide-react';
 import { useAccessControl } from '../hooks/useAccessControl';
 import { UserRecord } from '../types';
@@ -27,7 +26,13 @@ export const ConverterPage: React.FC<ConverterPageProps> = ({ onCancel, currentU
   useEffect(() => {
     const loadFFmpeg = async () => {
       try {
-        await loadFFmpegWithFallbacks(ffmpegRef.current);
+        const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+        const ffmpeg = ffmpegRef.current;
+        
+        await ffmpeg.load({
+          coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+          wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+        });
         setFfmpegLoaded(true);
       } catch (err) {
         console.error("Failed to load FFmpeg", err);

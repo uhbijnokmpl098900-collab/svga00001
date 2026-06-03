@@ -103,8 +103,8 @@ export default function LuckyCatGame() {
 
   const processSpinResult = async (cycleStart: number) => {
     let winningItem;
-    const currentBets = betsRef.current as Record<string, number>;
-    const totalBet = Object.values(currentBets || {}).reduce((a, b) => a + b, 0);
+    const currentBets = betsRef.current;
+    const totalBet = Object.values(currentBets).reduce((a, b) => a + b, 0);
 
     if (totalBet > 0 && user) {
       // Fetch win ratio

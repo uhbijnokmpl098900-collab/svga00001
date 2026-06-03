@@ -6,8 +6,7 @@ import { Layers, Download, Copy, Trash2, Lock, ListOrdered, Upload, CheckCircle2
 import { logActivity } from '../utils/logger';
 import * as Mp4Muxer from 'mp4-muxer';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile } from '@ffmpeg/util';
-import { loadFFmpegWithFallbacks } from '../utils/ffmpegLoader';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
 
 declare var SVGA: any;
 declare var JSZip: any;
@@ -58,57 +57,7 @@ interface CustomLayer {
   zIndexMode: 'front' | 'back';
 }
 
-interface SVGAComposition {
-  id: string;
-  name: string;
-  metadata: FileMetadata;
-  layerImages: Record<string, string>;
-  assetColors: Record<string, string>;
-  assetColorModes: Record<string, 'tint' | 'fill'>;
-  assetBlurs: Record<string, number>;
-  deletedKeys: Set<string>;
-  customLayers: CustomLayer[];
-  layerDisplayNames: Record<string, string>;
-  layerTextOptions: Record<string, any>;
-  currentFrame: number;
-  isPlaying: boolean;
-  svgaPos: { x: number; y: number };
-  svgaScale: number;
-  svgaRotation?: number;
-  svgaOpacity?: number;
-  selectedKeys?: Set<string>;
-  playbackSpeed?: number;
-  customDimensions?: {width: number, height: number} | null;
-}
-
 const TRANSPARENT_PIXEL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
-
-
-const cloneFrame = (frame: any) => {
-  if (!frame) return frame;
-  return {
-    ...frame,
-    layout: frame.layout ? { ...frame.layout } : undefined,
-    transform: frame.transform ? { ...frame.transform } : undefined
-  };
-};
-
-const cloneSprite = (sprite: any) => {
-  if (!sprite) return sprite;
-  return {
-    ...sprite,
-    frames: sprite.frames ? sprite.frames.map(cloneFrame) : []
-  };
-};
-
-const cloneSvgaItem = (item: any) => {
-  if (!item) return item;
-  return {
-    ...item,
-    images: { ...(item.images || {}) },
-    sprites: item.sprites ? item.sprites.map(cloneSprite) : []
-  };
-};
 
 export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata, onCancel, settings, currentUser, onLoginRequired, onSubscriptionRequired, globalQuality: initialGlobalQuality = 'high', onFileReplace, mode = 'normal', onImageConverterOpen }) => {
   const { checkAccess } = useAccessControl();
@@ -123,11 +72,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const containerRef = useRef<HTMLDivElement>(null);
   
   const [isPlaying, setIsPlaying] = useState(true);
-  const [pauseOnManipulate, setPauseOnManipulate] = useState(true);
-  const isPlayingRef = useRef(isPlaying);
-  useEffect(() => {
-      isPlayingRef.current = isPlaying;
-  }, [isPlaying]);
   const [currentFrame, setCurrentFrame] = useState(0);
   const [selectedFormat, setSelectedFormat] = useState('AE Project');
   const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>(initialGlobalQuality);
@@ -169,7 +113,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const [presetBgs, setPresetBgs] = useState<PresetBackground[]>([]);
   const [previewBg, setPreviewBg] = useState<string | null>(null);
-  const [previewBgType, setPreviewBgType] = useState<'image' | 'video'>('image');
   const [activePreset, setActivePreset] = useState<string>('none');
   const [watermark, setWatermark] = useState<string | null>(null);
   const [deletedKeys, setDeletedKeys] = useState<Set<string>>(new Set());
@@ -178,16 +121,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [bgScale, setBgScale] = useState(100);
   const [svgaPos, setSvgaPos] = useState({ x: 0, y: 0 });
   const [svgaScale, setSvgaScale] = useState(1);
-  const [svgaRotation, setSvgaRotation] = useState<number>(0);
-  const [svgaOpacity, setSvgaOpacity] = useState<number>(1);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [activeCompPosStart, setActiveCompPosStart] = useState({ x: 0, y: 0 });
-  const [nudgeStep, setNudgeStep] = useState<number>(10);
-
-  const backgroundPlayerRef = useRef<HTMLDivElement>(null);
-  const [backgroundPlayerInstance, setBackgroundPlayerInstance] = useState<any>(null);
-
   const [wmPos, setWmPos] = useState({ x: 0, y: 0 });
   const [wmScale, setWmScale] = useState(0.3);
   const [customDimensions, setCustomDimensions] = useState<{width: number, height: number} | null>(null);
@@ -200,9 +133,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [originalAudioUrl, setOriginalAudioUrl] = useState<string | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
-  const [fadeConfig, setFadeConfig] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
-  const [cropConfig, setCropConfig] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
-  const [cropFeather, setCropFeather] = useState({ top: 0, bottom: 0, left: 0, right: 0 }); // Percentages 0-50
+  const [fadeConfig, setFadeConfig] = useState({ top: 0, bottom: 0, left: 0, right: 0 }); // Percentages 0-50
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [exportScale, setExportScale] = useState(1.0); // 0.1 to 1.0 for file size control
@@ -210,668 +141,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [exportResult, setExportResult] = useState<{ url: string; filename: string } | null>(null);
   const [fadeModalTarget, setFadeModalTarget] = useState<string | null>(null);
   const [fadeModalValues, setFadeModalValues] = useState({ top: 0, bottom: 0, left: 0, right: 0 });
-  
-  const [textReplaceTarget, setTextReplaceTarget] = useState<string | null>(null);
-  const [textOptions, setTextOptions] = useState<{
-      text: string; font: string; size: number; color: string; offsetX: number; offsetY: number; width: number; height: number; originalImage: string; is3D: boolean; color3D: string; patternImgEl: HTMLImageElement | null;
-  }>({
-      text: "", font: "Arial", size: 40, color: "#ffffff", offsetX: 0, offsetY: 0, width: 0, height: 0, originalImage: "", is3D: false, color3D: "#000000", patternImgEl: null
-  });
-  const [textReplaceOriginalImages, setTextReplaceOriginalImages] = useState<Record<string, string[]>>({});
-  const [layerTextOptions, setLayerTextOptions] = useState<Record<string, any>>({});
-
-  // SVGA Composition Workspace State
-  const [compositions, setCompositions] = useState<SVGAComposition[]>([]);
-  const [activeCompositionId, setActiveCompositionId] = useState<string>('main');
-  const [copiedLayer, setCopiedLayer] = useState<any | null>(null);
-  const importCompInputRef = useRef<HTMLInputElement>(null);
-
-
   const [recordingDuration, setRecordingDuration] = useState<number>(10);
   const ffmpegRef = useRef(new FFmpeg());
   const [ffmpegLoaded, setFfmpegLoaded] = useState(false);
   const [aeJsonData, setAeJsonData] = useState<any>(null);
   const aeJsonInputRef = useRef<HTMLInputElement>(null);
-
-  const widthCheck = (val: number) => isNaN(val) ? 0 : parseFloat(val.toFixed(1));
-  const heightCheck = (val: number) => isNaN(val) ? 0 : parseFloat(val.toFixed(1));
-
-  const handleSwitchComposition = (targetId: string) => {
-    if (targetId === activeCompositionId) return;
-
-    // targetComp can be found immediately from current state
-    const targetComp = compositions.find(c => c.id === targetId);
-    if (!targetComp) return;
-
-    setCompositions(prev => {
-      return prev.map(c => {
-        if (c.id === activeCompositionId) {
-          return {
-            ...c,
-            metadata,
-            layerImages,
-            assetColors,
-            assetColorModes,
-            assetBlurs,
-            deletedKeys,
-            customLayers,
-            layerDisplayNames,
-            layerTextOptions,
-            currentFrame,
-            isPlaying,
-            svgaPos,
-            svgaScale,
-            svgaRotation,
-            svgaOpacity,
-            selectedKeys,
-            customDimensions
-          };
-        }
-        return c;
-      });
-    });
-
-    setTimeout(() => {
-        setActiveCompositionId(targetId);
-        setMetadata(targetComp.metadata);
-        setLayerImages(targetComp.layerImages);
-        setAssetColors(targetComp.assetColors);
-        setAssetColorModes(targetComp.assetColorModes);
-        setAssetBlurs(targetComp.assetBlurs);
-        setDeletedKeys(targetComp.deletedKeys);
-        setCustomLayers(targetComp.customLayers);
-        setLayerDisplayNames(targetComp.layerDisplayNames);
-        setLayerTextOptions(targetComp.layerTextOptions);
-        setCurrentFrame(targetComp.currentFrame);
-        setIsPlaying(targetComp.isPlaying);
-        setSvgaPos(targetComp.svgaPos);
-        setSvgaScale(targetComp.svgaScale);
-        setSvgaRotation(targetComp.svgaRotation || 0);
-        setSvgaOpacity(targetComp.svgaOpacity !== undefined ? targetComp.svgaOpacity : 1);
-        setSelectedKeys(targetComp.selectedKeys || new Set());
-        setCustomDimensions(targetComp.customDimensions || null);
-    }, 0);
-  };
-
-  const handleImportCompositionFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = '';
-
-    setIsExporting(true);
-    setExportPhase('جاري استيراد وتحليل التركيبة المضافة...');
-    setProgress(20);
-
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const parser = new SVGA.Parser();
-
-      parser.load(URL.createObjectURL(new Blob([arrayBuffer])), async (videoItem: any) => {
-        let extractedFps = videoItem.FPS || videoItem.fps || 30;
-        if (typeof extractedFps === 'string') extractedFps = parseFloat(extractedFps);
-        if (!extractedFps || extractedFps <= 0) extractedFps = 30;
-
-        const prefix = `comp_${Date.now()}_`;
-        const compName = file.name;
-
-        setProgress(50);
-        const newImages: Record<string, any> = {};
-        const sourceImages = videoItem.images || {};
-        const extractedImages: Record<string, string> = {};
-
-        for (const key of Object.keys(sourceImages)) {
-          const data = await extractImageData(sourceImages[key]);
-          if (data) {
-            const newKey = `${prefix}${key}`;
-            newImages[newKey] = sourceImages[key];
-            extractedImages[newKey] = data;
-          }
-        }
-
-        setProgress(70);
-        const newSprites = (videoItem.sprites || []).map((sprite: any) => {
-          return {
-            ...sprite,
-            imageKey: `${prefix}${sprite.imageKey}`,
-            name: sprite.name ? `${prefix}${sprite.name}` : undefined
-          };
-        });
-
-        Object.assign(videoItem, {
-          images: newImages,
-          sprites: newSprites
-        });
-        const newVideoItem = videoItem;
-
-        const newMeta: FileMetadata = {
-          name: compName,
-          size: file.size,
-          type: 'SVGA',
-          dimensions: { width: videoItem.videoSize?.width || 1334, height: videoItem.videoSize?.height || 750 },
-          fps: extractedFps,
-          frames: videoItem.frames,
-          assets: [],
-          videoItem: newVideoItem,
-          fileUrl: URL.createObjectURL(new Blob([arrayBuffer])),
-          originalFile: file
-        };
-
-        const compId = `comp_${Date.now()}`;
-        const newComp: SVGAComposition = {
-          id: compId,
-          name: compName,
-          metadata: newMeta,
-          layerImages: extractedImages,
-          assetColors: {},
-          assetColorModes: {},
-          assetBlurs: {},
-          deletedKeys: new Set(),
-          customLayers: [],
-          layerDisplayNames: {},
-          layerTextOptions: {},
-          currentFrame: 0,
-          isPlaying: false,
-          svgaPos: { x: 0, y: 0 },
-          svgaScale: 1,
-          selectedKeys: new Set(),
-          playbackSpeed: 1.0
-        };
-
-        setCompositions(prev => {
-          const updated = prev.map(c => {
-            if (c.id === activeCompositionId) {
-              return {
-                ...c,
-                metadata,
-                layerImages,
-                assetColors,
-                assetColorModes,
-                assetBlurs,
-                deletedKeys,
-                customLayers,
-                layerDisplayNames,
-                layerTextOptions,
-                currentFrame,
-                isPlaying,
-                svgaPos,
-                svgaScale,
-                selectedKeys
-              };
-            }
-            return c;
-          });
-          return [...updated, newComp];
-        });
-
-        setTimeout(() => {
-            setActiveCompositionId(compId);
-            setMetadata(newMeta);
-            setLayerImages(extractedImages);
-            setAssetColors({});
-            setAssetColorModes({});
-            setAssetBlurs({});
-            setDeletedKeys(new Set());
-            setCustomLayers([]);
-            setLayerDisplayNames({});
-            setLayerTextOptions({});
-            setCurrentFrame(0);
-            setIsPlaying(false);
-            setSvgaPos({ x: 0, y: 0 });
-            setSvgaScale(1);
-            setSelectedKeys(new Set());
-            setCustomDimensions(null);
-        }, 0);
-
-        setIsExporting(false);
-        setProgress(100);
-        alert(`✅ تم استيراد وتكوين التركيبة "${compName}" بنجاح!`);
-      }, (err: Error) => {
-        console.error(err);
-        setIsExporting(false);
-        alert("خطأ: ملف SVGA غير صالح للتركيب والدمج.");
-      });
-    } catch (error) {
-      console.error(error);
-      setIsExporting(false);
-      alert("حدث خطأ أثناء تحميل الملف.");
-    }
-  };
-
-  const handleMergeCompositionIntoMain = (compId: string, mergeSelectedOnly: boolean = false) => {
-    let activeCompList = compositions;
-    const currentActive = activeCompList.map(c => {
-      if (c.id === activeCompositionId) {
-        return {
-          ...c,
-          metadata,
-          layerImages,
-          assetColors,
-          assetColorModes,
-          assetBlurs,
-          deletedKeys,
-          customLayers,
-          layerDisplayNames,
-          layerTextOptions,
-          currentFrame,
-          isPlaying,
-          svgaPos,
-          svgaScale,
-          svgaRotation,
-          svgaOpacity,
-          selectedKeys
-        };
-      }
-      return c;
-    });
-
-    const mainComp = currentActive.find(c => c.id === 'main');
-    const sourceComp = currentActive.find(c => c.id === compId);
-
-    if (!mainComp || !sourceComp) {
-      alert("فشل في تحديد التركيبات المطلوبة للدمج.");
-      return;
-    }
-
-    const mainVideoItem = mainComp.metadata.videoItem;
-    const sourceVideoItem = sourceComp.metadata.videoItem;
-
-    if (!mainVideoItem || !sourceVideoItem) {
-      alert("البيانات الرسومية لملفات SVGA غير صالحة.");
-      return;
-    }
-
-    const targetFramesCount = Math.max(mainComp.metadata.frames || 1, sourceComp.metadata.frames || 1);
-    const mainImages = { ...(mainVideoItem.images || {}) };
-    let spritesToMerge = [...(sourceVideoItem.sprites || [])];
-
-    if (mergeSelectedOnly) {
-      const selected = sourceComp.selectedKeys || new Set();
-      if (selected.size === 0) {
-        alert("⚠️ يرجى تحديد بعض الطبقات أولاً لدمجها.");
-        return;
-      }
-      spritesToMerge = spritesToMerge.filter((s: any) => selected.has(s.imageKey));
-    } else {
-      spritesToMerge = spritesToMerge.filter((s: any) => !sourceComp.deletedKeys.has(s.imageKey));
-    }
-
-    if (spritesToMerge.length === 0) {
-      alert("لا يوجد طبقات نشطة للدمج.");
-      return;
-    }
-
-    const cloneFrame = (frame: any) => {
-      if (!frame) return frame;
-      return {
-        ...frame,
-        layout: frame.layout ? { ...frame.layout } : undefined,
-        transform: frame.transform ? { ...frame.transform } : undefined
-        // We DO NOT deep clone `shapes` or `clipPath`. This saves huge amounts of memory and prevents browser crashes on large SVGA files.
-      };
-    };
-
-    // Extend main sprites frames if the new composition increases the total frames count
-    const newSprites = (mainVideoItem.sprites || []).map((sprite: any) => {
-      const sourceLength = sprite.frames?.length || 0;
-      if (sourceLength > 0 && sourceLength < targetFramesCount) {
-        const extendedFrames = [...sprite.frames];
-        for (let i = sourceLength; i < targetFramesCount; i++) {
-          extendedFrames.push(cloneFrame(extendedFrames[i % sourceLength]));
-        }
-        return { ...sprite, frames: extendedFrames };
-      }
-      return sprite;
-    });
-
-    // Compute mathematically correct mapping from Source SVGA to Main SVGA coordinate space
-    const S = sourceComp.svgaScale !== undefined && !isNaN(sourceComp.svgaScale) ? sourceComp.svgaScale : 1;
-    const rad = ((sourceComp.svgaRotation || 0) * Math.PI) / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
-    const svgaPosX = sourceComp.svgaPos?.x || 0;
-    const svgaPosY = sourceComp.svgaPos?.y || 0;
-
-    const mainDefaults = getDefaultDimensions(mainComp.metadata);
-    const mainOrigW = mainComp.metadata.dimensions?.width || mainVideoItem?.videoSize?.width || mainDefaults.width || 1334;
-    const mainOrigH = mainComp.metadata.dimensions?.height || mainVideoItem?.videoSize?.height || mainDefaults.height || 750;
-
-    const sourceDefaults = getDefaultDimensions(sourceComp.metadata);
-    const sourceOrigW = sourceComp.metadata.dimensions?.width || sourceVideoItem?.videoSize?.width || sourceDefaults.width || 1334;
-    const sourceOrigH = sourceComp.metadata.dimensions?.height || sourceVideoItem?.videoSize?.height || sourceDefaults.height || 750;
-
-    // Inside the editor, the user positioned the secondary composition inside a viewport sized to its native dimensions.
-    const uiViewW = sourceOrigW;
-    const uiViewH = sourceOrigH;
-
-    // The main background composition was fitted and centered within that viewport.
-    const C = Math.min(uiViewW / mainOrigW, uiViewH / mainOrigH);
-    const Offset_m_X = (uiViewW - mainOrigW * C) / 2;
-    const Offset_m_Y = (uiViewH - mainOrigH * C) / 2;
-
-    const cx = uiViewW / 2;
-    const cy = uiViewH / 2;
-
-    const multiplyMat = (m1: any, m2: any) => ({
-      a: m1.a * m2.a + m1.c * m2.b,
-      b: m1.b * m2.a + m1.d * m2.b,
-      c: m1.a * m2.c + m1.c * m2.d,
-      d: m1.b * m2.c + m1.d * m2.d,
-      tx: m1.a * m2.tx + m1.c * m2.ty + m1.tx,
-      ty: m1.b * m2.tx + m1.d * m2.ty + m1.ty
-    });
-
-    // 1. Source pixels to UI screen pixels (taking into account the UI Scaling S, R, T)
-    const M_source_to_screen = { 
-      a: S * cos, b: S * sin, 
-      c: -S * sin, d: S * cos, 
-      tx: cx - cx * S * cos + cy * S * sin + svgaPosX, 
-      ty: cy - cx * S * sin - cy * S * cos + svgaPosY 
-    };
-
-    // 2. UI screen pixels to main native pixels
-    // P_m = (P_screen - Offset) / C
-    const M_screen_to_main = {
-      a: 1 / C, b: 0, 
-      c: 0, d: 1 / C,
-      tx: -Offset_m_X / C,
-      ty: -Offset_m_Y / C
-    };
-
-    const M_final = multiplyMat(M_screen_to_main, M_source_to_screen);
-
-    const alphaMultiplier = sourceComp.svgaOpacity !== undefined ? sourceComp.svgaOpacity : 1;
-
-    spritesToMerge.forEach((sprite: any) => {
-      const key = sprite.imageKey;
-      if (sourceVideoItem.images[key]) {
-        mainImages[key] = sourceVideoItem.images[key];
-      }
-
-      const sourceFrames = sprite.frames || [];
-      const sourceLength = sourceFrames.length;
-      const finalFrames = [];
-
-      for (let i = 0; i < targetFramesCount; i++) {
-        const sourceFrameIndex = sourceLength > 0 ? (i % sourceLength) : 0;
-        const originalFrameObj = sourceFrames[sourceFrameIndex] || {
-          alpha: 1.0,
-          layout: { x: 0, y: 0, width: 200, height: 200 },
-          transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
-        };
-
-        const frameCopy = cloneFrame(originalFrameObj);
-
-        // Multiply opacity
-        frameCopy.alpha = widthCheck((originalFrameObj.alpha !== undefined ? originalFrameObj.alpha : 1.0) * alphaMultiplier);
-
-        if (frameCopy.layout) {
-          // DO NOT MUTATE LAYOUT COORDS OR DIMENSIONS!
-          // We apply the entire transformation properly into `frameCopy.transform`.
-          const mOrig = {
-            a: frameCopy.transform?.a !== undefined ? frameCopy.transform.a : 1,
-            b: frameCopy.transform?.b || 0,
-            c: frameCopy.transform?.c || 0,
-            d: frameCopy.transform?.d !== undefined ? frameCopy.transform.d : 1,
-            tx: frameCopy.transform?.tx || 0,
-            ty: frameCopy.transform?.ty || 0
-          };
-
-          const mNew = multiplyMat(M_final, mOrig);
-
-          if (!frameCopy.transform) frameCopy.transform = {};
-          frameCopy.transform.a = mNew.a;
-          frameCopy.transform.b = mNew.b;
-          frameCopy.transform.c = mNew.c;
-          frameCopy.transform.d = mNew.d;
-          frameCopy.transform.tx = widthCheck(mNew.tx);
-          frameCopy.transform.ty = heightCheck(mNew.ty);
-        }
-        finalFrames.push(frameCopy);
-      }
-
-      newSprites.push({
-        ...sprite,
-        frames: finalFrames
-      });
-    });
-
-    Object.assign(mainVideoItem, {
-      images: mainImages,
-      sprites: newSprites
-    });
-    const updatedMainVideoItem = mainVideoItem;
-
-    const updatedMainLayerImages = { ...mainComp.layerImages };
-    const updatedMainDisplayNames = { ...mainComp.layerDisplayNames };
-    const updatedMainColors = { ...mainComp.assetColors };
-    const updatedMainColorModes = { ...mainComp.assetColorModes };
-    const updatedMainBlurs = { ...mainComp.assetBlurs };
-    const updatedMainTextOptions = { ...mainComp.layerTextOptions };
-
-    spritesToMerge.forEach((sprite: any) => {
-      const key = sprite.imageKey;
-      if (sourceComp.layerImages[key]) {
-        updatedMainLayerImages[key] = sourceComp.layerImages[key];
-      }
-      updatedMainDisplayNames[key] = sourceComp.layerDisplayNames[key] || key;
-      if (sourceComp.assetColors[key]) updatedMainColors[key] = sourceComp.assetColors[key];
-      if (sourceComp.assetColorModes[key]) updatedMainColorModes[key] = sourceComp.assetColorModes[key];
-      if (sourceComp.assetBlurs[key]) updatedMainBlurs[key] = sourceComp.assetBlurs[key];
-      if (sourceComp.layerTextOptions[key]) updatedMainTextOptions[key] = sourceComp.layerTextOptions[key];
-    });
-
-    const finalCompositions = currentActive.map(c => {
-      if (c.id === 'main') {
-        const updatedMainMeta = { ...c.metadata };
-        updatedMainMeta.frames = targetFramesCount;
-        updatedMainVideoItem.frames = targetFramesCount;
-
-        return {
-          ...c,
-          metadata: {
-            ...updatedMainMeta,
-            videoItem: updatedMainVideoItem
-          },
-          layerImages: updatedMainLayerImages,
-          layerDisplayNames: updatedMainDisplayNames,
-          assetColors: updatedMainColors,
-          assetColorModes: updatedMainColorModes,
-          assetBlurs: updatedMainBlurs,
-          layerTextOptions: updatedMainTextOptions
-        };
-      }
-      return c;
-    });
-
-    setCompositions(finalCompositions);
-
-    // Handle workspace view state updates
-    if (activeCompositionId !== 'main') {
-      setActiveCompositionId('main');
-      setMetadata({
-        ...mainComp.metadata,
-        frames: targetFramesCount,
-        videoItem: updatedMainVideoItem
-      });
-      setLayerImages(updatedMainLayerImages);
-      setLayerDisplayNames(updatedMainDisplayNames);
-      setAssetColors(updatedMainColors);
-      setAssetColorModes(updatedMainColorModes);
-      setAssetBlurs(updatedMainBlurs);
-      setLayerTextOptions(updatedMainTextOptions);
-      setSvgaPos({ x: 0, y: 0 });
-      setSvgaScale(1);
-      setSvgaRotation(0);
-      setSvgaOpacity(1);
-      setCustomDimensions(mainComp.customDimensions || null);
-    } else {
-      setMetadata(prev => ({ ...prev, frames: targetFramesCount, videoItem: updatedMainVideoItem }));
-      setLayerImages(updatedMainLayerImages);
-      setLayerDisplayNames(updatedMainDisplayNames);
-      setAssetColors(updatedMainColors);
-      setAssetColorModes(updatedMainColorModes);
-      setAssetBlurs(updatedMainBlurs);
-      setLayerTextOptions(updatedMainTextOptions);
-    }
-
-    alert(`✅ تم دمج كامل طبقات التركيبة المضافة "${sourceComp.name}" داخل المشهد الرئيسي بنجاح! وتم إقران الحركة والموضع والشفافية بدقة.`);
-  };
-
-  const handleCopyLayer = (key: string) => {
-    if (!metadata.videoItem) return;
-    const sprite = metadata.videoItem.sprites?.find((s: any) => s.imageKey === key);
-    if (!sprite) return;
-
-    setCopiedLayer({
-      key,
-      sprite: cloneSprite(sprite),
-      image: layerImages[key] || TRANSPARENT_PIXEL,
-      displayName: layerDisplayNames[key],
-      color: assetColors[key],
-      colorMode: assetColorModes[key],
-      blur: assetBlurs[key],
-      textOption: layerTextOptions[key]
-    });
-    alert(`📋 تم نسخ الطبقة "${layerDisplayNames[key] || key}" بنجاح!`);
-  };
-
-  const handlePasteLayer = () => {
-    if (!copiedLayer || !metadata.videoItem) return;
-
-    const newKey = `pasted_${Date.now()}_${copiedLayer.key.split('_').pop()}`;
-    const newSprite = { ...copiedLayer.sprite, imageKey: newKey };
-
-    const compFrames = metadata.frames || 1;
-    if (newSprite.frames.length !== compFrames) {
-      if (newSprite.frames.length < compFrames) {
-        const lastFrame = newSprite.frames[newSprite.frames.length - 1] || {
-          alpha: 1.0,
-          layout: { x: 0, y: 0, width: 200, height: 200 },
-          transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
-        };
-        const pads = Array(compFrames - newSprite.frames.length).fill(null).map(() => cloneFrame(lastFrame));
-        newSprite.frames = [...newSprite.frames, ...pads];
-      } else {
-        newSprite.frames = newSprite.frames.slice(0, compFrames);
-      }
-    }
-
-    const updatedVideoItem = {
-      ...metadata.videoItem,
-      images: {
-        ...metadata.videoItem.images,
-        [newKey]: copiedLayer.image
-      },
-      sprites: [
-        ...(metadata.videoItem.sprites || []),
-        newSprite
-      ]
-    };
-
-    setMetadata(prev => ({ ...prev, videoItem: updatedVideoItem }));
-    setLayerImages(prev => ({ ...prev, [newKey]: copiedLayer.image }));
-    if (copiedLayer.displayName) setLayerDisplayNames(prev => ({ ...prev, [newKey]: `${copiedLayer.displayName} (نسخة)` }));
-    if (copiedLayer.color) setAssetColors(prev => ({ ...prev, [newKey]: copiedLayer.color }));
-    if (copiedLayer.colorMode) setAssetColorModes(prev => ({ ...prev, [newKey]: copiedLayer.colorMode }));
-    if (copiedLayer.blur) setAssetBlurs(prev => ({ ...prev, [newKey]: copiedLayer.blur }));
-    if (copiedLayer.textOption) setLayerTextOptions(prev => ({ ...prev, [newKey]: copiedLayer.textOption }));
-
-    alert(`✅ تم لصق الطبقة بنجاح!`);
-  };
-
-  const handleMoveLayerToComposition = (key: string, targetCompId: string) => {
-    if (!metadata.videoItem) return;
-    const sprite = metadata.videoItem.sprites?.find((s: any) => s.imageKey === key);
-    if (!sprite) return;
-
-    const currentSprites = (metadata.videoItem.sprites || []).filter((s: any) => s.imageKey !== key);
-    const currentImages = { ...metadata.videoItem.images };
-    delete currentImages[key];
-
-    const updatedCurrentVideoItem = {
-      ...metadata.videoItem,
-      sprites: currentSprites,
-      images: currentImages
-    };
-
-    setMetadata(prev => ({ ...prev, videoItem: updatedCurrentVideoItem }));
-    setLayerImages(prev => {
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-
-    const exportedObj = {
-      sprite: cloneSprite(sprite),
-      image: layerImages[key] || TRANSPARENT_PIXEL,
-      displayName: layerDisplayNames[key],
-      color: assetColors[key],
-      colorMode: assetColorModes[key],
-      blur: assetBlurs[key],
-      textOption: layerTextOptions[key]
-    };
-
-    setCompositions(prev => prev.map(c => {
-      if (c.id === targetCompId) {
-        const compFrames = c.metadata.frames || 1;
-        const targetSprite = { ...exportedObj.sprite };
-        if (targetSprite.frames.length !== compFrames) {
-          if (targetSprite.frames.length < compFrames) {
-            const lastFrame = targetSprite.frames[targetSprite.frames.length - 1] || {
-              alpha: 1.0,
-              layout: { x: 0, y: 0, width: 200, height: 200 },
-              transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }
-            };
-            const pads = Array(compFrames - targetSprite.frames.length).fill(null).map(() => cloneFrame(lastFrame));
-            targetSprite.frames = [...targetSprite.frames, ...pads];
-          } else {
-            targetSprite.frames = targetSprite.frames.slice(0, compFrames);
-          }
-        }
-
-        const targetVideoItem = {
-          ...c.metadata.videoItem,
-          images: {
-            ...c.metadata.videoItem.images,
-            [key]: exportedObj.image
-          },
-          sprites: [
-            ...(c.metadata.videoItem.sprites || []),
-            targetSprite
-          ]
-        };
-
-        return {
-          ...c,
-          metadata: { ...c.metadata, videoItem: targetVideoItem },
-          layerImages: { ...c.layerImages, [key]: exportedObj.image },
-          layerDisplayNames: exportedObj.displayName ? { ...c.layerDisplayNames, [key]: exportedObj.displayName } : c.layerDisplayNames,
-          assetColors: exportedObj.color ? { ...c.assetColors, [key]: exportedObj.color } : c.assetColors,
-          assetColorModes: exportedObj.colorMode ? { ...c.assetColorModes, [key]: exportedObj.colorMode } : c.assetColorModes,
-          assetBlurs: exportedObj.blur ? { ...c.assetBlurs, [key]: exportedObj.blur } : c.assetBlurs,
-          layerTextOptions: exportedObj.textOption ? { ...c.layerTextOptions, [key]: exportedObj.textOption } : c.layerTextOptions
-        };
-      }
-      return c;
-    }));
-
-    alert(`✈️ تم نقل الطبقة بنجاح إلى التركيبة المحددة!`);
-  };
-
-  const handleDeleteComposition = (compId: string) => {
-    if (compId === 'main') {
-      alert("لا يمكن حذف المشهد الرئيسي!");
-      return;
-    }
-    if (!confirm("هل أنت متأكد من رغبتك في حذف هذه التركيبة كلياً؟")) return;
-
-    if (activeCompositionId === compId) {
-      handleSwitchComposition('main');
-    }
-
-    setCompositions(prev => prev.filter(c => c.id !== compId));
-    alert("🗑️ تم حذف التركيبة بنجاح.");
-  };
 
   const handleImportAEJson = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -902,8 +176,23 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         console.warn("SharedArrayBuffer is not available. FFmpeg might fail or be slow.");
     }
 
+    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+    const ffmpeg = ffmpegRef.current;
+    ffmpeg.on('log', ({ message }) => {
+        console.log(message);
+    });
+    
     try {
-        await loadFFmpegWithFallbacks(ffmpegRef.current);
+        const loadPromise = ffmpeg.load({
+            coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+            wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+        });
+
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("FFmpeg load timeout (20s)")), 20000)
+        );
+
+        await Promise.race([loadPromise, timeoutPromise]);
         setFfmpegLoaded(true);
     } catch (e) {
         console.error("FFmpeg load error:", e);
@@ -958,12 +247,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const { videoWidth, videoHeight } = useMemo(() => {
     const defaults = getDefaultDimensions(metadata);
-    const w = customDimensions?.width || defaults.width;
-    const h = customDimensions?.height || defaults.height;
-    
     return {
-      videoWidth: w > 0 && !isNaN(w) ? w : 1334,
-      videoHeight: h > 0 && !isNaN(h) ? h : 750
+      videoWidth: customDimensions?.width || defaults.width,
+      videoHeight: customDimensions?.height || defaults.height
     };
   }, [customDimensions, metadata]);
 
@@ -1025,8 +311,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   useEffect(() => {
     return () => {
       Object.values(layerImages).forEach((url) => {
-        if (url && typeof url === 'string' && url.startsWith('blob:')) {
-          URL.revokeObjectURL(url);
+        if ((url as string).startsWith('blob:')) {
+          URL.revokeObjectURL(url as string);
         }
       });
     };
@@ -1217,7 +503,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           
           // Revoke old URLs before setting new ones
           Object.values(layerImages).forEach((url) => {
-              if (url && typeof url === 'string' && url.startsWith('blob:')) URL.revokeObjectURL(url);
+              if ((url as string).startsWith('blob:')) URL.revokeObjectURL(url as string);
           });
 
           setLayerImages(newLayerImages);
@@ -1385,10 +671,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   }, [videoWidth, videoHeight]);
 
   const applyTransparencyEffects = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    const hasFade = fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0;
-    const hasCrop = cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0;
-    
-    if (!hasFade && !hasCrop) return;
+    if (fadeConfig.top === 0 && fadeConfig.bottom === 0 && fadeConfig.left === 0 && fadeConfig.right === 0) return;
 
     const imageData = ctx.getImageData(0, 0, width, height);
     const data = imageData.data;
@@ -1398,52 +681,24 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     const fadeLeftLimit = (width * fadeConfig.left) / 100;
     const fadeRightLimit = width - (width * fadeConfig.right) / 100;
 
-    const cropTopLimit = (height * cropConfig.top) / 100;
-    const cropBottomLimit = height - (height * cropConfig.bottom) / 100;
-    const cropLeftLimit = (width * cropConfig.left) / 100;
-    const cropRightLimit = width - (width * cropConfig.right) / 100;
-
-    const featherTop = (height * cropFeather.top) / 100;
-    const featherBottom = (height * cropFeather.bottom) / 100;
-    const featherLeft = (width * cropFeather.left) / 100;
-    const featherRight = (width * cropFeather.right) / 100;
-
     for (let i = 0; i < data.length; i += 4) {
       const x = (i / 4) % width;
       const y = Math.floor((i / 4) / width);
 
       let a = data[i + 3];
 
-      let alphaMult = 1.0;
+      // Edge Fade Calculation
+      let edgeAlpha = 1.0;
+      if (fadeConfig.top > 0 && y < fadeTopLimit) edgeAlpha *= (y / fadeTopLimit);
+      if (fadeConfig.bottom > 0 && y > fadeBottomLimit) edgeAlpha *= ((height - y) / (height - fadeBottomLimit));
+      if (fadeConfig.left > 0 && x < fadeLeftLimit) edgeAlpha *= (x / fadeLeftLimit);
+      if (fadeConfig.right > 0 && x > fadeRightLimit) edgeAlpha *= ((width - x) / (width - fadeRightLimit));
 
-      // 1. Crop + Feather
-      if (hasCrop) {
-          if (y <= cropTopLimit) alphaMult = 0;
-          else if (cropFeather.top > 0 && y < cropTopLimit + featherTop) alphaMult *= ((y - cropTopLimit) / featherTop);
-          
-          if (y >= cropBottomLimit) alphaMult = 0;
-          else if (cropFeather.bottom > 0 && y > cropBottomLimit - featherBottom) alphaMult *= ((cropBottomLimit - y) / featherBottom);
-
-          if (x <= cropLeftLimit) alphaMult = 0;
-          else if (cropFeather.left > 0 && x < cropLeftLimit + featherLeft) alphaMult *= ((x - cropLeftLimit) / featherLeft);
-
-          if (x >= cropRightLimit) alphaMult = 0;
-          else if (cropFeather.right > 0 && x > cropRightLimit - featherRight) alphaMult *= ((cropRightLimit - x) / featherRight);
-      }
-
-      // 2. Edge Fade
-      if (hasFade && alphaMult > 0) {
-          if (fadeConfig.top > 0 && y < fadeTopLimit) alphaMult *= (y / fadeTopLimit);
-          if (fadeConfig.bottom > 0 && y > fadeBottomLimit) alphaMult *= ((height - y) / (height - fadeBottomLimit));
-          if (fadeConfig.left > 0 && x < fadeLeftLimit) alphaMult *= (x / fadeLeftLimit);
-          if (fadeConfig.right > 0 && x > fadeRightLimit) alphaMult *= ((width - x) / (width - fadeRightLimit));
-      }
-
-      const finalAlpha = (a / 255) * alphaMult;
+      const finalAlpha = (a / 255) * edgeAlpha;
       data[i + 3] = Math.round(finalAlpha * 255);
     }
     ctx.putImageData(imageData, 0, 0);
-  }, [fadeConfig, cropConfig, cropFeather]);
+  }, [fadeConfig]);
 
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizeQuality, setOptimizeQuality] = useState(80);
@@ -1656,31 +911,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           setOriginalAudioUrl(metadata.fileUrl);
       }
 
-      setCompositions(prev => {
-        const hasMain = prev.some(c => c.id === 'main');
-        if (hasMain) return prev;
-        return [
-          {
-            id: 'main',
-            name: 'المشهد الرئيسي (Main Scene)',
-            metadata: metadata,
-            layerImages: extractedImages,
-            assetColors: {},
-            assetColorModes: {},
-            assetBlurs: {},
-            deletedKeys: new Set(),
-            customLayers: [],
-            layerDisplayNames: {},
-            layerTextOptions: {},
-            currentFrame: 0,
-            isPlaying: true,
-            svgaPos: { x: 0, y: 0 },
-            svgaScale: 1,
-            customDimensions: null
-          }
-        ];
-      });
-
       setAssetsLoading(false);
     };
     fetchAssets();
@@ -1693,360 +923,64 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       player = new SVGA.Player(playerRef.current);
       player.loops = 0; player.clearsAfterStop = false;
       
-      try {
-        player.setContentMode('Fill'); 
-        player.setVideoItem(metadata.videoItem);
-        
-        // Calculate "contain" scale to fit perfectly inside the 1334x750 workspace
-        const svgaWidth = metadata.dimensions?.width || metadata.videoItem?.videoSize?.width || 1;
-        const svgaHeight = metadata.dimensions?.height || metadata.videoItem?.videoSize?.height || 1;
-        const scale = Math.min(videoWidth / svgaWidth, videoHeight / svgaHeight);
-        
-        const finalWidth = svgaWidth * scale;
-        const finalHeight = svgaHeight * scale;
+      // We manually scale and center the container, so use Fill
+      player.setContentMode('Fill'); 
+      player.setVideoItem(metadata.videoItem);
+      
+      // Calculate "contain" scale to fit perfectly inside the 1334x750 workspace
+      const svgaWidth = metadata.dimensions?.width || 1;
+      const svgaHeight = metadata.dimensions?.height || 1;
+      const scale = Math.min(videoWidth / svgaWidth, videoHeight / svgaHeight);
+      
+      const finalWidth = svgaWidth * scale;
+      const finalHeight = svgaHeight * scale;
 
-        // Size the inner container to exactly match the scaled SVGA dimensions
-        Object.assign(playerRef.current.style, {
-          width: `${finalWidth}px`,
-          height: `${finalHeight}px`,
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: `translate(-50%, -50%)`,
-          transformOrigin: 'center center'
-        });
+      // Size the inner container to exactly match the scaled SVGA dimensions
+      Object.assign(playerRef.current.style, {
+        width: `${finalWidth}px`,
+        height: `${finalHeight}px`,
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: `translate(-50%, -50%)`,
+        transformOrigin: 'center center'
+      });
 
-        // Override any inline styles SVGA.Player might set on the canvas
-        const updateCanvas = () => {
-          const canvas = playerRef.current?.querySelector('canvas');
-          if (canvas) {
-            Object.assign(canvas.style, {
-              width: '100%',
-              height: '100%',
-              display: 'block',
-              objectFit: 'fill'
-            });
-          }
-        };
-
-        updateCanvas();
-        const timer = setTimeout(updateCanvas, 100);
-
-        // Restore frame if we were playing/paused at a specific frame
-        if (currentFrame > 0 && currentFrame < (metadata.videoItem?.frames || 9999)) {
-            player.stepToFrame(currentFrame, isPlayingRef.current);
+      // Override any inline styles SVGA.Player might set on the canvas
+      const updateCanvas = () => {
+        const canvas = playerRef.current?.querySelector('canvas');
+        if (canvas) {
+          Object.assign(canvas.style, {
+            width: '100%',
+            height: '100%',
+            display: 'block',
+            objectFit: 'fill'
+          });
         }
-        
-        if (isPlayingRef.current) {
-            player.startAnimation();
-        }
-        
-        player.onFrame((frame: number) => setCurrentFrame(frame));
-        setSvgaInstance(player);
-        
-        return () => { 
-          clearTimeout(timer);
-          if (player) { 
-              try {
-                  player.stopAnimation(); 
-                  player.clear(); 
-              } catch (e) {
-                  console.warn("SVGA Player clear failed:", e);
-              }
-          } 
-        };
-      } catch (err) {
-        console.error("SVGA Player Init Error:", err);
+      };
+
+      updateCanvas();
+      const timer = setTimeout(updateCanvas, 100);
+
+      // Restore frame if we were playing/paused at a specific frame
+      if (currentFrame > 0) {
+          player.stepToFrame(currentFrame, true);
       }
+      
+      player.startAnimation();
+      setIsPlaying(true);
+      player.onFrame((frame: number) => setCurrentFrame(frame));
+      setSvgaInstance(player);
+      return () => { 
+        clearTimeout(timer);
+        if (player) { player.stopAnimation(); player.clear(); } 
+      };
     }
   }, [metadata.videoItem, videoWidth, videoHeight, metadata.dimensions]);
-
-  // Coordination and effect for background player overlay
-  useEffect(() => {
-    let bgPlayer: any = null;
-    const mainComp = compositions.find(c => c.id === 'main');
-    const mainVideoItem = mainComp?.metadata?.videoItem;
-
-    if (activeCompositionId !== 'main' && backgroundPlayerRef.current && mainVideoItem && typeof SVGA !== 'undefined') {
-      backgroundPlayerRef.current.innerHTML = '';
-      bgPlayer = new SVGA.Player(backgroundPlayerRef.current);
-      try {
-        bgPlayer.loops = 0;
-        bgPlayer.clearsAfterStop = false;
-        bgPlayer.setContentMode('Fill');
-        bgPlayer.setVideoItem(mainVideoItem);
-
-        const svgaWidth = mainComp?.metadata?.dimensions?.width || mainVideoItem?.videoSize?.width || 1;
-        const svgaHeight = mainComp?.metadata?.dimensions?.height || mainVideoItem?.videoSize?.height || 1;
-        const scale = Math.min(videoWidth / svgaWidth, videoHeight / svgaHeight);
-        const finalWidth = svgaWidth * scale;
-        const finalHeight = svgaHeight * scale;
-
-        Object.assign(backgroundPlayerRef.current.style, {
-          width: `${finalWidth}px`,
-          height: `${finalHeight}px`,
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: `translate(-50%, -50%)`,
-          transformOrigin: 'center center'
-        });
-
-        const updateBgCanvas = () => {
-          const canvas = backgroundPlayerRef.current?.querySelector('canvas');
-          if (canvas) {
-            Object.assign(canvas.style, {
-              width: '100%',
-              height: '100%',
-              display: 'block',
-              objectFit: 'fill'
-            });
-          }
-        };
-
-        updateBgCanvas();
-        const timer = setTimeout(updateBgCanvas, 100);
-
-        if (currentFrame >= 0 && mainComp?.metadata?.frames) {
-          bgPlayer.stepToFrame(currentFrame % (mainComp.metadata.frames || 1), isPlaying);
-        }
-        if (isPlaying) {
-          bgPlayer.startAnimation();
-        }
-
-        setBackgroundPlayerInstance(bgPlayer);
-
-        return () => {
-          clearTimeout(timer);
-          if (bgPlayer) {
-            try {
-              bgPlayer.stopAnimation();
-              bgPlayer.clear();
-            } catch (e) {
-              console.warn("SVGA Background Player clear failed:", e);
-            }
-          }
-          setBackgroundPlayerInstance(null);
-        };
-      } catch (err) {
-        console.error("SVGA Background Player Init Error:", err);
-      }
-    } else {
-      setBackgroundPlayerInstance(null);
-    }
-  }, [activeCompositionId, compositions, videoWidth, videoHeight, isPlaying]);
-
-  // Real-time synchronization of background player frame to main player frame in secondary edit mode
-  useEffect(() => {
-    if (activeCompositionId !== 'main' && backgroundPlayerInstance) {
-      const mainComp = compositions.find(c => c.id === 'main');
-      const maxFrames = mainComp?.metadata?.frames || 1;
-      try {
-        backgroundPlayerInstance.stepToFrame(currentFrame % maxFrames, isPlaying);
-      } catch (e) {
-        console.warn("Soft fail in syncing background player:", e);
-      }
-    }
-  }, [currentFrame, backgroundPlayerInstance, activeCompositionId, compositions, isPlaying]);
-
-  // Drag and reposition mouse / touch mechanics
-  const handleDragStart = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
-    setActiveCompPosStart({ x: svgaPos.x, y: svgaPos.y });
-  };
-
-  const handleDragMove = useCallback((e: MouseEvent) => {
-    if (!isDragging) return;
-    const dx = e.clientX - dragStart.x;
-    const dy = e.clientY - dragStart.y;
-    setSvgaPos({
-      x: Math.round(activeCompPosStart.x + dx),
-      y: Math.round(activeCompPosStart.y + dy)
-    });
-  }, [isDragging, dragStart, activeCompPosStart]);
-
-  const handleDragEnd = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length !== 1) return;
-    const touch = e.touches[0];
-    setIsDragging(true);
-    setDragStart({ x: touch.clientX, y: touch.clientY });
-    setActiveCompPosStart({ x: svgaPos.x, y: svgaPos.y });
-  };
-
-  const handleTouchMove = useCallback((e: TouchEvent) => {
-    if (!isDragging || e.touches.length !== 1) return;
-    const touch = e.touches[0];
-    const dx = touch.clientX - dragStart.x;
-    const dy = touch.clientY - dragStart.y;
-    setSvgaPos({
-      x: Math.round(activeCompPosStart.x + dx),
-      y: Math.round(activeCompPosStart.y + dy)
-    });
-  }, [isDragging, dragStart, activeCompPosStart]);
-
-  const handleTouchEnd = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  useEffect(() => {
-    if (isDragging) {
-      window.addEventListener('mousemove', handleDragMove);
-      window.addEventListener('mouseup', handleDragEnd);
-      window.addEventListener('touchmove', handleTouchMove, { passive: false });
-      window.addEventListener('touchend', handleTouchEnd);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleDragMove);
-      window.removeEventListener('mouseup', handleDragEnd);
-      window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [isDragging, handleDragMove, handleDragEnd, handleTouchMove, handleTouchEnd]);
 
   const handleOpenFadeModal = (key: string) => {
     setFadeModalTarget(key);
     setFadeModalValues({ top: 0, bottom: 0, left: 0, right: 0 });
-  };
-
-  const handleOpenTextReplaceModal = async (key: string) => {
-      if (layerTextOptions[key]) {
-          setTextOptions(layerTextOptions[key]);
-          setTextReplaceTarget(key);
-          return;
-      }
-
-      const originalImage = layerImages[key];
-      if (!originalImage) return;
-      
-      const imgInfo = await new Promise<{ color: string, w: number, h: number }>((resolve) => {
-          const img = new Image();
-          img.onload = () => {
-              const canvas = document.createElement('canvas');
-              const w = img.width || 100;
-              const h = img.height || 100;
-              canvas.width = w;
-              canvas.height = h;
-              const ctx = canvas.getContext('2d', { willReadFrequently: true });
-              if (!ctx) return resolve({ color: '#ffffff', w, h });
-              ctx.drawImage(img, 0, 0);
-              const imgData = ctx.getImageData(0, 0, w, h).data;
-              let r = 0, g = 0, b = 0, count = 0;
-              for (let i = 0; i < imgData.length; i += 4) {
-                  if (imgData[i+3] > 50) { // non-transparent
-                      r += imgData[i]; g += imgData[i+1]; b += imgData[i+2]; count++;
-                  }
-              }
-              if (count === 0) return resolve({ color: '#ffffff', w, h });
-              const hex = '#' + Math.round(r/count).toString(16).padStart(2,'0') + Math.round(g/count).toString(16).padStart(2,'0') + Math.round(b/count).toString(16).padStart(2,'0');
-              resolve({ color: hex, w, h });
-          };
-          img.onerror = () => resolve({ color: '#ffffff', w: 100, h: 100 });
-          img.src = originalImage;
-      });
-
-      setTextOptions({
-          text: "", font: "Arial", size: Math.max(16, Math.floor(imgInfo.h / 1.5)), color: imgInfo.color, offsetX: 0, offsetY: 0, width: imgInfo.w, height: imgInfo.h, originalImage, is3D: false, color3D: "#000000", patternImgEl: null
-      });
-      setTextReplaceTarget(key);
-  };
-
-  const handlePreviewTextGenerate = (): string => {
-      const canvas = document.createElement('canvas');
-      canvas.width = textOptions.width;
-      canvas.height = textOptions.height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return textOptions.originalImage;
-      
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.font = `bold ${textOptions.size}px ${textOptions.font}, sans-serif`;
-      
-      const x = (canvas.width / 2) + textOptions.offsetX;
-      const y = (canvas.height / 2) + textOptions.offsetY;
-      
-      if (textOptions.is3D) {
-          ctx.fillStyle = textOptions.color3D;
-          const depth = Math.max(1, Math.floor(textOptions.size / 15));
-          for (let i = depth; i > 0; i--) {
-              ctx.fillText(textOptions.text, x + i, y + i);
-          }
-      }
-
-      if (textOptions.patternImgEl) {
-          const pattern = ctx.createPattern(textOptions.patternImgEl, 'repeat');
-          ctx.fillStyle = pattern || textOptions.color;
-      } else {
-          ctx.fillStyle = textOptions.color;
-      }
-      
-      // Basic text wrapping/stroke can be added, but fill is enough for now
-      ctx.fillText(textOptions.text, x, y);
-      return canvas.toDataURL('image/png');
-  };
-
-  const handleApplyTextReplace = async () => {
-    if (!textReplaceTarget || !textOptions.text.trim()) return;
-    try {
-        const base64 = handlePreviewTextGenerate();
-        
-        // Push to Undo stack
-        setTextReplaceOriginalImages(p => {
-            const stack = p[textReplaceTarget] || [];
-            return { ...p, [textReplaceTarget]: [...stack, layerImages[textReplaceTarget]] };
-        });
-
-        setLayerTextOptions(p => ({ ...p, [textReplaceTarget]: textOptions }));
-
-        setLayerImages(p => ({ ...p, [textReplaceTarget]: base64 }));
-        
-        if (metadata.videoItem) {
-            const newVideoItem = cloneSvgaItem(metadata.videoItem);
-            if (!newVideoItem.images) newVideoItem.images = {};
-            newVideoItem.images[textReplaceTarget] = base64;
-            
-            setMetadata({
-                ...metadata,
-                videoItem: newVideoItem
-            });
-        }
-        svgaInstance?.setImage(base64, textReplaceTarget);
-        setTextReplaceTarget(null);
-    } catch (e) {
-        console.error(e);
-        alert('فشل في إنشاء النص، يرجى المحاولة مرة أخرى.');
-    }
-  };
-
-  const handleUndoTextReplace = (key: string) => {
-      setTextReplaceOriginalImages(p => {
-          const stack = p[key] || [];
-          if (stack.length === 0) return p;
-          
-          const newStack = [...stack];
-          const previousBase64 = newStack.pop();
-          
-          if (previousBase64) {
-              setLayerImages(prev => ({ ...prev, [key]: previousBase64 }));
-              
-              if (metadata.videoItem) {
-                  const newVideoItem = cloneSvgaItem(metadata.videoItem);
-                  if (!newVideoItem.images) newVideoItem.images = {};
-                  newVideoItem.images[key] = previousBase64;
-                  setMetadata({ ...metadata, videoItem: newVideoItem });
-              }
-              
-              svgaInstance?.setImage(previousBase64, key);
-          }
-          
-          return { ...p, [key]: newStack };
-      });
   };
 
   // Background Removal State
@@ -2334,11 +1268,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     if (!svgaInstance) return;
     if (isPlaying) {
         svgaInstance.pauseAnimation();
-        backgroundPlayerInstance?.pauseAnimation();
         audioRef.current?.pause();
     } else {
         svgaInstance.startAnimation();
-        backgroundPlayerInstance?.startAnimation();
         if (audioRef.current) {
             // Sync audio to current frame before playing
             if (metadata.fps) {
@@ -2356,26 +1288,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       .sort((a, b) => parseInt(a.match(/\d+/)?.[0] || '0') - parseInt(b.match(/\d+/)?.[0] || '0'));
   }, [layerImages, searchQuery]);
 
-  const mainCompLayers = useMemo(() => {
-    const mainComp = compositions.find(c => c.id === 'main');
-    if (!mainComp) return [];
-    
-    // Find layers either from active states if activeCompositionId === 'main', or from mainComp storage if we are in another composition
-    const imagesSource = activeCompositionId === 'main' ? layerImages : (mainComp.layerImages || {});
-    const displayNamesSource = activeCompositionId === 'main' ? layerDisplayNames : (mainComp.layerDisplayNames || {});
-    const colorsSource = activeCompositionId === 'main' ? assetColors : (mainComp.assetColors || {});
-
-    return Object.keys(imagesSource)
-      .filter(key => (key || '').toLowerCase().includes((searchQuery || '').toLowerCase()))
-      .sort((a, b) => parseInt(a.match(/\d+/)?.[0] || '0') - parseInt(b.match(/\d+/)?.[0] || '0'))
-      .map(key => ({
-        key,
-        img: imagesSource[key],
-        displayName: displayNamesSource[key] || key,
-        color: colorsSource[key]
-      }));
-  }, [compositions, activeCompositionId, layerImages, layerDisplayNames, assetColors, searchQuery]);
-
   const handleReplaceImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -2389,7 +1301,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                     
                     // Update Metadata to persist changes
                     if (metadata.videoItem) {
-                        const newVideoItem = cloneSvgaItem(metadata.videoItem);
+                        const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
                         if (!newVideoItem.images) newVideoItem.images = {};
                         newVideoItem.images[replacingAssetKey] = base64;
                         
@@ -2512,24 +1424,17 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleBgUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.type.startsWith('video/')) {
-        const url = URL.createObjectURL(file);
-        setPreviewBg(url);
-        setPreviewBgType('video');
-        setBgScale(100); setBgPos({ x: 50, y: 50 }); setActivePreset('custom');
-      } else {
-        const reader = new FileReader();
-        reader.onload = (ev) => { 
-          setPreviewBg(ev.target?.result as string); setPreviewBgType('image'); setBgScale(100); setBgPos({ x: 50, y: 50 }); setActivePreset('custom');
-        };
-        reader.readAsDataURL(file);
-      }
+      const reader = new FileReader();
+      reader.onload = (ev) => { 
+        setPreviewBg(ev.target?.result as string); setBgScale(100); setBgPos({ x: 50, y: 50 }); setActivePreset('custom');
+      };
+      reader.readAsDataURL(file);
     }
   };
 
   const selectPresetBg = (bg: PresetBackground | null) => {
-    if (!bg) { setActivePreset('none'); setPreviewBg(null); setPreviewBgType('image'); }
-    else { setActivePreset(bg.id); setPreviewBg(bg.url); setPreviewBgType('image'); setBgScale(100); setBgPos({ x: 50, y: 50 }); }
+    if (!bg) { setActivePreset('none'); setPreviewBg(null); }
+    else { setActivePreset(bg.id); setPreviewBg(bg.url); setBgScale(100); setBgPos({ x: 50, y: 50 }); }
   };
 
   const handleWatermarkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2554,11 +1459,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     if (file) {
       ensureInteractionAccess('Add Layer').then(allowed => {
         if (!allowed) return;
-        if (isPlaying && pauseOnManipulate) {
-          setIsPlaying(false);
-          svgaInstance?.pauseAnimation();
-          audioRef.current?.pause();
-        }
         const reader = new FileReader();
         reader.onload = async (ev) => {
           const url = ev.target?.result as string;
@@ -2619,7 +1519,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       if (!metadata.videoItem) return;
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
       
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       let updated = false;
 
       if (newVideoItem.sprites) {
@@ -2644,7 +1544,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleDuplicateSprite = (key: string) => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       const spriteToClone = newVideoItem.sprites.find((s: any) => s.imageKey === key);
 
       if (!spriteToClone) return;
@@ -2652,7 +1552,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       const newKey = `${key}_copy_${Date.now()}`;
       
       // Clone the sprite
-      const newSprite = cloneSprite(spriteToClone);
+      const newSprite = JSON.parse(JSON.stringify(spriteToClone));
       newSprite.imageKey = newKey;
 
       // Offset the new sprite slightly so it's visible
@@ -2704,7 +1604,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
       if (!metadata.videoItem) return;
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       const spriteToClone = newVideoItem.sprites.find((s: any) => s.imageKey === key);
 
       if (!spriteToClone) return;
@@ -2712,7 +1612,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       const newKey = `${key}_isolated_${Date.now()}`;
       
       // Clone the sprite
-      const newSprite = cloneSprite(spriteToClone);
+      const newSprite = JSON.parse(JSON.stringify(spriteToClone));
       newSprite.imageKey = newKey;
 
       // Reset sprites to only contain this new sprite
@@ -2751,7 +1651,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
       if (!metadata.videoItem) return;
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       
       // Keep only selected sprites
       newVideoItem.sprites = newVideoItem.sprites.filter((s: any) => selectedKeys.has(s.imageKey));
@@ -2829,7 +1729,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleFlipSprite = (key: string, direction: 'horizontal' | 'vertical') => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       let updated = false;
 
       newVideoItem.sprites.forEach((sprite: any) => {
@@ -2879,7 +1779,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleReorderSprite = (key: string, direction: 'up' | 'down' | 'top' | 'bottom') => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       const sprites = newVideoItem.sprites;
       const index = sprites.findIndex((s: any) => s.imageKey === key);
 
@@ -2912,7 +1812,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleMirrorCopy = (key: string) => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       const spriteToClone = newVideoItem.sprites.find((s: any) => s.imageKey === key);
 
       if (!spriteToClone) return;
@@ -2920,7 +1820,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       const newKey = `${key}_mirror_${Date.now()}`;
       
       // Clone the sprite
-      const newSprite = cloneSprite(spriteToClone);
+      const newSprite = JSON.parse(JSON.stringify(spriteToClone));
       newSprite.imageKey = newKey;
 
       newSprite.frames.forEach((frame: any) => {
@@ -2973,16 +1873,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const handleScaleSprite = (keys: string | string[] | Set<string>, factor: number) => {
       if (!metadata.videoItem) return;
-      
-      if (isPlaying && pauseOnManipulate) {
-          setIsPlaying(false);
-          svgaInstance?.pauseAnimation();
-          audioRef.current?.pause();
-      }
-      
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       let updated = false;
 
       newVideoItem.sprites.forEach((sprite: any) => {
@@ -3035,16 +1928,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const handleRotateSprite = (keys: string | string[] | Set<string>, angle: number) => {
       if (!metadata.videoItem) return;
-      
-      if (isPlaying && pauseOnManipulate) {
-          setIsPlaying(false);
-          svgaInstance?.pauseAnimation();
-          audioRef.current?.pause();
-      }
-      
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       let updated = false;
 
       newVideoItem.sprites.forEach((sprite: any) => {
@@ -3084,7 +1970,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleDuplicatePair = (key: string) => {
       if (!metadata.videoItem) return;
 
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       const spriteToClone = newVideoItem.sprites.find((s: any) => s.imageKey === key);
 
       if (!spriteToClone) return;
@@ -3094,7 +1980,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       const mirrorKey = `${key}_mirror_${timestamp}`;
       
       // 1. Create Normal Copy
-      const copySprite = cloneSprite(spriteToClone);
+      const copySprite = JSON.parse(JSON.stringify(spriteToClone));
       copySprite.imageKey = copyKey;
       // Offset slightly
       copySprite.frames.forEach((frame: any) => {
@@ -3106,7 +1992,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       newVideoItem.sprites.push(copySprite);
 
       // 2. Create Mirrored Copy
-      const mirrorSprite = cloneSprite(spriteToClone);
+      const mirrorSprite = JSON.parse(JSON.stringify(spriteToClone));
       mirrorSprite.imageKey = mirrorKey;
       mirrorSprite.frames.forEach((frame: any) => {
           if (!frame.transform) frame.transform = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
@@ -3147,17 +2033,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const handleShiftSprite = (keys: string | string[] | Set<string>, delta: { x?: number, y?: number }) => {
       if (!metadata.videoItem) return;
-      
-      // Auto-pause during manipulation to prevent lag
-      if (isPlaying && pauseOnManipulate) {
-          setIsPlaying(false);
-          svgaInstance?.pauseAnimation();
-          audioRef.current?.pause();
-      }
-      
       const keyArray = Array.from(typeof keys === 'string' ? [keys] : keys);
       
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       let updated = false;
 
       if (newVideoItem.sprites) {
@@ -3186,13 +2064,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleUpdateSprite = (key: string, updates: { x?: number, y?: number, width?: number, height?: number, scale?: number }) => {
       if (!metadata.videoItem) return;
       
-      if (isPlaying && pauseOnManipulate) {
-          setIsPlaying(false);
-          svgaInstance?.pauseAnimation();
-          audioRef.current?.pause();
-      }
-      
-      const newVideoItem = cloneSvgaItem(metadata.videoItem);
+      const newVideoItem = JSON.parse(JSON.stringify(metadata.videoItem));
       let updated = false;
 
       if (newVideoItem.sprites) {
@@ -3222,12 +2094,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const handleMoveSprite = (key: string, direction: 'up' | 'down') => {
       if (!metadata.videoItem || !metadata.videoItem.sprites) return;
       
-      if (isPlaying && pauseOnManipulate) {
-          setIsPlaying(false);
-          svgaInstance?.pauseAnimation();
-          audioRef.current?.pause();
-      }
-      
       const newSprites = [...metadata.videoItem.sprites];
       const index = newSprites.findIndex((s: any) => s.imageKey === key);
       
@@ -3254,11 +2120,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const handleRemoveLayer = async (id: string) => {
     if (!(await ensureInteractionAccess('Remove Layer'))) return;
-    if (isPlaying && pauseOnManipulate) {
-      setIsPlaying(false);
-      svgaInstance?.pauseAnimation();
-      audioRef.current?.pause();
-    }
     if (confirm("حذف هذه الطبقة؟")) {
         setCustomLayers(prev => prev.filter(l => l.id !== id));
         if (selectedLayerId === id) setSelectedLayerId(null);
@@ -3267,11 +2128,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const handleMoveLayer = async (id: string, direction: 'up' | 'down') => {
     if (!(await ensureInteractionAccess('Move Layer'))) return;
-    if (isPlaying && pauseOnManipulate) {
-      setIsPlaying(false);
-      svgaInstance?.pauseAnimation();
-      audioRef.current?.pause();
-    }
     setCustomLayers(prev => {
       const index = prev.findIndex(l => l.id === id);
       if (index === -1) return prev;
@@ -3287,16 +2143,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   const handleUpdateLayer = async (id: string, updates: Partial<CustomLayer>) => {
     if (!(await ensureInteractionAccess('Update Layer'))) return;
-    if (isPlaying && pauseOnManipulate) {
-      setIsPlaying(false);
-      svgaInstance?.pauseAnimation();
-      audioRef.current?.pause();
-    }
     setCustomLayers(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l));
   };
 
   const getProcessedSVGAData = async (isAEExport = false) => {
-      const isEdgeFadeActive = fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0 || cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0;
+      const isEdgeFadeActive = fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0;
       const root = protobuf.parse(svgaSchema).root;
       const MovieEntity = root.lookupType("com.opensource.svga.MovieEntity");
       let message: any;
@@ -3352,7 +2203,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
               // Use metadata.videoItem.sprites as the source of truth if it exists, 
               // but preserve original sprite data if we're just filtering/editing.
               // For duplicated layers, we MUST use metadata.videoItem.sprites.
-              message.sprites = (metadata.videoItem.sprites || message.sprites).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => cloneSprite(s));
+              message.sprites = (metadata.videoItem.sprites || message.sprites).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => JSON.parse(JSON.stringify(s)));
           }
           if (message.images) {
               // Ensure all images from metadata.videoItem.images are included
@@ -3374,7 +2225,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                   frames: metadata.frames || 0
               },
               images: {},
-              sprites: (metadata.videoItem.sprites || []).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => cloneSprite(s)),
+              sprites: (metadata.videoItem.sprites || []).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => JSON.parse(JSON.stringify(s))),
               audios: [...(metadata.videoItem.audios || [])]
           };
           
@@ -3838,6 +2689,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
     try {
       const videoItem = svgaInstance.videoItem || metadata.videoItem;
+      const { width, height } = videoItem.videoSize;
       const totalFrames = videoItem.frames;
       const fps = videoItem.FPS || 30;
 
@@ -3846,46 +2698,30 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       exportContainer.style.position = 'fixed';
       exportContainer.style.left = '-9999px';
       exportContainer.style.top = '-9999px';
-      exportContainer.style.width = `${videoItem?.videoSize?.width || videoWidth}px`;
-      exportContainer.style.height = `${videoItem?.videoSize?.height || videoHeight}px`;
+      exportContainer.style.width = `${width}px`;
+      exportContainer.style.height = `${height}px`;
       document.body.appendChild(exportContainer);
 
       const exportPlayer = new SVGA.Player(exportContainer);
-      exportPlayer.setContentMode('AspectFill');
+      exportPlayer.setContentMode('Fill');
       exportPlayer.setVideoItem(videoItem);
 
       const frames: { data: string; w: number; h: number }[] = [];
-
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = videoWidth;
-      tempCanvas.height = videoHeight;
-      const tCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
 
       for (let i = 0; i < totalFrames; i++) {
         setExportPhase(`جاري معالجة الإطار ${i + 1} من ${totalFrames}...`);
         exportPlayer.stepToFrame(i, false);
         
+        // Small delay to ensure rendering is complete
         await new Promise(r => setTimeout(r, 50));
         
         const canvas = exportContainer.querySelector('canvas');
-        if (canvas && tCtx) {
-          tCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
-          
-          const s = Math.min(videoWidth / canvas.width, videoHeight / canvas.height);
-          const w = canvas.width * s;
-          const h = canvas.height * s;
-          const x = (videoWidth - w) / 2;
-          const y = (videoHeight - h) / 2;
-          
-          tCtx.drawImage(canvas, x, y, w, h);
-
-          const dataUrl = tempCanvas.toDataURL('image/png', 1.0);
-          frames.push({ data: dataUrl, w: videoWidth, h: videoHeight });
+        if (canvas) {
+          const dataUrl = canvas.toDataURL('image/png', 1.0);
+          frames.push({ data: dataUrl, w: width, h: height });
         }
         setProgress(Math.round(((i + 1) / totalFrames) * 100));
       }
-
-      document.body.removeChild(exportContainer);
 
       setExportPhase('جاري إنشاء ملف Lottie النهائي...');
       const lottieJson = await convertFramesToLottieSequence(frames, fps);
@@ -4587,202 +3423,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   };
 
 
-  const handleExportAnimatedSVG = async (options: { decrement?: boolean } = {}) => {
-    const { decrement = true } = options;
-    if (!svgaInstance || !playerRef.current) return;
-
-    if (!currentUser) {
-      onLoginRequired();
-      return;
-    }
-
-    const { allowed } = await checkAccess('Animated SVG Export', { decrement, subscriptionOnly: true });
-    if (!allowed) {
-      onSubscriptionRequired();
-      return;
-    }
-
-    setIsExporting(true);
-    setExportPhase('جاري إنشاء ملف Animated SVG...');
-
-    try {
-        svgaInstance.pauseAnimation();
-        const originalFrame = currentFrame;
-        const totalFrames = metadata.frames || svgaInstance.videoItem?.frames || 0;
-        const fps = Math.round(parseFloat(metadata.fps as any)) || Math.round(parseFloat(svgaInstance.videoItem?.FPS || 30));
-        const totalDuration = totalFrames / fps;
-        
-        if (totalFrames === 0) {
-            alert("No frames data found in metadata. Cannot export.");
-            setIsExporting(false);
-            return;
-        }
-        
-        const safeWidth = videoWidth;
-        const safeHeight = videoHeight;
-        
-        const canvas = playerRef.current?.querySelector('canvas');
-        if (!canvas) throw new Error("Canvas not found");
-        
-        const compCanvas = document.createElement('canvas');
-        compCanvas.width = safeWidth;
-        compCanvas.height = safeHeight;
-        const cCtx = compCanvas.getContext('2d', { willReadFrequently: true });
-        if (!cCtx) throw new Error("Failed to create context");
-
-        const framesBase64: string[] = [];
-
-        const loadImage = (src: string): Promise<HTMLImageElement> => {
-            return new Promise((resolve) => {
-                const img = new Image();
-                img.crossOrigin = "anonymous";
-                img.onload = () => resolve(img);
-                img.onerror = () => resolve(img);
-                img.src = src;
-            });
-        };
-
-        let bgImg: HTMLImageElement | null = null;
-        if (previewBg) bgImg = await loadImage(previewBg);
-        
-        let wmImg: HTMLImageElement | null = null;
-        if (watermark) wmImg = await loadImage(watermark);
-
-        const loadedLayers = await Promise.all(customLayers.map(async l => {
-            const img = await loadImage(l.url);
-            return { ...l, img };
-        }));
-
-        // Use isolated player for export to guarantee clean canvas without interfering with UI
-        const exportContainer = document.createElement('div');
-        exportContainer.style.position = 'fixed';
-        exportContainer.style.left = '-9999px';
-        exportContainer.style.top = '-9999px';
-        const videoItem = svgaInstance.videoItem || metadata.videoItem;
-        exportContainer.style.width = `${videoItem?.videoSize?.width || videoWidth}px`;
-        exportContainer.style.height = `${videoItem?.videoSize?.height || videoHeight}px`;
-        document.body.appendChild(exportContainer);
-
-        const exportPlayer = new SVGA.Player(exportContainer);
-        exportPlayer.setContentMode('AspectFill');
-        if (videoItem) {
-             exportPlayer.setVideoItem(videoItem);
-        }
-
-        for (let i = 0; i < totalFrames; i++) {
-            exportPlayer.stepToFrame(i, false);
-            await new Promise(r => setTimeout(r, 40));
-            
-            const currentCanvas = exportContainer.querySelector('canvas');
-            if (!currentCanvas) continue;
-
-            cCtx.clearRect(0, 0, safeWidth, safeHeight);
-
-            if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
-                const bgW = (safeWidth * bgScale) / 100;
-                const bgH = bgW * (bgImg.height / bgImg.width);
-                const bgX = (safeWidth - bgW) * (bgPos.x / 100);
-                const bgY = (safeHeight - bgH) * (bgPos.y / 100);
-                cCtx.drawImage(bgImg, bgX, bgY, bgW, bgH);
-            }
-
-            loadedLayers.filter(l => l.zIndexMode === 'back').forEach(l => {
-                if (l.img.complete && l.img.naturalWidth > 0) {
-                    cCtx.drawImage(l.img, l.x, l.y, l.width * l.scale, l.height * l.scale);
-                }
-            });
-
-            const cx = safeWidth / 2;
-            const cy = safeHeight / 2;
-            cCtx.save();
-            cCtx.translate(cx + svgaPos.x, cy + svgaPos.y);
-            cCtx.scale(svgaScale, svgaScale);
-            cCtx.translate(-cx, -cy);
-            
-            const s = Math.min(safeWidth / currentCanvas.width, safeHeight / currentCanvas.height);
-            const w = currentCanvas.width * s;
-            const h = currentCanvas.height * s;
-            const x = (safeWidth - w) / 2;
-            const y = (safeHeight - h) / 2;
-            cCtx.drawImage(currentCanvas, x, y, w, h);
-            cCtx.restore();
-
-            if (wmImg && wmImg.complete && wmImg.naturalWidth > 0) {
-                const wmW = safeWidth * wmScale;
-                const wmH = wmW * (wmImg.height / wmImg.width);
-                const wmX = (safeWidth - wmW) / 2 + wmPos.x;
-                const wmY = (safeHeight - wmH) / 2 + wmPos.y;
-                cCtx.globalAlpha = 0.7;
-                cCtx.drawImage(wmImg, wmX, wmY, wmW, wmH);
-                cCtx.globalAlpha = 1.0;
-            }
-
-            loadedLayers.filter(l => l.zIndexMode === 'front').forEach(l => {
-                if (l.img.complete && l.img.naturalWidth > 0) {
-                    cCtx.drawImage(l.img, l.x, l.y, l.width * l.scale, l.height * l.scale);
-                }
-            });
-
-            applyTransparencyEffects(cCtx, safeWidth, safeHeight);
-
-            // Export to PNG max quality
-            const base64 = compCanvas.toDataURL('image/png', 1.0);
-            framesBase64.push(base64);
-            
-            setProgress(Math.floor(((i + 1) / totalFrames) * 90));
-        }
-        
-        document.body.removeChild(exportContainer);
-
-        setExportPhase('تجميع إطارات SVG المتحركة...');
-        
-        let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${safeWidth} ${safeHeight}" width="${safeWidth}" height="${safeHeight}">\n`;
-        svgContent += `<style>\n`;
-        svgContent += `image { opacity: 0; }\n`;
-        for (let i = 0; i < totalFrames; i++) {
-            svgContent += `.f${i} { animation: a${i} ${totalDuration}s infinite; }\n`;
-            
-            const pStart = ((i / totalFrames) * 100).toFixed(3);
-            const pEnd = (((i + 1) / totalFrames) * 100).toFixed(3);
-            svgContent += `@keyframes a${i} {
-    0%, ${pStart}% { opacity: 0; }
-    ${pStart}.001%, ${pEnd}% { opacity: 1; filter: none; }
-    ${pEnd}.001%, 100% { opacity: 0; }
-}\n`;
-        }
-        svgContent += `</style>\n`;
-        
-        for (let i = 0; i < totalFrames; i++) {
-            svgContent += `<image class="f${i}" href="${framesBase64[i]}" xlink:href="${framesBase64[i]}" width="${safeWidth}" height="${safeHeight}" />\n`;
-        }
-        svgContent += `</svg>`;
-
-        const blob = new Blob([svgContent], { type: 'image/svg+xml' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${metadata.name}-animated.svg`;
-        a.click();
-        URL.revokeObjectURL(url);
-        
-        if (currentUser) {
-            logActivity(currentUser, 'export', `Exported Animated SVG: ${metadata.name}-animated.svg`);
-        }
-        
-        svgaInstance.stepToFrame(originalFrame, isPlaying);
-        if (isPlaying) svgaInstance.startAnimation();
-        
-        alert("✅ تم تصدير Animated SVG بنجاح!");
-        setIsExporting(false);
-
-    } catch (e) {
-        console.error("Animated SVG Export Error: ", e);
-        alert("فشل تصدير Animated SVG: " + (e as any).message);
-        setIsExporting(false);
-    }
-  };
-
-
   const handleExportAPNG = async (options: { decrement?: boolean } = {}) => {
     const { decrement = true } = options;
     if (!svgaInstance || !playerRef.current) return;
@@ -4814,8 +3454,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         const delay = Math.round(1000 / fps);
 
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = videoWidth;
-        tempCanvas.height = videoHeight;
+        tempCanvas.width = canvas.width;
+        tempCanvas.height = canvas.height;
         const tCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
 
         for (let i = 0; i < totalFrames; i++) {
@@ -4825,14 +3465,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             const currentCanvas = playerRef.current?.querySelector('canvas');
             if (currentCanvas && tCtx) {
                 tCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
-                
-                const s = Math.min(videoWidth / currentCanvas.width, videoHeight / currentCanvas.height);
-                const w = currentCanvas.width * s;
-                const h = currentCanvas.height * s;
-                const x = (videoWidth - w) / 2;
-                const y = (videoHeight - h) / 2;
-                
-                tCtx.drawImage(currentCanvas, x, y, w, h);
+                tCtx.drawImage(currentCanvas, 0, 0);
                 applyTransparencyEffects(tCtx, tempCanvas.width, tempCanvas.height);
 
                 const imageData = tCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
@@ -4849,7 +3482,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         if (globalQuality === 'medium') cnum = 256;
         if (globalQuality === 'low') cnum = 128;
 
-        const apngBuffer = UPNG.encode(framesData, tempCanvas.width, tempCanvas.height, cnum, delays);
+        const apngBuffer = UPNG.encode(framesData, canvas.width, canvas.height, cnum, delays);
         
         const blob = new Blob([apngBuffer], { type: 'image/png' });
         const link = document.createElement("a");
@@ -5054,22 +3687,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         }));
 
         let bgImg: HTMLImageElement | null = null;
-        let bgVideo: HTMLVideoElement | null = null;
-        if (previewBg) {
-            if (previewBgType === 'video') {
-                bgVideo = document.createElement('video');
-                bgVideo.src = previewBg;
-                bgVideo.crossOrigin = 'anonymous';
-                bgVideo.muted = true;
-                await new Promise(resolve => {
-                    bgVideo!.onloadeddata = resolve;
-                    bgVideo!.onerror = resolve;
-                    bgVideo!.load();
-                });
-            } else {
-                bgImg = await loadImage(previewBg);
-            }
-        }
+        if (previewBg) bgImg = await loadImage(previewBg);
         
         let wmImg: HTMLImageElement | null = null;
         if (watermark) wmImg = await loadImage(watermark);
@@ -5224,21 +3842,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             cCtx.clearRect(0, 0, safeWidth, safeHeight);
 
             // 1. Background
-            if (bgVideo && bgVideo.videoWidth > 0) {
-                if (bgVideo.duration > 0) {
-                    bgVideo.currentTime = (i / fps) % bgVideo.duration;
-                    await new Promise(r => {
-                        const handler = () => { bgVideo!.removeEventListener('seeked', handler); r(null); };
-                        bgVideo!.addEventListener('seeked', handler);
-                        setTimeout(handler, 50);
-                    });
-                }
-                const bgW = (safeWidth * bgScale) / 100;
-                const bgH = bgW * (bgVideo.videoHeight / bgVideo.videoWidth);
-                const bgX = (safeWidth - bgW) * (bgPos.x / 100);
-                const bgY = (safeHeight - bgH) * (bgPos.y / 100);
-                cCtx.drawImage(bgVideo, bgX, bgY, bgW, bgH);
-            } else if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
+            if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
                 const bgW = (safeWidth * bgScale) / 100;
                 const bgH = bgW * (bgImg.height / bgImg.width);
                 const bgX = (safeWidth - bgW) * (bgPos.x / 100);
@@ -5352,62 +3956,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     
     // Reset input value so same file can be selected again
     e.target.value = '';
-
-    // Clear previous audio state immediately
-    setAudioUrl(null);
-    setOriginalAudioUrl(null);
-    setAudioFile(null);
-
-    try {
-        const arrayBuffer = await file.arrayBuffer();
-        const parser = new SVGA.Parser();
-        
-        parser.load(URL.createObjectURL(new Blob([arrayBuffer])), (videoItem: any) => {
-            let extractedFps = videoItem.FPS || videoItem.fps || 30;
-            if (typeof extractedFps === 'string') extractedFps = parseFloat(extractedFps);
-            if (!extractedFps || extractedFps <= 0) extractedFps = 30;
-
-            const newMeta: FileMetadata = {
-                name: file.name,
-                size: file.size,
-                type: 'SVGA',
-                dimensions: { width: videoItem.videoSize.width, height: videoItem.videoSize.height },
-                fps: extractedFps,
-                frames: videoItem.frames,
-                assets: [],
-                videoItem: videoItem,
-                fileUrl: URL.createObjectURL(new Blob([arrayBuffer])),
-                originalFile: file
-            };
-
-            if (onFileReplace) {
-                onFileReplace(newMeta);
-            } else {
-                setMetadata(newMeta);
-                setCustomDimensions(null);
-                setCurrentFrame(0);
-                setSvgaPos({ x: 0, y: 0 });
-                setSvgaScale(1);
-            }
-            
-        }, (err: Error) => {
-            console.error(err);
-            alert("ملف SVGA غير صالح");
-        });
-    } catch (error) {
-        console.error("Error reading file:", error);
-        alert("حدث خطأ أثناء قراءة الملف");
-    }
-  };
-
-  const handleDragOverSvga = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
-
-  const handleDropSvgaFile = async (e: React.DragEvent) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files?.[0];
-    if (!file || !file.name.toLowerCase().endsWith('.svga')) return;
 
     // Clear previous audio state immediately
     setAudioUrl(null);
@@ -5843,7 +4391,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     }
   }, [currentUser, selectedFormat]);
 
-  const availableFormats = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Lottie (Sequence)', 'SVGA → Animated SVG', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP (MP4)', 'VAP 1.0.5', 'SVGA → YYEVA'];
+  const availableFormats = ['AE Project', 'SVGA 2.0 EX', 'SVGA 2.0', 'Lottie (Sequence)', 'Image Sequence', 'GIF (Animation)', 'APNG (Animation)', 'WebM (Video)', 'WebP (Animated)', 'VAP (MP4)', 'VAP 1.0.5', 'SVGA → YYEVA'];
   
   const displayedFormats = useMemo(() => {
       // If we are in EX mode, only show SVGA 2.0 EX
@@ -5874,179 +4422,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
       }
   }, [displayedFormats, selectedFormat]);
 
-  const getUnifiedExportData = () => {
-    // Collect all active components
-    let activeCompList = compositions;
-    const currentActive = activeCompList.map(c => {
-      if (c.id === activeCompositionId) {
-        return {
-          ...c, metadata, layerImages, assetColors, assetColorModes, assetBlurs, 
-          deletedKeys, customLayers, layerDisplayNames, layerTextOptions, currentFrame, 
-          isPlaying, svgaPos, svgaScale, svgaRotation, svgaOpacity, selectedKeys
-        };
-      }
-      return c;
-    });
-
-    const mainComp = currentActive.find(c => c.id === 'main');
-    if (!mainComp) return { metadata, layerImages, assetColors, assetColorModes, assetBlurs, deletedKeys, layerDisplayNames, customLayers };
-
-    // Start with unified containers
-    let unifiedMetadata = cloneSvgaItem(mainComp.metadata);
-    let unifiedVideoItem = unifiedMetadata.videoItem;
-    let unifiedImages = { ...(mainComp.layerImages || {}) };
-    let unifiedAssetColors = { ...(mainComp.assetColors || {}) };
-    let unifiedAssetColorModes = { ...(mainComp.assetColorModes || {}) };
-    let unifiedAssetBlurs = { ...(mainComp.assetBlurs || {}) };
-    let unifiedDeletedKeys = new Set(mainComp.deletedKeys);
-    let unifiedDisplayNames = { ...(mainComp.layerDisplayNames || {}) };
-    let unifiedCustomLayers = [...(mainComp.customLayers || [])];
-
-    let maxFrames = unifiedMetadata.frames || 1;
-    currentActive.forEach(c => { if (c.id !== 'main') maxFrames = Math.max(maxFrames, c.metadata?.frames || 1); });
-
-    // Mathematical integration of all other compositions
-    currentActive.forEach(sourceComp => {
-      if (sourceComp.id === 'main') return;
-      const sourceVideoItem = sourceComp.metadata.videoItem;
-      if (!sourceVideoItem) return;
-
-      const spritesToMerge = (sourceVideoItem.sprites || []).filter((s: any) => !sourceComp.deletedKeys.has(s.imageKey));
-      if (spritesToMerge.length === 0) return;
-
-      // Extend unity sprites
-      unifiedVideoItem.sprites = (unifiedVideoItem.sprites || []).map((sprite: any) => {
-        const sourceLength = sprite.frames?.length || 0;
-        if (sourceLength > 0 && sourceLength < maxFrames) {
-          const extendedFrames = [...sprite.frames];
-          for (let i = sourceLength; i < maxFrames; i++) {
-            extendedFrames.push(cloneFrame(extendedFrames[i % sourceLength]));
-          }
-          return { ...sprite, frames: extendedFrames };
-        }
-        return sprite;
-      });
-
-      // Spatial Maths mapping secondary affine to main space
-      const S = sourceComp.svgaScale !== undefined && !isNaN(sourceComp.svgaScale) ? sourceComp.svgaScale : 1;
-      const rad = ((sourceComp.svgaRotation || 0) * Math.PI) / 180;
-      const cos = Math.cos(rad); const sin = Math.sin(rad);
-      const svgaPosX = sourceComp.svgaPos?.x || 0; const svgaPosY = sourceComp.svgaPos?.y || 0;
-
-      const mainDefaults = getDefaultDimensions(mainComp.metadata);
-      const mainOrigW = mainComp.metadata.dimensions?.width || unifiedVideoItem?.videoSize?.width || mainDefaults.width || 1334;
-      const mainOrigH = mainComp.metadata.dimensions?.height || unifiedVideoItem?.videoSize?.height || mainDefaults.height || 750;
-
-      const sourceDefaults = getDefaultDimensions(sourceComp.metadata);
-      const sourceOrigW = sourceComp.metadata.dimensions?.width || sourceVideoItem?.videoSize?.width || sourceDefaults.width || 1334;
-      const sourceOrigH = sourceComp.metadata.dimensions?.height || sourceVideoItem?.videoSize?.height || sourceDefaults.height || 750;
-
-      // In the UI, the secondary source was visually tuned inside a viewport equal to its own dimensions!
-      const uiViewW = sourceOrigW;
-      const uiViewH = sourceOrigH;
-
-      // The main component was visually shrunk/grown to fit inside this viewport
-      const C = Math.min(uiViewW / mainOrigW, uiViewH / mainOrigH);
-      const Offset_m_X = (uiViewW - mainOrigW * C) / 2;
-      const Offset_m_Y = (uiViewH - mainOrigH * C) / 2;
-
-      const cx = uiViewW / 2; 
-      const cy = uiViewH / 2;
-
-      // We compose matrices to reverse-project from the visual viewport back into the main composition native coords.
-      const multiplyMat = (m1: any, m2: any) => ({
-        a: m1.a * m2.a + m1.c * m2.b,
-        b: m1.b * m2.a + m1.d * m2.b,
-        c: m1.a * m2.c + m1.c * m2.d,
-        d: m1.b * m2.c + m1.d * m2.d,
-        tx: m1.a * m2.tx + m1.c * m2.ty + m1.tx,
-        ty: m1.b * m2.tx + m1.d * m2.ty + m1.ty
-      });
-
-      // 1. Source pixels to UI screen pixels (taking into account the UI Scaling S, R, T)
-      const M_source_to_screen = { 
-        a: S * cos, b: S * sin, 
-        c: -S * sin, d: S * cos, 
-        tx: cx - cx * S * cos + cy * S * sin + svgaPosX, 
-        ty: cy - cx * S * sin - cy * S * cos + svgaPosY 
-      };
-
-      // 2. UI screen pixels to main native pixels
-      // P_m = (P_screen - Offset) / C
-      const M_screen_to_main = {
-        a: 1 / C, b: 0, 
-        c: 0, d: 1 / C,
-        tx: -Offset_m_X / C,
-        ty: -Offset_m_Y / C
-      };
-
-      const M_final = multiplyMat(M_screen_to_main, M_source_to_screen);
-      const alphaMultiplier = sourceComp.svgaOpacity !== undefined ? sourceComp.svgaOpacity : 1;
-
-      spritesToMerge.forEach((sprite: any) => {
-        const key = sprite.imageKey;
-        if (sourceVideoItem.images[key]) {
-          unifiedVideoItem.images[key] = sourceVideoItem.images[key];
-        }
-
-        const sourceFrames = sprite.frames || [];
-        const sourceLength = sourceFrames.length;
-        const finalFrames = [];
-
-        for (let i = 0; i < maxFrames; i++) {
-          const sourceFrameIndex = sourceLength > 0 ? (i % sourceLength) : 0;
-          const originalFrameObj = sourceFrames[sourceFrameIndex] || { alpha: 1.0, layout: { x: 0, y: 0, width: 200, height: 200 }, transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 } };
-          const frameCopy = cloneFrame(originalFrameObj);
-          frameCopy.alpha = widthCheck((originalFrameObj.alpha !== undefined ? originalFrameObj.alpha : 1.0) * alphaMultiplier);
-
-          if (frameCopy.layout) {
-            const mOrig = {
-              a: frameCopy.transform?.a !== undefined ? frameCopy.transform.a : 1,
-              b: frameCopy.transform?.b || 0,
-              c: frameCopy.transform?.c || 0,
-              d: frameCopy.transform?.d !== undefined ? frameCopy.transform.d : 1,
-              tx: frameCopy.transform?.tx || 0,
-              ty: frameCopy.transform?.ty || 0
-            };
-            const mNew = multiplyMat(M_final, mOrig);
-            if (!frameCopy.transform) frameCopy.transform = {};
-            frameCopy.transform.a = mNew.a;
-            frameCopy.transform.b = mNew.b;
-            frameCopy.transform.c = mNew.c;
-            frameCopy.transform.d = mNew.d;
-            frameCopy.transform.tx = widthCheck(mNew.tx);
-            frameCopy.transform.ty = heightCheck(mNew.ty);
-          }
-          finalFrames.push(frameCopy);
-        }
-        unifiedVideoItem.sprites.push({ ...sprite, frames: finalFrames });
-      });
-
-      Object.assign(unifiedImages, sourceComp.layerImages || {});
-      Object.assign(unifiedAssetColors, sourceComp.assetColors || {});
-      Object.assign(unifiedAssetColorModes, sourceComp.assetColorModes || {});
-      Object.assign(unifiedAssetBlurs, sourceComp.assetBlurs || {});
-      Object.assign(unifiedDisplayNames, sourceComp.layerDisplayNames || {});
-      (sourceComp.customLayers || []).forEach((cl: any) => unifiedCustomLayers.push(cl));
-    });
-
-    unifiedMetadata.frames = maxFrames;
-    return {
-      metadata: unifiedMetadata,
-      layerImages: unifiedImages,
-      assetColors: unifiedAssetColors,
-      assetColorModes: unifiedAssetColorModes,
-      assetBlurs: unifiedAssetBlurs,
-      deletedKeys: unifiedDeletedKeys,
-      layerDisplayNames: unifiedDisplayNames,
-      customLayers: unifiedCustomLayers,
-      svgaScale: mainComp.svgaScale !== undefined ? mainComp.svgaScale : 1,
-      svgaPos: mainComp.svgaPos || { x: 0, y: 0 },
-      svgaRotation: mainComp.svgaRotation || 0,
-      svgaOpacity: mainComp.svgaOpacity !== undefined ? mainComp.svgaOpacity : 1
-    };
-  };
-
   const handleMainExport = async (formatOverride?: string | any) => {
     if (!currentUser) {
       onLoginRequired();
@@ -6070,26 +4445,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
     if (currentFormat === 'AE Project') await handleExportAEProject({ decrement: false });
     else if (currentFormat === 'Lottie (Sequence)') await handleExportLottieSequence({ decrement: false });
-    else if (currentFormat === 'SVGA → Animated SVG') await handleExportAnimatedSVG({ decrement: false });
     else if (currentFormat === 'SVGA 2.0 EX') {
-        const unified = getUnifiedExportData();
         await handleSvgaExExport({
-            metadata: unified.metadata, 
-            videoWidth, videoHeight, exportScale, svgaScale: unified.svgaScale, svgaPos: unified.svgaPos,
-            layerImages: unified.layerImages, 
-            assetColors: unified.assetColors, 
-            assetColorModes: unified.assetColorModes, 
-            assetBlurs: unified.assetBlurs, 
-            deletedKeys: unified.deletedKeys, 
-            layerDisplayNames: unified.layerDisplayNames, 
-            customLayers: unified.customLayers, 
-            watermark,
-            wmScale, wmPos, audioUrl, audioFile, originalAudioUrl, fadeConfig, cropConfig, cropFeather,
+            metadata, videoWidth, videoHeight, exportScale, svgaScale, svgaPos,
+            layerImages, assetColors, assetColorModes, assetBlurs, deletedKeys, layerDisplayNames, customLayers, watermark,
+            wmScale, wmPos, audioUrl, audioFile, originalAudioUrl, fadeConfig,
             applyTransparencyEffects, setProgress, setExportPhase, setIsExporting,
             protobuf, globalQuality
         });
         if (currentUser) {
-          logActivity(currentUser, 'export', `Exported SVGA 2.0 EX: ${unified.metadata.name || metadata.name}.svga`);
+          logActivity(currentUser, 'export', `Exported SVGA 2.0 EX: ${metadata.name}.svga`);
         }
     }
     else if (currentFormat === 'Image Sequence') await handleExportImageSequence({ decrement: false });
@@ -6536,7 +4901,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         }
     }
     else if (currentFormat === 'SVGA 2.0' && typeof protobuf !== 'undefined') {
-        const isEdgeFadeActive = fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0 || cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0;
+        const isEdgeFadeActive = fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0;
 
         // If user is exporting SVGA 2.0 but hasn't uploaded the AE JSON yet, prompt them
         if (!aeJsonData) {
@@ -6931,7 +5296,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 const audioList: any[] = [...(metadata.videoItem.audios || [])];
                 
                 let finalSprites = (metadata.videoItem.sprites || []).filter((s: any) => !deletedKeys.has(s.imageKey)).map((s: any) => {
-                    const sprite = cloneSprite(s);
+                    const sprite = JSON.parse(JSON.stringify(s));
                     if (layerDisplayNames[sprite.imageKey]) {
                         sprite.name = layerDisplayNames[sprite.imageKey];
                     }
@@ -7025,8 +5390,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                     }
                 }
 
-                const origW = metadata.videoItem?.videoSize?.width || videoWidth;
-                const origH = metadata.videoItem?.videoSize?.height || videoHeight;
+                const origW = metadata.videoItem.videoSize.width;
+                const origH = metadata.videoItem.videoSize.height;
                 const scaleX = videoWidth / origW;
                 const scaleY = videoHeight / origH;
                 
@@ -7261,7 +5626,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     <div className="flex flex-col gap-6 sm:gap-8 pb-32 animate-in fade-in slide-in-from-bottom-8 duration-1000 font-arabic select-none text-right" dir="rtl">
       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleReplaceImage} />
       <input type="file" ref={replaceSvgaInputRef} className="hidden" accept=".svga" onChange={handleReplaceSvgaFile} />
-      <input type="file" ref={bgInputRef} className="hidden" accept="image/*, video/mp4, video/webm" onChange={handleBgUpload} />
+      <input type="file" ref={bgInputRef} className="hidden" accept="image/*" onChange={handleBgUpload} />
       <input type="file" ref={watermarkInputRef} className="hidden" accept="image/*" onChange={handleWatermarkUpload} />
       <input type="file" ref={layerInputRef} className="hidden" accept="image/*" onChange={handleAddLayer} />
       <input type="file" ref={audioInputRef} className="hidden" accept="audio/*" onChange={handleAudioUpload} />
@@ -7310,288 +5675,31 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         </div>
       </div>
 
-      {/* SVGA Composition Workspace Panel */}
-      <div className="p-6 rounded-2xl sm:rounded-[3rem] border border-white/5 bg-slate-950/60 backdrop-blur-3xl shadow-xl flex flex-col gap-4">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <h3 className="text-sm sm:text-lg font-black text-white flex items-center gap-2">
-              <span className="text-sky-400">🌌</span> بيئة تركيب وتكوين SVGA الاحترافية (SVGA Compositions)
-            </h3>
-            <p className="text-[10px] sm:text-xs text-slate-400 mt-1">
-              قم باستيراد نصوص وملفات SVGA كـ تركيبات مستقلة (معزولة) شبيهة بـ Pre-compositions في After Effects، عدلها ثم ادمجها بمرونة في المشهد الرئيسي.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button 
-              onClick={() => importCompInputRef.current?.click()} 
-              className="px-4 py-2.5 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white text-xs font-black rounded-xl border border-white/10 transition-all flex items-center gap-2 shadow-glow-sky whitespace-nowrap"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-              استيراد تركيبة SVGA جديدة
-            </button>
-            <input 
-              type="file" 
-              ref={importCompInputRef} 
-              onChange={handleImportCompositionFile} 
-              accept=".svga" 
-              className="hidden" 
-            />
-          </div>
-        </div>
-
-        {/* Cohesive tabs listing available compositions */}
-        <div className="flex flex-wrap gap-3 items-center">
-          {compositions.map((comp) => {
-            const isActive = comp.id === activeCompositionId;
-            const isMain = comp.id === 'main';
-            return (
-              <div 
-                key={comp.id}
-                onClick={() => handleSwitchComposition(comp.id)}
-                className={`py-2 px-4 rounded-xl transition-all border flex items-center gap-3 cursor-pointer ${
-                  isActive 
-                    ? 'bg-sky-500/10 border-sky-500 text-white font-bold' 
-                    : 'bg-white/5 border-white/5 text-slate-400 hover:bg-white/10 hover:text-white'
-                }`}
-              >
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-xs">{isMain ? '🏠' : '📼'}</span>
-                  <span className="text-xs truncate max-w-[150px]">{comp.name}</span>
-                  {!isMain && (
-                    <span className="text-[9px] px-1.5 py-0.5 bg-slate-800 rounded text-slate-400">
-                      {comp.metadata?.frames} إطار
-                    </span>
-                  )}
-                </div>
-
-                {/* Composition Specific Actions */}
-                {!isMain && (
-                  <div className="flex items-center gap-2 border-l border-white/10 pl-2">
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (confirm(`هل ترغب في دمج تركيبة "${comp.name}" كاملة في المشهد الرئيسي؟`)) {
-                          handleMergeCompositionIntoMain(comp.id, false);
-                        }
-                      }}
-                      className="text-[10px] bg-sky-500 hover:bg-sky-400 text-white px-2 py-1 rounded font-black transition-all whitespace-nowrap"
-                      title="دمج كل الطبقات"
-                    >
-                      دمج بالكامل
-                    </button>
-                    {(comp.selectedKeys && comp.selectedKeys.size > 0) && (
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm(`هل ترغب في دمج الطبقات المحددة فقط (${comp.selectedKeys?.size}) من تركيبة "${comp.name}"؟`)) {
-                            handleMergeCompositionIntoMain(comp.id, true);
-                          }
-                        }}
-                        className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded font-black transition-all whitespace-nowrap"
-                        title="دمج الطبقات المحددة فقط"
-                      >
-                        دمج المحدد ({comp.selectedKeys.size})
-                      </button>
-                    )}
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteComposition(comp.id);
-                      }}
-                      className="text-[10px] bg-red-600/10 hover:bg-red-600/30 text-red-400 hover:text-white px-2.5 py-1 rounded-lg border border-red-500/25 transition-all font-black flex items-center gap-1 cursor-pointer"
-                      title="حذف التركيبة"
-                    >
-                      <span>🗑️</span> حذف الملف
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Composition Properties Adjuster when active comp is NOT main */}
-        {activeCompositionId !== 'main' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-7 gap-4 p-5 rounded-2xl bg-slate-900/50 border border-white/10 text-xs shadow-2xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-sky-500/5 blur-3xl rounded-full"></div>
-            
-            <div className="flex flex-col gap-1.5 justify-center">
-              <span className="text-slate-400 font-bold flex items-center gap-1">🔍 التكبير والتصغير (Scale)</span>
-              <div className="flex items-center gap-2">
-                <input 
-                  type="range" 
-                  min="0.1" 
-                  max="3" 
-                  step="0.01" 
-                  value={svgaScale} 
-                  onChange={(e) => setSvgaScale(parseFloat(e.target.value))} 
-                  className="w-full h-1 accent-sky-500 rounded bg-slate-700"
-                />
-                <span className="font-mono text-slate-300 min-w-[45px] text-right">{svgaScale.toFixed(2)}x</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-1.5 justify-center">
-              <span className="text-slate-400 font-bold flex items-center gap-1">➡️ الإزاحة الأفقية (X Pos)</span>
-              <div className="flex items-center gap-2">
-                <input 
-                  type="range" 
-                  min="-1000" 
-                  max="1000" 
-                  step="1" 
-                  value={svgaPos.x} 
-                  onChange={(e) => setSvgaPos(prev => ({ ...prev, x: parseInt(e.target.value) }))} 
-                  className="w-full h-1 accent-indigo-500 rounded bg-slate-700"
-                />
-                <span className="font-mono text-slate-300 min-w-[50px] text-right">{svgaPos.x}px</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-1.5 justify-center">
-              <span className="text-slate-400 font-bold flex items-center gap-1">⬇️ الإزاحة الرأسية (Y Pos)</span>
-              <div className="flex items-center gap-2">
-                <input 
-                  type="range" 
-                  min="-1000" 
-                  max="1000" 
-                  step="1" 
-                  value={svgaPos.y} 
-                  onChange={(e) => setSvgaPos(prev => ({ ...prev, y: parseInt(e.target.value) }))} 
-                  className="w-full h-1 accent-indigo-500 rounded bg-slate-700"
-                />
-                <span className="font-mono text-slate-300 min-w-[50px] text-right">{svgaPos.y}px</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-1.5 justify-center">
-              <span className="text-slate-400 font-bold flex items-center gap-1">🔄 زاوية التدوير (Rotation)</span>
-              <div className="flex items-center gap-2">
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="360" 
-                  step="1" 
-                  value={svgaRotation} 
-                  onChange={(e) => setSvgaRotation(parseInt(e.target.value))} 
-                  className="w-full h-1 accent-pink-500 rounded bg-slate-700"
-                />
-                <span className="font-mono text-slate-300 min-w-[45px] text-right">{svgaRotation}°</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-1.5 justify-center">
-              <span className="text-slate-400 font-bold flex items-center gap-1">🌗 مستوى الشفافية (Opacity)</span>
-              <div className="flex items-center gap-2">
-                <input 
-                  type="range" 
-                  min="0.1" 
-                  max="1" 
-                  step="0.05" 
-                  value={svgaOpacity} 
-                  onChange={(e) => setSvgaOpacity(parseFloat(e.target.value))} 
-                  className="w-full h-1 accent-teal-500 rounded bg-slate-700"
-                />
-                <span className="font-mono text-slate-300 min-w-[45px] text-right">{Math.round(svgaOpacity * 100)}%</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-1.5 justify-center">
-              <span className="text-slate-400 font-bold flex items-center gap-1">⏱️ سرعة الإطارات (FPS)</span>
-              <div className="flex items-center gap-2">
-                <input 
-                  type="number" 
-                  value={metadata.fps || 30} 
-                  onChange={(e) => {
-                    const newFps = Math.max(1, parseInt(e.target.value) || 30);
-                    setMetadata(prev => ({ ...prev, fps: newFps }));
-                  }} 
-                  className="w-full max-w-[80px] px-2 py-1 bg-black/50 border border-white/10 rounded-lg text-center text-white text-xs font-mono font-bold"
-                />
-                <span className="text-slate-500 font-bold">FPS</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-1.5 justify-center">
-              <span className="text-red-400 font-bold flex items-center gap-1">🗑️ حذف الملف بالكامل</span>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteComposition(activeCompositionId);
-                }}
-                className="w-full py-2.5 bg-red-600/10 hover:bg-red-600/30 text-red-400 hover:text-white font-black text-xs rounded-xl border border-red-500/30 transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer shadow-lg"
-              >
-                <span>🗑️</span> حذف هذا الملف كلياً
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 sm:gap-8 overflow-visible">
         <div className="xl:col-span-7 flex flex-col gap-4 sm:gap-0 overflow-visible">
-          {activeCompositionId !== 'main' && (
-            <div className="mb-4 p-4 rounded-2xl bg-gradient-to-r from-sky-500/20 via-sky-500/10 to-indigo-500/10 border border-sky-400/30 text-right shadow-2xl relative overflow-hidden flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-              <div className="absolute top-0 left-0 w-24 h-24 bg-sky-500/10 blur-2xl rounded-full" />
-              <div className="relative z-10">
-                <span className="text-white text-[11px] font-black flex items-center gap-1.5 justify-end">
-                  <span>✨</span> وضع محاكاة وتحرير الطبقات المضافة (تراكب متزامن)
-                </span>
-                <p className="text-[10px] text-slate-300 font-bold mt-1 leading-relaxed">
-                  أنت الآن ترى الملف الأساسي في الخلفية والملف المضاف "<span className="text-sky-400 font-mono">{metadata.name}</span>" متحركاً فوقه تماماً! اسحب الملف المضاف، كَبِّره، أو صَغِّره لملاءمة التصميم.
-                </p>
-              </div>
-              <span className="px-3 py-1.5 rounded-lg bg-sky-500/20 text-sky-400 text-[10px] font-black tracking-wide border border-sky-500/30 whitespace-nowrap relative z-10 self-stretch sm:self-auto flex items-center justify-center">
-                👁️ تراكب مرئي نشط
-              </span>
-            </div>
-          )}
-          <div 
-              onDragOver={handleDragOverSvga}
-              onDrop={handleDropSvgaFile}
-              className="relative flex items-center justify-center w-full overflow-hidden rounded-2xl sm:rounded-[3rem] border border-white/10 shadow-3xl bg-black/20 transition-colors duration-200 hover:bg-black/30" 
-              style={{ height: `${Math.max(200, videoHeight * scale)}px` }}>
+          <div className="relative flex items-center justify-center w-full overflow-hidden rounded-2xl sm:rounded-[3rem] border border-white/10 shadow-3xl bg-black/20" style={{ height: `${Math.max(200, videoHeight * scale)}px` }}>
               <div ref={containerRef} className="absolute inset-0 flex items-center justify-center transition-transform duration-500 ease-out origin-center pointer-events-none" style={{ transform: `scale(${scale})` }}>
                   <div className="relative overflow-hidden shadow-2xl pointer-events-auto" style={{ 
                       width: `${videoWidth}px`, 
                       height: `${videoHeight}px`, 
-                      backgroundImage: (previewBg && previewBgType === 'image') ? `url(${previewBg})` : (previewBg ? 'none' : `
+                      backgroundImage: previewBg ? `url(${previewBg})` : `
                         linear-gradient(45deg, #334155 25%, transparent 25%), 
                         linear-gradient(-45deg, #334155 25%, transparent 25%), 
                         linear-gradient(45deg, transparent 75%, #334155 75%), 
                         linear-gradient(-45deg, transparent 75%, #334155 75%)
-                      `),
-                      backgroundSize: (previewBg && previewBgType === 'image') ? `${bgScale}%` : '20px 20px',
-                      backgroundRepeat: (previewBg && previewBgType === 'image') ? 'no-repeat' : 'repeat', 
-                      backgroundPosition: (previewBg && previewBgType === 'image') ? `${bgPos.x}% ${bgPos.y}%` : '0 0, 0 10px, 10px -10px, -10px 0px', 
+                      `,
+                      backgroundSize: previewBg ? `${bgScale}%` : '20px 20px',
+                      backgroundRepeat: previewBg ? 'no-repeat' : 'repeat', 
+                      backgroundPosition: previewBg ? `${bgPos.x}% ${bgPos.y}%` : '0 0, 0 10px, 10px -10px, -10px 0px', 
                       backgroundColor: previewBg ? 'transparent' : '#0f172a',
                       boxShadow: '0 0 100px rgba(0,0,0,0.5), inset 0 0 50px rgba(0,0,0,0.5)', 
                       border: previewBg ? 'none' : '2px solid rgba(255,255,255,0.05)',
-                      maskImage: (fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0 || cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0) ? `
-                        linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100-fadeConfig.right}%, transparent 100%), 
-                        linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100-fadeConfig.bottom}%, transparent 100%),
-                        linear-gradient(to right, transparent 0%, transparent ${cropConfig.left}%, black ${cropConfig.left + cropFeather.left}%, black ${100 - cropConfig.right - cropFeather.right}%, transparent ${100 - cropConfig.right}%, transparent 100%),
-                        linear-gradient(to bottom, transparent 0%, transparent ${cropConfig.top}%, black ${cropConfig.top + cropFeather.top}%, black ${100 - cropConfig.bottom - cropFeather.bottom}%, transparent ${100 - cropConfig.bottom}%, transparent 100%)
+                      maskImage: (fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0) ? `
+                        linear-gradient(to right, transparent, black ${fadeConfig.left}%, black ${100-fadeConfig.right}%, transparent), 
+                        linear-gradient(to bottom, transparent, black ${fadeConfig.top}%, black ${100-fadeConfig.bottom}%, transparent)
                       ` : 'none',
                       maskComposite: 'intersect'
                   }}>
-                      {previewBg && previewBgType === 'video' && (
-                          <video 
-                              src={previewBg} 
-                              autoPlay 
-                              loop 
-                              muted 
-                              playsInline 
-                              crossOrigin="anonymous"
-                              className="absolute pointer-events-none z-0" 
-                              style={{
-                                  width: `${bgScale}%`,
-                                  left: `${bgPos.x}%`,
-                                  top: `${bgPos.y}%`,
-                                  transform: `translate(-${bgPos.x}%, -${bgPos.y}%)`
-                              }}
-                          />
-                      )}
-                      
                       {/* Back Layers */}
                       {customLayers.filter(l => l.zIndexMode === 'back').map(layer => (
                         <div 
@@ -7613,62 +5721,19 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                         </div>
                       ))}
 
-                      {/* Background Main SVGA Player played in the back of the Composition Editor */}
-                      {activeCompositionId !== 'main' && (
-                        <div className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none opacity-100">
-                          <div ref={backgroundPlayerRef} className="w-full h-full relative flex items-center justify-center overflow-visible" />
-                        </div>
-                      )}
-
-                      <div 
-                        className={`w-full h-full relative z-10 flex items-center justify-center ${isDragging ? '' : 'transition-transform duration-300'}`} 
-                        style={{ 
-                          transform: `translate(${svgaPos.x}px, ${svgaPos.y}px) scale(${svgaScale}) rotate(${svgaRotation}deg)`,
-                          opacity: svgaOpacity
-                        }}
-                      >
+                      <div className="w-full h-full relative z-10 flex items-center justify-center transition-transform duration-300" style={{ transform: `translate(${svgaPos.x}px, ${svgaPos.y}px) scale(${svgaScale})` }}>
                          <div 
                             key={`${videoWidth}-${videoHeight}`} 
                             ref={playerRef} 
                             id="svga-player-container" 
-                            className="w-full h-full relative flex items-center justify-center overflow-visible select-none"
+                            className="w-full h-full relative flex items-center justify-center overflow-visible"
                             style={{
-                                WebkitMaskImage: (fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0 || cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0) ? `
-                                    linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100 - fadeConfig.bottom}%, transparent 100%), 
-                                    linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100 - fadeConfig.right}%, transparent 100%),
-                                    linear-gradient(to right, transparent 0%, transparent ${cropConfig.left}%, black ${cropConfig.left + cropFeather.left}%, black ${100 - cropConfig.right - cropFeather.right}%, transparent ${100 - cropConfig.right}%, transparent 100%),
-                                    linear-gradient(to bottom, transparent 0%, transparent ${cropConfig.top}%, black ${cropConfig.top + cropFeather.top}%, black ${100 - cropConfig.bottom - cropFeather.bottom}%, transparent ${100 - cropConfig.bottom}%, transparent 100%)
-                                ` : 'none',
-                                maskImage: (fadeConfig.top > 0 || fadeConfig.bottom > 0 || fadeConfig.left > 0 || fadeConfig.right > 0 || cropConfig.top > 0 || cropConfig.bottom > 0 || cropConfig.left > 0 || cropConfig.right > 0) ? `
-                                    linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100 - fadeConfig.bottom}%, transparent 100%), 
-                                    linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100 - fadeConfig.right}%, transparent 100%),
-                                    linear-gradient(to right, transparent 0%, transparent ${cropConfig.left}%, black ${cropConfig.left + cropFeather.left}%, black ${100 - cropConfig.right - cropFeather.right}%, transparent ${100 - cropConfig.right}%, transparent 100%),
-                                    linear-gradient(to bottom, transparent 0%, transparent ${cropConfig.top}%, black ${cropConfig.top + cropFeather.top}%, black ${100 - cropConfig.bottom - cropFeather.bottom}%, transparent ${100 - cropConfig.bottom}%, transparent 100%)
-                                ` : 'none',
+                                WebkitMaskImage: `linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100 - fadeConfig.bottom}%, transparent 100%), linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100 - fadeConfig.right}%, transparent 100%)`,
+                                maskImage: `linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100 - fadeConfig.bottom}%, transparent 100%), linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100 - fadeConfig.right}%, transparent 100%)`,
                                 WebkitMaskComposite: 'source-in',
                                 maskComposite: 'intersect'
                             }}
-                         >
-                           {/* Precise interactive outline handles with native mouse/touch listeners */}
-                           {activeCompositionId !== 'main' && (
-                             <div 
-                               onMouseDown={handleDragStart}
-                               onTouchStart={handleTouchStart}
-                               className="absolute -inset-2 border-2 border-dashed border-sky-400 hover:border-sky-300 bg-sky-500/5 transition-colors cursor-move z-30 flex items-center justify-center rounded-xl"
-                               title="اسحب لتحريك وتعديل موضع التركيبة باحترافية"
-                             >
-                                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-sky-500/95 text-white whitespace-nowrap px-3 py-1 text-[11px] font-black rounded-lg shadow-xl flex items-center gap-1.5 select-none pointer-events-none">
-                                  <span>🌌</span> سحب لتحريك التركيبة
-                                </div>
-                                
-                                {/* Corner handles */}
-                                <div className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
-                                <div className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
-                                <div className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
-                                <div className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
-                             </div>
-                           )}
-                         </div>
+                         ></div>
                       </div>
                       {watermark && (
                         <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center p-0 transition-transform duration-200" style={{ transform: `translate(${wmPos.x}px, ${wmPos.y}px)` }}>
@@ -7698,210 +5763,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                   </div>
               </div>
           </div>
-
-          {/* Quick Unified Controller Panel for Secondary Composition Group */}
-          {activeCompositionId !== 'main' && (
-            <div className="mt-4 w-full bg-slate-900/90 border border-sky-500/30 rounded-2xl p-5 shadow-2xl relative overflow-hidden text-right">
-              {/* background atmospheric glow */}
-              <div className="absolute top-0 left-0 w-32 h-32 bg-sky-500/10 blur-2xl rounded-full" />
-              
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-white/5 pb-3 mb-4 relative z-10">
-                <div>
-                  <h4 className="text-white font-black text-xs flex items-center gap-2">
-                    <span className="animate-pulse">✨</span> أداة التحكم بالملف المضاف كـ "مجموعة واحدة"
-                  </h4>
-                  <p className="text-[10px] text-slate-400 font-bold mt-1">
-                    الملف المضاف حالياً: <span className="text-sky-400 font-mono font-extrabold">{metadata.name}</span>
-                  </p>
-                </div>
-                
-                {/* Switch / Reset Actions */}
-                <div className="flex gap-2 w-full sm:w-auto">
-                  <button 
-                    onClick={() => {
-                      setSvgaPos({ x: 0, y: 0 });
-                      setSvgaScale(1);
-                      setSvgaRotation(0);
-                      setSvgaOpacity(1);
-                    }}
-                    className="flex-1 sm:flex-initial px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white rounded-lg text-[10px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    🔄 إعادة تعيين الموضع
-                  </button>
-                  <button
-                    onClick={() => handleSwitchComposition('main')}
-                    className="flex-1 sm:flex-initial px-3 py-1.5 bg-sky-500/15 hover:bg-sky-500/25 text-sky-400 border border-sky-500/20 rounded-lg text-[10px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    🏠 العودة للمشهد الرئيسي
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-5 relative z-10">
-                {/* 1. Precision D-Pad movement controls */}
-                <div className="md:col-span-4 flex flex-col items-center justify-center bg-black/30 p-4 rounded-xl border border-white/5">
-                  <span className="text-slate-400 font-bold text-[10px] mb-3 self-start mr-1">🎯 التحريك والتحكم بالموقع (Pos):</span>
-                  
-                  {/* D-Pad circle block */}
-                  <div className="relative w-28 h-28 flex items-center justify-center bg-slate-950/80 rounded-full border border-white/10 p-2">
-                    {/* CENTER INDICATOR */}
-                    <div className="w-8 h-8 rounded-full bg-sky-500/25 flex items-center justify-center text-[10px] text-sky-400 font-extrabold select-none shadow-glow-sky border border-sky-500/30">
-                      GP
-                    </div>
-                    {/* UP */}
-                    <button 
-                      onClick={() => setSvgaPos(prev => ({ ...prev, y: prev.y - nudgeStep }))}
-                      className="absolute top-1 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-slate-950 border border-white/5 hover:bg-slate-800 text-slate-300 font-bold text-[11px] flex items-center justify-center shadow-lg cursor-pointer active:scale-90"
-                      title="تحريك لأعلى"
-                    >
-                      ▲
-                    </button>
-                    {/* DOWN */}
-                    <button 
-                      onClick={() => setSvgaPos(prev => ({ ...prev, y: prev.y + nudgeStep }))}
-                      className="absolute bottom-1 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-slate-950 border border-white/5 hover:bg-slate-800 text-slate-300 font-bold text-[11px] flex items-center justify-center shadow-lg cursor-pointer active:scale-90"
-                      title="تحريك لأسفل"
-                    >
-                      ▼
-                    </button>
-                    {/* LEFT */}
-                    <button 
-                      onClick={() => setSvgaPos(prev => ({ ...prev, x: prev.x - nudgeStep }))}
-                      className="absolute left-1 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-slate-950 border border-white/5 hover:bg-slate-800 text-slate-300 font-bold text-[11px] flex items-center justify-center shadow-lg cursor-pointer active:scale-90"
-                      title="تحريك ليسار"
-                    >
-                      ◀
-                    </button>
-                    {/* RIGHT */}
-                    <button 
-                      onClick={() => setSvgaPos(prev => ({ ...prev, x: prev.x + nudgeStep }))}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-slate-950 border border-white/5 hover:bg-slate-800 text-slate-300 font-bold text-[11px] flex items-center justify-center shadow-lg cursor-pointer active:scale-90"
-                      title="تحريك ليمين"
-                    >
-                      ▶
-                    </button>
-                  </div>
-
-                  {/* Nudge step switcher */}
-                  <div className="flex gap-1 mt-4 w-full">
-                    {([1, 5, 10, 50, 100] as number[]).map(step => (
-                      <button
-                        key={`nudge-step-${step}`}
-                        onClick={() => setNudgeStep(step)}
-                        className={`flex-1 py-1 text-[9px] font-mono font-black rounded-lg transition-all ${nudgeStep === step ? 'bg-sky-500 text-white shadow-glow-sky' : 'bg-white/5 text-slate-400 hover:bg-white/10'}`}
-                      >
-                        {step}px
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 2. Scale & Rotate precise controls */}
-                <div className="md:col-span-5 flex flex-col justify-between bg-black/30 p-4 rounded-xl border border-white/5">
-                  <div className="space-y-4 w-full">
-                    {/* Scale block */}
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-slate-400 font-bold text-[10px] flex items-center gap-1">🔍 تعديل الحجم والنسب (Scale):</span>
-                        <span className="text-sky-400 font-mono text-[10px] font-black">{svgaScale.toFixed(2)}x</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={() => setSvgaScale(prev => Math.max(0.1, parseFloat((prev - 0.05).toFixed(2))))}
-                          className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 rounded-lg text-slate-300 text-xs font-black cursor-pointer active:scale-90 select-none border border-white/5"
-                        >
-                          ➖ تصغير
-                        </button>
-                        <input 
-                          type="range" 
-                          min="0.1" 
-                          max="3" 
-                          step="0.01" 
-                          value={svgaScale} 
-                          onChange={(e) => setSvgaScale(parseFloat(e.target.value))} 
-                          className="flex-1 h-1 accent-sky-500 rounded bg-slate-700 cursor-pointer"
-                        />
-                        <button 
-                          onClick={() => setSvgaScale(prev => Math.min(3, parseFloat((prev + 0.05).toFixed(2))))}
-                          className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 rounded-lg text-slate-300 text-xs font-black cursor-pointer active:scale-90 select-none border border-white/5"
-                        >
-                          ➕ تكبير
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Rotation block */}
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-slate-400 font-bold text-[10px] flex items-center gap-1">🔄 زاوية الدوران (Rotation):</span>
-                        <span className="text-pink-400 font-mono text-[10px] font-black">{svgaRotation}°</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={() => setSvgaRotation(prev => (prev - 10 + 360) % 360)}
-                          className="px-2 py-1.5 bg-slate-950 hover:bg-slate-800 rounded-lg text-slate-300 text-[10px] font-black cursor-pointer active:scale-90 select-none border border-white/5 flex-1"
-                        >
-                          ↩️ ليسار 10°
-                        </button>
-                        <input 
-                          type="range" 
-                          min="0" 
-                          max="360" 
-                          step="1" 
-                          value={svgaRotation} 
-                          onChange={(e) => setSvgaRotation(parseInt(e.target.value))} 
-                          className="w-1/3 h-1 accent-pink-500 rounded bg-slate-700 cursor-pointer"
-                        />
-                        <button 
-                          onClick={() => setSvgaRotation(prev => (prev + 10) % 360)}
-                          className="px-2 py-1.5 bg-slate-950 hover:bg-slate-800 rounded-lg text-slate-300 text-[10px] font-black cursor-pointer active:scale-90 select-none border border-white/5 flex-1"
-                        >
-                          ↪️ ليمين 10°
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Opacity block */}
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-slate-400 font-bold text-[10px] flex items-center gap-1">🌗 مستوى الشفافية (Opacity):</span>
-                        <span className="text-teal-400 font-mono text-[10px] font-black">{Math.round(svgaOpacity * 100)}%</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input 
-                          type="range" 
-                          min="0.1" 
-                          max="1" 
-                          step="0.05" 
-                          value={svgaOpacity} 
-                          onChange={(e) => setSvgaOpacity(parseFloat(e.target.value))} 
-                          className="flex-1 h-1 accent-teal-500 rounded bg-slate-700 cursor-pointer"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3. Global Action - Merge Entire composition into Main at once */}
-                <div className="md:col-span-3 flex flex-col justify-center items-center bg-sky-500/5 p-4 rounded-xl border border-sky-500/20 text-center">
-                  <span className="text-[9px] text-sky-400 font-black tracking-wider uppercase mb-2">⚡ الإجراء النهائي (Lock & Merge)</span>
-                  <p className="text-[10px] text-slate-300 font-bold mb-4 leading-relaxed">
-                    بعد وضع المجموعة في الموضع المطلوب تماماً، اضغط هنا لدمج كافّة الطبقات دفعة واحدة بالمشهد الأساسي مع الحفاظ على الحركة والصيغة والموضع.
-                  </p>
-                  <button 
-                    onClick={() => {
-                      if (confirm(`هل أنت متأكد من رغبتك في دمج التركيبة المضافة "${metadata.name}" بالكامل بموضعها الحالي كـ "دفعة واحدة" داخل المشهد الرئيسي؟`)) {
-                        handleMergeCompositionIntoMain(activeCompositionId, false);
-                      }
-                    }}
-                    className="w-full py-3 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white rounded-xl text-[11px] font-black uppercase shadow-lg shadow-sky-500/20 border border-sky-400/30 transition-all select-none cursor-pointer active:scale-95 flex items-center justify-center gap-1"
-                  >
-                    🚀 دمج كامل الطبقات الآن
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           <div className="mt-4 w-full bg-slate-950/60 backdrop-blur-3xl p-4 sm:p-8 rounded-2xl sm:rounded-[2.5rem] border border-white/5 flex flex-col lg:flex-row items-center gap-4 sm:gap-8 shadow-2xl relative z-20">
                <div className="flex items-center gap-4 w-full lg:w-auto">
@@ -8035,368 +5896,114 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                         )}
                     </div>
                     
-                    {/* TWO COHESIVE BANDS (بندان لطبقات الملفات) */}
-                    <div className="space-y-6">
-                      {/* -- BAND 1: ADDED SECONDARY COMPOSITION'S LAYERS (Only active when activeCompositionId !== 'main') -- */}
-                      {activeCompositionId !== 'main' ? (
-                        <div className="space-y-4">
-                          <div className="flex flex-col gap-2 p-4 rounded-2xl bg-sky-500/10 border border-sky-500/20 shadow-lg relative overflow-hidden">
-                            <div className="absolute top-0 right-0 w-24 h-24 bg-sky-500/5 blur-2xl rounded-full"></div>
-                            <div className="flex justify-between items-center relative z-10">
-                              <span className="text-white text-[11px] font-black flex items-center gap-1.5 uppercase">
-                                <span className="w-2.5 h-2.5 rounded-full bg-sky-500 animate-pulse"></span>
-                                🔹 البند الأول: طبقات الملف المضاف (قابلة للحركة والتحكم)
-                              </span>
-                              <span className="px-2 py-0.5 bg-sky-500/20 text-sky-400 font-extrabold text-[9px] rounded-lg border border-sky-500/30">نشط وحر للتعديل</span>
+                    {/* VAP Toggle */}
+                    <div className="flex items-center gap-2 mb-4 p-3 bg-white/5 rounded-xl border border-white/5">
+                        <div className="relative inline-flex items-center cursor-pointer" onClick={() => setIsVapMode(!isVapMode)}>
+                            <input type="checkbox" className="sr-only peer" checked={isVapMode} readOnly />
+                            <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-500"></div>
+                            <span className="mr-3 text-xs font-bold text-slate-300">استيراد فيديو شفاف (VAP)</span>
+                        </div>
+                    </div>
+                    
+                    {/* Custom Layers & Existing Layers Merged Grid */}
+                    <div className="grid grid-cols-2 gap-4">
+                        {/* Custom Layers */}
+                        {[...customLayers].reverse().map(layer => (
+                            <div key={layer.id} onClick={() => { setSelectedLayerId(layer.id); }} className={`group bg-slate-900/30 rounded-[2rem] border p-4 transition-all cursor-pointer ${selectedLayerId === layer.id ? 'border-sky-500 bg-sky-500/10' : 'border-white/[0.03]'}`}>
+                                <div className="aspect-square rounded-2xl bg-black/40 flex items-center justify-center relative overflow-hidden mb-2">
+                                    <img src={layer.url} className="max-w-[80%] max-h-[80%] object-contain" />
+                                </div>
+                                <div className="flex justify-between items-center mb-2">
+                                    <span className="text-[8px] text-white font-black truncate max-w-[60px]">{layer.name}</span>
+                                    <div className="flex gap-1">
+                                        <button onClick={(e) => {
+                                            e.stopPropagation();
+                                            const newName = prompt("أدخل اسم جديد للطبقة:", layer.name);
+                                            if (newName) handleUpdateLayer(layer.id, { name: newName });
+                                        }} className="text-amber-500 hover:text-amber-400" title="إعادة تسمية">
+                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                                        </button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleRemoveLayer(layer.id); }} className="text-red-500 hover:text-red-400">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="flex gap-1 justify-between">
+                                    <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'down'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white">⬇️</button>
+                                    <button onClick={(e) => { e.stopPropagation(); handleUpdateLayer(layer.id, { zIndexMode: layer.zIndexMode === 'front' ? 'back' : 'front' }); }} className={`px-2 py-1 rounded text-[8px] font-black uppercase ${layer.zIndexMode === 'front' ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-700 text-slate-400'}`}>{layer.zIndexMode === 'front' ? 'أمام' : 'خلف'}</button>
+                                    <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'up'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white">⬆️</button>
+                                </div>
                             </div>
-                            <p className="text-[10px] text-slate-400 font-bold leading-relaxed relative z-10">
-                              هذا القسم يعرض كامل طبقات ملف الـ SVGA الثاني الذي قمت بإضافته للتو. يمكنك الضغط على أي طبقة وضبط خياراتها الفردية، أو سحب الإطار الرئيسي في شاشة العرض لتثبيته بالكامل، ثم دمجه بضغطة زر.
-                            </p>
-                            
-                            <button 
-                              onClick={() => {
-                                if (confirm(`هل ترغب في دمج كافة طبقات الملف المضاف الأخير "${metadata.name}" في الملف الأساسي الرئيسي دفعة واحدة وبسرعة؟`)) {
-                                  handleMergeCompositionIntoMain(activeCompositionId, false);
-                                }
-                              }}
-                              className="mt-2 w-full py-3.5 bg-gradient-to-r from-sky-500 via-indigo-500 to-purple-600 hover:from-sky-400 hover:via-indigo-400 hover:to-purple-500 text-white font-black text-xs rounded-xl shadow-glow-sky border border-white/10 transition-all flex items-center justify-center gap-2 active:scale-98 relative z-10 cursor-pointer"
+                        ))}
+
+                        {/* Existing Layers */}
+                        {filteredKeys.map(key => (
+                            <div 
+                                key={key} 
+                                onClick={(e) => {
+                                    if (e.ctrlKey || e.metaKey) {
+                                        const newSelected = new Set(selectedKeys);
+                                        if (newSelected.has(key)) newSelected.delete(key);
+                                        else newSelected.add(key);
+                                        setSelectedKeys(newSelected);
+                                    } else {
+                                        setSelectedKeys(new Set([key]));
+                                    }
+                                }}
+                                className={`group bg-slate-900/30 rounded-[2rem] border p-4 transition-all duration-300 relative cursor-pointer ${selectedKeys.has(key) ? 'border-sky-500 bg-sky-500/10' : deletedKeys.has(key) ? 'border-red-500/50 grayscale opacity-40' : 'border-white/[0.03]'}`}
                             >
-                              <span>✨</span> دمج كافة طبقات الملف المضاف بالكامل داخل المشهد الرئيسي دفعة واحدة
-                            </button>
-                          </div>
+                                <div className="aspect-square rounded-2xl bg-black/40 flex items-center justify-center relative overflow-hidden">
+                                   {layerImages[key] && <img src={layerImages[key]} className="max-w-[70%] max-h-[70%] object-contain" style={{ filter: assetColors[key] ? `drop-shadow(0 0 2px ${assetColors[key]})` : 'none' }} />}
+                                   <div 
+                                      className="absolute top-2 right-2 w-5 h-5 rounded-full border border-white/20 flex items-center justify-center bg-black/40 z-10" 
+                                      onClick={(e) => {
+                                          e.stopPropagation();
+                                          const newSelected = new Set(selectedKeys);
+                                          if (newSelected.has(key)) newSelected.delete(key);
+                                          else newSelected.add(key);
+                                          setSelectedKeys(newSelected);
+                                      }}
+                                   >
+                                      {selectedKeys.has(key) && <div className="w-3 h-3 bg-sky-500 rounded-full"></div>}
+                                   </div>
+                                   <div className="absolute inset-0 bg-slate-950/90 opacity-0 group-hover:opacity-100 transition-all flex flex-col items-center justify-center gap-2 backdrop-blur-md px-2">
+                                      {!deletedKeys.has(key) && (
+                                          <div className="flex flex-col gap-1 w-full">
+                                            <button onClick={(e) => { e.stopPropagation(); handleCloneAndIsolate(key); }} className="w-full py-1 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-md text-[8px] font-black uppercase transition-all shadow-sm">Clone & Isolate</button>
+                                            {selectedKeys.size > 1 && (
+                                                <button onClick={(e) => { e.stopPropagation(); handleIsolateSelected(); }} className="w-full py-1 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-md text-[8px] font-black uppercase transition-all shadow-sm">Isolate Selected</button>
+                                            )}
+                                            <div className="grid grid-cols-3 gap-1">
+                                                <button onClick={() => handleDownloadLayer(key)} className="h-7 bg-emerald-500 text-white rounded-md flex items-center justify-center" title="تحميل الصورة">⬇️</button>
+                                                <div className={`relative h-7 rounded-md overflow-hidden border ${assetColorModes[key] === 'fill' ? 'border-pink-500' : 'border-white/20'}`} title={assetColorModes[key] === 'fill' ? "تلوين كامل (Fill)" : "تلوين دمج (Multiply - يحافظ على التفاصيل)"}>
+                                                  <input type="color" value={assetColors[key] || "#ffffff"} onChange={(e) => handleColorChange(key, e.target.value)} className="absolute inset-[-50%] w-[200%] h-[200%] cursor-pointer bg-transparent border-none" />
+                                                </div>
+                                                <button 
+                                                    onClick={() => handleToggleColorMode(key)} 
+                                                    className={`h-7 rounded-md flex items-center justify-center text-[10px] border transition-all ${assetColorModes[key] === 'fill' ? 'bg-pink-500/20 border-pink-500 text-pink-400' : 'bg-blue-500/20 border-blue-500 text-blue-400'}`}
+                                                    title={assetColorModes[key] === 'fill' ? "وضع التعبئة (تغيير كامل)" : "وضع التلوين (Multiply - يحافظ على التفاصيل)"}
+                                                >
+                                                    {assetColorModes[key] === 'fill' ? '🎨' : '💧'}
+                                                </button>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-1 w-full">
+                                                <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'down'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬇️ خلف</button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'up'); }} className="py-1 bg-white/5 rounded-md text-[8px] text-slate-400 hover:text-white hover:bg-white/10">⬆️ أمام</button>
+                                            </div>
+                                             <button onClick={() => {
+                                                 setReplacingAssetKey(key);
+                                                 fileInputRef.current?.click();
+                                             }} className="w-full py-1 bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-md text-[8px] font-black uppercase hover:bg-sky-500/30">تغيير الصورة</button>
 
-                          <div className="grid grid-cols-2 gap-4">
-                            {/* Custom Layers */}
-                            {[...customLayers].reverse().map(layer => (
-                                <div key={layer.id} onClick={() => { setSelectedLayerId(layer.id); }} className={`group bg-slate-900/30 rounded-[2rem] border p-4 transition-all cursor-pointer ${selectedLayerId === layer.id ? 'border-sky-500 bg-sky-500/10' : 'border-white/[0.03]'}`} id={`layer-card-${layer.id}`}>
-                                    <div className="aspect-square rounded-2xl bg-black/40 flex items-center justify-center relative overflow-hidden mb-2">
-                                        <img src={layer.url} className="max-w-[80%] max-h-[80%] object-contain" />
-                                    </div>
-                                    <div className="flex justify-between items-center mb-2">
-                                        <span className="text-[8px] text-white font-black truncate max-w-[60px]">{layer.name}</span>
-                                        <div className="flex gap-1">
-                                            <button onClick={(e) => {
-                                                e.stopPropagation();
-                                                const newName = prompt("أدخل اسم جديد للطبقة:", layer.name);
-                                                if (newName) handleUpdateLayer(layer.id, { name: newName });
-                                            }} className="text-amber-500 hover:text-amber-400 cursor-pointer" title="إعادة تسمية">
-                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-                                            </button>
-                                            <button onClick={(e) => { e.stopPropagation(); handleRemoveLayer(layer.id); }} className="text-red-500 hover:text-red-400 cursor-pointer">
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-1 justify-between">
-                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'down'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white cursor-pointer">⬇️</button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleUpdateLayer(layer.id, { zIndexMode: layer.zIndexMode === 'front' ? 'back' : 'front' }); }} className={`px-2 py-1 rounded text-[8px] font-black uppercase cursor-pointer ${layer.zIndexMode === 'front' ? 'bg-sky-500/20 text-sky-400 animate-pulse' : 'bg-slate-700 text-slate-400'}`}>{layer.zIndexMode === 'front' ? 'أمام' : 'خلف'}</button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'up'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white cursor-pointer">⬆️</button>
-                                    </div>
+                                            <button onClick={() => handleOpenFadeModal(key)} className="w-full py-1.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-lg text-[8px] font-black uppercase hover:bg-purple-500/30">تلاشي الحواف (Fade)</button>
+                                          </div>
+                                      )}
+                                      <button onClick={() => handleDeleteAsset(key)} className={`w-full py-1.5 ${deletedKeys.has(key) ? 'bg-emerald-500' : 'bg-red-500'} text-white rounded-lg text-[8px] font-black uppercase`}>{deletedKeys.has(key) ? 'استعادة' : 'حذف'}</button>
+                                   </div>
                                 </div>
-                            ))}
-
-                            {/* Existing Layers */}
-                            {filteredKeys.map(key => (
-                                <div 
-                                    key={key} 
-                                    onClick={(e) => {
-                                        if (e.ctrlKey || e.metaKey) {
-                                            const newSelected = new Set(selectedKeys);
-                                            if (newSelected.has(key)) newSelected.delete(key);
-                                            else newSelected.add(key);
-                                            setSelectedKeys(newSelected);
-                                        } else {
-                                            setSelectedKeys(new Set([key]));
-                                        }
-                                    }}
-                                    className={`group bg-slate-900/30 rounded-[2rem] border p-4 transition-all duration-300 relative cursor-pointer ${selectedKeys.has(key) ? 'border-sky-500 bg-sky-500/10' : deletedKeys.has(key) ? 'border-red-500/50 grayscale opacity-40' : 'border-white/[0.03]'}`}
-                                >
-                                    <div className="aspect-square rounded-2xl bg-black/40 flex items-center justify-center relative overflow-hidden">
-                                       {layerImages[key] && <img src={layerImages[key]} className="max-w-[70%] max-h-[70%] object-contain" style={{ filter: assetColors[key] ? `drop-shadow(0 0 2px ${assetColors[key]})` : 'none' }} />}
-                                       <div 
-                                          className="absolute top-2 right-2 w-5 h-5 rounded-full border border-white/20 flex items-center justify-center bg-black/40 z-10" 
-                                          onClick={(e) => {
-                                              e.stopPropagation();
-                                              const newSelected = new Set(selectedKeys);
-                                              if (newSelected.has(key)) newSelected.delete(key);
-                                              else newSelected.add(key);
-                                              setSelectedKeys(newSelected);
-                                          }}
-                                       >
-                                          {selectedKeys.has(key) && <div className="w-3 h-3 bg-sky-500 rounded-full"></div>}
-                                       </div>
-                                       <div className="absolute inset-0 bg-slate-950/95 opacity-0 group-hover:opacity-100 transition-all duration-200 flex flex-col items-stretch justify-start gap-1.5 backdrop-blur-md p-2.5 overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/15 select-none text-right font-sans">
-                                           {/* Delete / Restore Button ALWAYS at the top so it is fully visible right away */}
-                                           <button 
-                                              onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  handleDeleteAsset(key);
-                                              }} 
-                                              className={`w-full py-2 transition-all duration-200 font-extrabold text-[10px] uppercase rounded-xl border flex items-center justify-center gap-1.5 cursor-pointer shrink-0 z-20 ${deletedKeys.has(key) ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25' : 'bg-red-500/15 text-red-150 border-red-500/30 hover:bg-red-500/25'}`}
-                                           >
-                                              {deletedKeys.has(key) ? '🟢 استعادة الطبقة' : '🗑️ حذف الطبقة'}
-                                           </button>
-                                          {!deletedKeys.has(key) && (
-                                              <div className="flex flex-col gap-1.5 w-full">
-                                                <div className="grid grid-cols-3 gap-1">
-                                                    <button onClick={() => handleDownloadLayer(key)} className="h-7 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg flex items-center justify-center transition-all cursor-pointer" title="تحميل الصورة">📥</button>
-                                                    <div className={`relative h-7 rounded-lg overflow-hidden border ${assetColorModes[key] === 'fill' ? 'border-pink-500/50 bg-pink-500/10' : 'border-white/10 bg-white/5'}`} title={assetColorModes[key] === 'fill' ? "تلوين كامل (Fill)" : "تلوين دمج (Multiply - يحافظ على التفاصيل)"}>
-                                                      <input type="color" value={assetColors[key] || "#ffffff"} onChange={(e) => handleColorChange(key, e.target.value)} className="absolute inset-[-50%] w-[200%] h-[200%] cursor-pointer bg-transparent border-none" />
-                                                    </div>
-                                                    <button 
-                                                        onClick={() => handleToggleColorMode(key)} 
-                                                        className={`h-7 rounded-lg flex items-center justify-center text-[10px] border transition-all cursor-pointer ${assetColorModes[key] === 'fill' ? 'bg-pink-500/10 border-pink-500/30 text-pink-400 hover:bg-pink-500/20' : 'bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20'}`}
-                                                        title={assetColorModes[key] === 'fill' ? "وضع التعبئة (تغيير كامل)" : "وضع التلوين (Multiply - يحافظ على التفاصيل)"}
-                                                    >
-                                                        {assetColorModes[key] === 'fill' ? '🎨' : '💧'}
-                                                    </button>
-                                                </div>
-                                                <div className="grid grid-cols-2 gap-1 w-full">
-                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'down'); }} className="py-1 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[8px] text-slate-300 transition-all cursor-pointer">⬇️ خلف</button>
-                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'up'); }} className="py-1 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[8px] text-slate-300 transition-all cursor-pointer">⬆️ أمام</button>
-                                                </div>
-                                                <div className="flex gap-1 w-full flex-wrap">
-                                                    {compositions.length > 1 && (
-                                                       <select 
-                                                         onChange={(e) => {
-                                                           const val = e.target.value;
-                                                           if (val) {
-                                                             handleMoveLayerToComposition(key, val);
-                                                             e.target.value = '';
-                                                           }
-                                                         }}
-                                                         className="flex-1 py-1 bg-indigo-500/10 border border-indigo-500/25 rounded-lg text-[8px] font-black text-indigo-300 hover:bg-indigo-500/25 text-center cursor-pointer outline-none"
-                                                       >
-                                                         <option value="" className="bg-slate-950 text-slate-400 text-[8px] hidden">✈️ نقل لتركيبة</option>
-                                                         {compositions.filter(c => c.id !== activeCompositionId).map(c => (
-                                                           <option key={c.id} value={c.id} className="bg-slate-950 text-white text-[8px]">
-                                                             {c.name}
-                                                           </option>
-                                                         ))}
-                                                       </select>
-                                                    )}
-                                                </div>
-                                                <div className="grid grid-cols-2 gap-1 w-full">
-                                                     <button onClick={() => {
-                                                         setReplacingAssetKey(key);
-                                                         fileInputRef.current?.click();
-                                                     }} className="py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/25 rounded-lg text-[8px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer">🖼️ تغيير الصورة</button>
-
-                                                     <button onClick={() => handleOpenTextReplaceModal(key)} className="py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/25 rounded-lg text-[8px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer">
-                                                        ✨ نص (Text)
-                                                     </button>
-                                                </div>
-
-                                                {textReplaceOriginalImages[key] && textReplaceOriginalImages[key].length > 0 && (
-                                                   <button onClick={() => handleUndoTextReplace(key)} className="w-full py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/25 rounded-lg text-[8px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer">
-                                                      ↩️ أصلي (Undo)
-                                                   </button>
-                                                )}
-
-                                                <button onClick={() => handleOpenFadeModal(key)} className="w-full py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/25 rounded-lg text-[8px] font-black uppercase transition-all cursor-pointer text-center">🌓 تلاشي الحواف (Fade)</button>
-                                              </div>
-                                          )}
-
-                                       </div>
-                                    </div>
-                                    <span className="mt-2 text-[8px] text-slate-500 font-black block text-center uppercase truncate">{layerDisplayNames[key] || key}</span>
-                                </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        /* Single Primary Grid when activeCompositionId === 'main' and no secondary SVGA is loaded/active */
-                        <div className="space-y-4">
-                          <div className="flex flex-col gap-1.5 p-4 rounded-xl bg-orange-500/5 border border-orange-500/10">
-                            <span className="text-white text-[10px] font-bold flex items-center gap-1.5">✨ المشهد الأساسي النشط (Main Workspace)</span>
-                            <p className="text-[9px] text-slate-400 leading-relaxed">هذه هي الطبقات الأصلية لمشهدك الأساسي. قم باستيراد ملف SVGA ثانوي مباشرة عبر زر "استيراد تركيبة SVGA جديدة" لوضعه والتحكم فيه بشكل متزامن فوق this المشهد!</p>
-                          </div>
-                          
-                          <div className="grid grid-cols-2 gap-4">
-                            {[...customLayers].reverse().map(layer => (
-                                <div key={layer.id} onClick={() => { setSelectedLayerId(layer.id); }} className={`group bg-slate-900/30 rounded-[2rem] border p-4 transition-all cursor-pointer ${selectedLayerId === layer.id ? 'border-sky-500 bg-sky-500/10' : 'border-white/[0.03]'}`}>
-                                    <div className="aspect-square rounded-2xl bg-black/40 flex items-center justify-center relative overflow-hidden mb-2">
-                                        <img src={layer.url} className="max-w-[80%] max-h-[80%] object-contain" />
-                                    </div>
-                                    <div className="flex justify-between items-center mb-2">
-                                        <span className="text-[8px] text-white font-black truncate max-w-[60px]">{layer.name}</span>
-                                        <div className="flex gap-1">
-                                            <button onClick={(e) => {
-                                                e.stopPropagation();
-                                                const newName = prompt("أدخل اسم جديد للطبقة:", layer.name);
-                                                if (newName) handleUpdateLayer(layer.id, { name: newName });
-                                            }} className="text-amber-500 hover:text-amber-400 cursor-pointer" title="إعادة تسمية">
-                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-                                            </button>
-                                            <button onClick={(e) => { e.stopPropagation(); handleRemoveLayer(layer.id); }} className="text-red-500 hover:text-red-400 cursor-pointer">
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-1 justify-between">
-                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'down'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white cursor-pointer">⬇️</button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleUpdateLayer(layer.id, { zIndexMode: layer.zIndexMode === 'front' ? 'back' : 'front' }); }} className={`px-2 py-1 rounded text-[8px] font-black uppercase cursor-pointer ${layer.zIndexMode === 'front' ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-700 text-slate-400'}`}>{layer.zIndexMode === 'front' ? 'أمام' : 'خلف'}</button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleMoveLayer(layer.id, 'up'); }} className="px-2 py-1 bg-white/5 rounded text-[8px] text-slate-400 hover:text-white cursor-pointer">⬆️</button>
-                                    </div>
-                                </div>
-                            ))}
-
-                            {filteredKeys.map(key => (
-                                <div 
-                                    key={key} 
-                                    onClick={(e) => {
-                                        if (e.ctrlKey || e.metaKey) {
-                                            const newSelected = new Set(selectedKeys);
-                                            if (newSelected.has(key)) newSelected.delete(key);
-                                            else newSelected.add(key);
-                                            setSelectedKeys(newSelected);
-                                        } else {
-                                            setSelectedKeys(new Set([key]));
-                                        }
-                                    }}
-                                    className={`group bg-slate-900/30 rounded-[2rem] border p-4 transition-all duration-300 relative cursor-pointer ${selectedKeys.has(key) ? 'border-sky-500 bg-sky-500/10' : deletedKeys.has(key) ? 'border-red-500/50 grayscale opacity-40' : 'border-white/[0.03]'}`}
-                                >
-                                    <div className="aspect-square rounded-2xl bg-black/40 flex items-center justify-center relative overflow-hidden">
-                                       {layerImages[key] && <img src={layerImages[key]} className="max-w-[70%] max-h-[70%] object-contain" style={{ filter: assetColors[key] ? `drop-shadow(0 0 2px ${assetColors[key]})` : 'none' }} />}
-                                       <div 
-                                          className="absolute top-2 right-2 w-5 h-5 rounded-full border border-white/20 flex items-center justify-center bg-black/40 z-10" 
-                                          onClick={(e) => {
-                                              e.stopPropagation();
-                                              const newSelected = new Set(selectedKeys);
-                                              if (newSelected.has(key)) newSelected.delete(key);
-                                              else newSelected.add(key);
-                                              setSelectedKeys(newSelected);
-                                          }}
-                                       >
-                                          {selectedKeys.has(key) && <div className="w-3 h-3 bg-sky-500 rounded-full"></div>}
-                                       </div>
-                                       <div className="absolute inset-0 bg-slate-950/95 opacity-0 group-hover:opacity-100 transition-all duration-200 flex flex-col items-stretch justify-start gap-1.5 backdrop-blur-md p-2.5 overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/15 select-none text-right font-sans">
-                                           {/* Delete / Restore Button ALWAYS at the top so it is fully visible right away */}
-                                           <button 
-                                              onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  handleDeleteAsset(key);
-                                              }} 
-                                              className={`w-full py-2 transition-all duration-200 font-extrabold text-[10px] uppercase rounded-xl border flex items-center justify-center gap-1.5 cursor-pointer shrink-0 z-20 ${deletedKeys.has(key) ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25' : 'bg-red-500/15 text-red-150 border-red-500/30 hover:bg-red-500/25'}`}
-                                           >
-                                              {deletedKeys.has(key) ? '🟢 استعادة الطبقة' : '🗑️ حذف الطبقة'}
-                                           </button>
-                                          {!deletedKeys.has(key) && (
-                                              <div className="flex flex-col gap-1.5 w-full">
-                                                <div className="grid grid-cols-3 gap-1 grid-row">
-                                                    <button onClick={() => handleDownloadLayer(key)} className="h-7 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-lg flex items-center justify-center transition-all cursor-pointer" title="تحميل الصورة">📥</button>
-                                                    <div className={`relative h-7 rounded-lg overflow-hidden border ${assetColorModes[key] === 'fill' ? 'border-pink-500/50 bg-pink-500/10' : 'border-white/10 bg-white/5'}`} title={assetColorModes[key] === 'fill' ? "تلوين كامل (Fill)" : "تلوين دمج (Multiply - يحافظ على التفاصيل)"}>
-                                                      <input type="color" value={assetColors[key] || "#ffffff"} onChange={(e) => handleColorChange(key, e.target.value)} className="absolute inset-[-50%] w-[200%] h-[200%] cursor-pointer bg-transparent border-none" />
-                                                    </div>
-                                                    <button 
-                                                        onClick={() => handleToggleColorMode(key)} 
-                                                        className={`h-7 rounded-lg flex items-center justify-center text-[10px] border transition-all cursor-pointer ${assetColorModes[key] === 'fill' ? 'bg-pink-500/10 border-pink-500/30 text-pink-400 hover:bg-pink-500/20' : 'bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20'}`}
-                                                        title={assetColorModes[key] === 'fill' ? "وضع التعبئة (تغيير كامل)" : "وضع التلوين (Multiply - يحافظ على التفاصيل)"}
-                                                    >
-                                                        {assetColorModes[key] === 'fill' ? '🎨' : '💧'}
-                                                    </button>
-                                                </div>
-                                                <div className="grid grid-cols-2 gap-1 w-full">
-                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'down'); }} className="py-1 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[8px] text-slate-300 transition-all cursor-pointer">⬇️ خلف</button>
-                                                    <button onClick={(e) => { e.stopPropagation(); handleMoveSprite(key, 'up'); }} className="py-1 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg text-[8px] text-slate-300 transition-all cursor-pointer">⬆️ أمام</button>
-                                                </div>
-                                                <div className="flex gap-1 w-full flex-wrap">
-                                                    {compositions.length > 1 && (
-                                                       <select 
-                                                         onChange={(e) => {
-                                                           const val = e.target.value;
-                                                           if (val) {
-                                                             handleMoveLayerToComposition(key, val);
-                                                             e.target.value = '';
-                                                           }
-                                                         }}
-                                                         className="flex-1 py-1 bg-indigo-500/10 border border-indigo-500/25 rounded-lg text-[8px] font-black text-indigo-300 hover:bg-indigo-500/25 text-center cursor-pointer outline-none"
-                                                       >
-                                                         <option value="" className="bg-slate-950 text-slate-400 text-[8px] hidden">✈️ نقل لتركيبة</option>
-                                                         {compositions.filter(c => c.id !== activeCompositionId).map(c => (
-                                                           <option key={c.id} value={c.id} className="bg-slate-950 text-white text-[8px]">
-                                                             {c.name}
-                                                           </option>
-                                                         ))}
-                                                       </select>
-                                                    )}
-                                                </div>
-                                                <div className="grid grid-cols-2 gap-1 w-full">
-                                                     <button onClick={() => {
-                                                         setReplacingAssetKey(key);
-                                                         fileInputRef.current?.click();
-                                                     }} className="py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/25 rounded-lg text-[8px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer">🖼️ تغيير الصورة</button>
-
-                                                     <button onClick={() => handleOpenTextReplaceModal(key)} className="py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/25 rounded-lg text-[8px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer">
-                                                        ✨ نص (Text)
-                                                     </button>
-                                                </div>
-
-                                                {textReplaceOriginalImages[key] && textReplaceOriginalImages[key].length > 0 && (
-                                                   <button onClick={() => handleUndoTextReplace(key)} className="w-full py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/25 rounded-lg text-[8px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer">
-                                                      ↩️ أصلي (Undo)
-                                                   </button>
-                                                )}
-
-                                                <button onClick={() => handleOpenFadeModal(key)} className="w-full py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/25 rounded-lg text-[8px] font-black uppercase transition-all cursor-pointer text-center">🌓 تلاشي الحواف (Fade)</button>
-                                              </div>
-                                          )}
-
-                                       </div>
-                                    </div>
-                                    <span className="mt-2 text-[8px] text-slate-500 font-black block text-center uppercase truncate">{layerDisplayNames[key] || key}</span>
-                                </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* -- BAND 2: ORIGINAL MAIN COMPOSITION'S BASE LAYERS (Shown when activeCompositionId !== 'main') -- */}
-                      {activeCompositionId !== 'main' && mainCompLayers.length > 0 && (
-                        <div className="space-y-4 pt-4 border-t border-white/5">
-                          <div className="flex flex-col gap-2 p-4 rounded-2xl bg-slate-900/60 border border-white/5 relative overflow-hidden">
-                            <div className="absolute top-0 right-0 w-24 h-24 bg-white/[0.02] blur-xl rounded-full"></div>
-                            <div className="flex justify-between items-center relative z-10">
-                              <span className="text-slate-300 text-[11px] font-black flex items-center gap-1.5 uppercase">
-                                🔒 البند الثاني: طبقات الملف الأساسي (الأصلي)
-                              </span>
-                              <span className="px-2 py-0.5 bg-slate-800 text-slate-400 font-extrabold text-[9px] rounded-lg border border-white/5">قفل مؤمن (ثابت خلفاً)</span>
+                                <span className="mt-2 text-[8px] text-slate-500 font-black block text-center uppercase truncate">{layerDisplayNames[key] || key}</span>
                             </div>
-                            <p className="text-[10px] text-slate-400 font-bold leading-relaxed relative z-10">
-                              طبقات الملف الأساسي مغلقة مؤقتاً لضمان عدم تغيير موضعها أو خصائصها بالخطأ أثناء تعديل الملف المضاف فوقها. يمكنك الضغط على زر التعديل للانتقال وإدارتها بشكل مستقل.
-                            </p>
-                            <button 
-                              onClick={() => {
-                                handleSwitchComposition('main');
-                              }}
-                              className="mt-2 w-full py-2 bg-white/5 hover:bg-white/10 text-white font-black text-[10px] rounded-xl border border-white/10 transition-all flex items-center justify-center gap-1.5 active:scale-98 relative z-10 cursor-pointer"
-                            >
-                              ✏️ نقرة واحدة لتغيير أو تعديل طبقات الملف الأساسي
-                            </button>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-4">
-                            {mainCompLayers.map(({ key, img, displayName, color }) => (
-                              <div 
-                                key={`main_lock_${key}`}
-                                className="bg-slate-900/10 border border-white/5 rounded-[2rem] p-4 relative grayscale opacity-40 hover:opacity-60 transition-all duration-300 cursor-not-allowed group"
-                              >
-                                <div className="aspect-square rounded-2xl bg-black/20 flex items-center justify-center relative overflow-hidden">
-                                  {img && <img src={img} className="max-w-[70%] max-h-[70%] object-contain" style={{ filter: color ? `drop-shadow(0 0 2px ${color})` : 'none' }} />}
-                                  
-                                  {/* Center Lock Overlay icon */}
-                                  <div className="absolute inset-0 bg-slate-950/40 flex items-center justify-center">
-                                    <div className="bg-slate-900/90 text-slate-400 p-2 rounded-full border border-white/5 shadow-lg flex items-center justify-center">
-                                      🔒
-                                    </div>
-                                  </div>
-                                </div>
-                                <span className="mt-2 text-[8px] text-slate-500 font-black block text-center uppercase truncate">{displayName}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                        ))}
                     </div>
                 </div>
               )}
@@ -9181,44 +6788,6 @@ class _MyAppState extends State<MyApp> {
                         </div>
                     </div>
 
-                    <div className="space-y-6 pt-4 border-t border-white/5">
-                        <h5 className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-4 flex items-center gap-2">
-                            <Layers className="w-3 h-3" />
-                            قص الحواف المتقدم (Advanced Edge Crop)
-                        </h5>
-                        <div className="grid grid-cols-2 gap-6">
-                            {(['top', 'bottom', 'left', 'right'] as (keyof typeof cropConfig)[]).map((dir) => (
-                                <div key={`crop-${String(dir)}`} className="space-y-3 bg-black/20 p-3 rounded-xl border border-white/5">
-                                    <div className="flex justify-between text-[9px] font-black text-slate-500 uppercase">
-                                        <span>{dir === 'top' ? 'أعلى (Top)' : dir === 'bottom' ? 'أسفل (Bottom)' : dir === 'left' ? 'يسار (Left)' : 'يمين (Right)'}</span>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <div className="flex justify-between text-[8px] text-slate-400">
-                                            <span>القص (Crop)</span>
-                                            <span className="text-emerald-400">{cropConfig[dir]}%</span>
-                                        </div>
-                                        <input 
-                                            type="range" min="0" max="50" value={cropConfig[dir]} 
-                                            onChange={(e) => setCropConfig(p => ({...p, [dir]: parseInt(e.target.value, 10)}))}
-                                            className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                                        />
-                                    </div>
-                                    <div className="space-y-1 pt-1">
-                                        <div className="flex justify-between text-[8px] text-slate-400">
-                                            <span>النعومة (Feather)</span>
-                                            <span className="text-fuchsia-400">{cropFeather[dir]}%</span>
-                                        </div>
-                                        <input 
-                                            type="range" min="0" max="50" value={cropFeather[dir]} 
-                                            onChange={(e) => setCropFeather(p => ({...p, [dir]: parseInt(e.target.value, 10)}))}
-                                            className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-fuchsia-500"
-                                        />
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
 
                 </div>
               )}
@@ -9600,177 +7169,6 @@ class _MyAppState extends State<MyApp> {
                     </button>
                     <button onClick={() => setBgRemoveTarget(null)} className="px-6 py-3 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl font-bold text-sm transition-colors">
                         إلغاء
-                    </button>
-                </div>
-            </div>
-        </div>
-      )}
-
-      {textReplaceTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-            <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col">
-                <div className="flex items-center justify-between p-4 border-b border-white/10 bg-white/5">
-                    <div className="flex items-center gap-2">
-                        <span className="text-yellow-400">✨</span>
-                        <h3 className="text-white font-bold text-sm">استبدال الصورة بنص</h3>
-                    </div>
-                    <button onClick={() => setTextReplaceTarget(null)} className="text-white/50 hover:text-white transition-colors">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                </div>
-                <div className="p-6 space-y-4">
-                    <p className="text-xs text-slate-400">بحسب طلبك، يتم استخدام أبعاد الصورة الأصلية وتحديد لونها التقريبي، ويمكنك تغيير الإعدادات وتطبيقها باحترافية.</p>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="col-span-2 space-y-1">
-                            <label className="text-[10px] text-slate-400 uppercase font-black">النص (Text)</label>
-                            <input 
-                                type="text"
-                                value={textOptions.text}
-                                onChange={(e) => setTextOptions(p => ({ ...p, text: e.target.value }))}
-                                placeholder="اكتب النص هنا..."
-                                className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-yellow-500/50 outline-none"
-                            />
-                        </div>
-                        
-                        <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 uppercase font-black">الخط (Font)</label>
-                            <select
-                                value={textOptions.font}
-                                onChange={(e) => setTextOptions(p => ({ ...p, font: e.target.value }))}
-                                className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none"
-                            >
-                                <option value="Arial">Arial</option>
-                                <option value="Helvetica">Helvetica</option>
-                                <option value="Times New Roman">Times New Roman</option>
-                                <option value="Courier New">Courier New</option>
-                                <option value="Verdana">Verdana</option>
-                                <option value="Tahoma">Tahoma</option>
-                            </select>
-                        </div>
-
-                        <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 uppercase font-black">حجم الخط (Size)</label>
-                            <input 
-                                type="number"
-                                value={textOptions.size}
-                                onChange={(e) => setTextOptions(p => ({ ...p, size: Number(e.target.value) }))}
-                                className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none"
-                            />
-                        </div>
-
-                        <div className="space-y-1">
-                            <label className="text-[10px] text-slate-400 uppercase font-black">لون أو صورة النص (Color / Image)</label>
-                            <div className="flex gap-2 items-center flex-wrap">
-                                <input 
-                                    type="color"
-                                    value={textOptions.color}
-                                    onChange={(e) => {
-                                        setTextOptions(p => ({ ...p, color: e.target.value, patternImgEl: null }))
-                                    }}
-                                    className="w-8 h-8 rounded border border-white/10 bg-transparent cursor-pointer"
-                                    title="اختر لوناً عادياً"
-                                />
-                                <span className="text-white text-xs">{textOptions.patternImgEl ? 'صورة' : textOptions.color}</span>
-                                
-                                <label className="cursor-pointer bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded text-xs font-bold transition-colors ml-auto flex items-center gap-1">
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                                    رفع صورة كخلفية للنص
-                                    <input 
-                                        type="file" 
-                                        accept="image/*" 
-                                        className="hidden" 
-                                        onChange={(e) => {
-                                            const file = e.target.files?.[0];
-                                            if (file) {
-                                                const reader = new FileReader();
-                                                reader.onload = (ev) => {
-                                                    const img = new Image();
-                                                    img.onload = () => {
-                                                        setTextOptions(p => ({ ...p, patternImgEl: img }));
-                                                    };
-                                                    img.src = ev.target?.result as string;
-                                                };
-                                                reader.readAsDataURL(file);
-                                            }
-                                        }}
-                                    />
-                                </label>
-                                {textOptions.patternImgEl && (
-                                    <button 
-                                        onClick={() => setTextOptions(p => ({ ...p, patternImgEl: null }))}
-                                        className="text-rose-400 hover:text-rose-300 text-[10px] font-bold"
-                                    >
-                                        إزالة الصورة
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="col-span-2 space-y-2 mt-2">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input 
-                                    type="checkbox" 
-                                    checked={textOptions.is3D}
-                                    onChange={(e) => setTextOptions(p => ({ ...p, is3D: e.target.checked }))}
-                                    className="w-4 h-4 rounded bg-black/50 border-white/10 text-yellow-500 focus:ring-yellow-500 focus:ring-offset-0"
-                                />
-                                <span className="text-xs text-white font-bold">تفعيل تأثير 3D للنص</span>
-                            </label>
-
-                            {textOptions.is3D && (
-                                <div className="space-y-1 pl-6">
-                                    <label className="text-[10px] text-slate-400 uppercase font-black">لون الظل 3D (3D Color)</label>
-                                    <div className="flex gap-2 items-center">
-                                        <input 
-                                            type="color"
-                                            value={textOptions.color3D}
-                                            onChange={(e) => setTextOptions(p => ({ ...p, color3D: e.target.value }))}
-                                            className="w-8 h-8 rounded border border-white/10 bg-transparent cursor-pointer"
-                                        />
-                                        <span className="text-white text-xs">{textOptions.color3D}</span>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="col-span-2 grid grid-cols-2 gap-2 mt-2">
-                             <div className="space-y-1">
-                                <label className="text-[10px] text-slate-400 uppercase font-black">إزاحة س (X Offset)</label>
-                                <input 
-                                    type="number"
-                                    value={textOptions.offsetX}
-                                    onChange={(e) => setTextOptions(p => ({ ...p, offsetX: Number(e.target.value) }))}
-                                    className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none"
-                                />
-                            </div>
-                            <div className="space-y-1">
-                                <label className="text-[10px] text-slate-400 uppercase font-black">إزاحة ص (Y Offset)</label>
-                                <input 
-                                    type="number"
-                                    value={textOptions.offsetY}
-                                    onChange={(e) => setTextOptions(p => ({ ...p, offsetY: Number(e.target.value) }))}
-                                    className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none"
-                                />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="mt-4 aspect-video bg-black/50 border border-white/10 rounded-xl overflow-hidden flex items-center justify-center relative bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+CjxyZWN0IHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjA1Ii8+CjxwYXRoIGQ9Ik0wIDEwaDIwdk0xMCAwdjIwIiBzdHJva2U9IiNmZmYiIHN0cm9rZS1vcGFjaXR5PSIwLjAyIi8+Cjwvc3ZnPg==')]">
-                         {textOptions.text.trim() ? (
-                             <img src={handlePreviewTextGenerate()} alt="preview" className="max-w-full max-h-full object-contain" />
-                         ) : (
-                             <span className="text-white/20 text-xs">معاينة النص</span>
-                         )}
-                    </div>
-                </div>
-                <div className="p-4 border-t border-white/10 bg-white/5 flex justify-end gap-2">
-                    <button onClick={() => setTextReplaceTarget(null)} className="px-4 py-2 bg-white/10 text-white rounded-lg text-xs font-bold hover:bg-white/20 transition-colors">إلغاء</button>
-                    <button 
-                        onClick={handleApplyTextReplace}
-                        className="px-6 py-2 bg-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.5)] hover:bg-yellow-400 text-black rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-2 min-w-[120px]"
-                    >
-                        استبدال الصورة
                     </button>
                 </div>
             </div>

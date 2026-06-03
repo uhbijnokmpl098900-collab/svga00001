@@ -1,17 +1,13 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Header } from './components/Header';
 import { Uploader } from './components/Uploader';
-import { Dashboard } from './components/Dashboard';
 import { Workspace } from './components/Workspace';
 import { BatchCompressor } from './components/BatchCompressor';
 import { BatchCropper } from './components/BatchCropper';
 import { VideoConverter } from './components/VideoConverter';
-import { UniversalMotionTools } from './components/UniversalMotionTools';
 import { MultiSvgaViewer } from './components/MultiSvgaViewer';
 import { ImageToSvga } from './components/ImageToSvga';
 import { ImageProcessor } from './components/ImageProcessor';
-import { ImageEnhancer } from './components/ImageEnhancer';
 import { BatchImageProcessor } from './components/BatchImageProcessor';
 import { BatchImageConverter } from './components/BatchImageConverter';
 import { PagConverter } from './components/PagConverter';
@@ -57,15 +53,6 @@ const App: React.FC = () => {
   const [initialLottieFile, setInitialLottieFile] = useState<File | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
-  const [showSplash, setShowSplash] = useState(true);
-
-  useEffect(() => {
-    // Hide splash screen after 2.5 seconds
-    const timer = setTimeout(() => {
-      setShowSplash(false);
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, []);
 
   useEffect(() => {
     // Check if user has seen onboarding
@@ -388,63 +375,6 @@ const App: React.FC = () => {
     <div className="min-h-screen text-slate-200 overflow-x-hidden relative" style={dynamicBgStyle}>
       <div className="fixed inset-0 bg-[#020617]/30 backdrop-blur-[4px] -z-10 pointer-events-none" />
       
-      {/* 3D Splash Screen */}
-      <AnimatePresence>
-        {showSplash && (
-          <motion.div 
-            initial={{ opacity: 1 }}
-            exit={{ opacity: 0, transition: { duration: 0.8, ease: "easeInOut" } }}
-            className="fixed inset-0 z-[2000] bg-[#020617] flex flex-col items-center justify-center pointer-events-none"
-          >
-            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 mix-blend-overlay"></div>
-            
-            <motion.div
-              initial={{ scale: 0.5, y: 50, rotateX: 30, opacity: 0 }}
-              animate={{ scale: 1, y: 0, rotateX: 0, opacity: 1 }}
-              exit={{ scale: 1.1, opacity: 0, filter: 'blur(10px)' }}
-              transition={{ duration: 1, type: "spring", bounce: 0.5 }}
-              className="relative z-10 flex flex-col items-center"
-            >
-               {settings?.logoUrl ? (
-                 <motion.img 
-                   src={settings.logoUrl} 
-                   alt="Logo" 
-                   initial={{ filter: 'drop-shadow(0 0 0 rgba(99,102,241,0))' }}
-                   animate={{ filter: ['drop-shadow(0 0 20px rgba(99,102,241,0.8))', 'drop-shadow(0 0 40px rgba(168,85,247,0.8))', 'drop-shadow(0 0 20px rgba(99,102,241,0.8))'] }}
-                   transition={{ duration: 2, repeat: Infinity }}
-                   className="w-32 h-32 md:w-48 md:h-48 object-cover rounded-3xl mb-6 shadow-2xl" 
-                 />
-               ) : (
-                 <motion.div 
-                   initial={{ filter: 'drop-shadow(0 0 0 rgba(99,102,241,0))' }}
-                   animate={{ filter: ['drop-shadow(0 0 20px rgba(99,102,241,0.8))', 'drop-shadow(0 0 40px rgba(168,85,247,0.8))', 'drop-shadow(0 0 20px rgba(99,102,241,0.8))'] }}
-                   transition={{ duration: 2, repeat: Infinity }}
-                   className="w-32 h-32 md:w-48 md:h-48 bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-900 rounded-3xl flex items-center justify-center shadow-lg border-2 border-white/20 mb-6"
-                 >
-                   <span className="text-white font-black text-6xl md:text-8xl drop-shadow-lg">S</span>
-                 </motion.div>
-               )}
-               
-               <h1 className="text-4xl md:text-6xl font-black animated-brand-text tracking-tight uppercase">
-                 {settings?.appName?.trim() ? settings.appName : 'SVGA Studio'}
-               </h1>
-               <motion.span 
-                 initial={{ opacity: 0, y: 10 }}
-                 animate={{ opacity: 1, y: 0 }}
-                 transition={{ delay: 0.5, duration: 0.5 }}
-                 className="text-xs md:text-sm text-indigo-400 font-bold tracking-[0.4em] uppercase mt-4"
-               >
-                 Professional Platform
-               </motion.span>
-               
-               {/* 3D Core Loader Ring */}
-               <div className="absolute inset-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] border-2 border-dashed border-indigo-500/30 rounded-full animate-[spin_10s_linear_infinite] -z-10"></div>
-               <div className="absolute inset-0 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[140%] h-[140%] border border-purple-500/20 rounded-full animate-[spin_15s_linear_infinite_reverse] -z-10"></div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      
       {isQuotaExceeded && (
         <div className="fixed top-0 left-0 right-0 bg-amber-500/90 backdrop-blur-sm text-black py-1 px-4 text-center text-[10px] font-bold z-[300] flex items-center justify-center gap-2">
           <span>⚠️ تم تجاوز حصة الاستخدام اليومية للسيرفر. الموقع يعمل الآن بالوضع الاحتياطي (Offline Mode).</span>
@@ -469,11 +399,7 @@ const App: React.FC = () => {
         onSvgaExOpen={() => handleFeatureAccess(AppState.SVGA_EDITOR_EX, 'SVGA Editor EX')}
         onMultiSvgaOpen={() => handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview')}
         onImageProcessorOpen={() => handleFeatureAccess(AppState.IMAGE_PROCESSOR, 'Image Processor')}
-        onImageEnhancerOpen={() => handleFeatureAccess(AppState.IMAGE_ENHANCER, 'AI Image Enhancer')}
         onBatchImageProcessorOpen={() => handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor')}
-        onUniversalConverterOpen={() => handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools')}
-        onPagConverterOpen={() => setShowPagConverter(true)}
-        onBatchImageOpen={() => setShowBatchImage(true)}
         onLoginClick={() => {}}
         onProfileClick={() => {}}
         currentTab={
@@ -482,7 +408,6 @@ const App: React.FC = () => {
           state === AppState.VIDEO_CONVERTER ? 'converter' : 
           state === AppState.IMAGE_CONVERTER ? 'image-converter' :
           state === AppState.IMAGE_PROCESSOR ? 'image-processor' :
-          state === AppState.IMAGE_ENHANCER ? 'image-enhancer' :
           state === AppState.BATCH_IMAGE_PROCESSOR ? 'batch-image-processor' :
           state === AppState.IMAGE_EDITOR ? 'image-editor' :
           state === AppState.IMAGE_MATCHER ? 'image-matcher' :
@@ -495,55 +420,18 @@ const App: React.FC = () => {
       
       <div className="flex pt-20 h-screen overflow-hidden relative">
         <main className={`flex-1 overflow-y-auto transition-all duration-700 custom-scrollbar mr-0`}>
-          <style>{`
-            .no-scrollbar::-webkit-scrollbar {
-              display: none;
-            }
-            .no-scrollbar {
-              -ms-overflow-style: none;
-              scrollbar-width: none;
-            }
-            .mask-edges {
-              mask-image: linear-gradient(to right, transparent, black 2%, black 98%, transparent);
-              -webkit-mask-image: linear-gradient(to right, transparent, black 2%, black 98%, transparent);
-            }
-            .animated-brand-text {
-              background: linear-gradient(90deg, #6366f1, #a855f7, #ec4899, #3b82f6, #2dd4bf, #6366f1);
-              background-size: 200% auto;
-              color: transparent;
-              background-clip: text;
-              -webkit-background-clip: text;
-              animation: colorGradient 4s linear infinite;
-              filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5)) drop-shadow(0 0 10px rgba(168,85,247,0.4));
-            }
-            @keyframes colorGradient {
-              to { background-position: 200% center; }
-            }
-          `}</style>
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
             {state === AppState.IDLE && (
-              <div className="py-10 animate-in fade-in zoom-in duration-700 w-[100vw] relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw]">
-                <Dashboard 
+              <div className="py-10 sm:py-20 animate-in fade-in zoom-in duration-700">
+                <Uploader 
                   onUpload={handleFileUpload} 
-                  onAction={(actionKey: string) => {
-                     switch(actionKey) {
-                        case 'videoConverter': handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter'); break;
-                        case 'universalConverter': handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools'); break;
-                        case 'multiSvga': handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview'); break;
-                        case 'batchImageProcessor': handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor'); break;
-                        case 'batchCompress': handleFeatureAccess(AppState.BATCH_COMPRESSOR, 'Batch Compressor'); break;
-                        case 'batchCropper': handleFeatureAccess(AppState.BATCH_CROPPER, 'Batch Cropper'); break;
-                        case 'imageConverter': handleImageConverterOpen(); break;
-                        case 'svgaEx': handleFeatureAccess(AppState.SVGA_EDITOR_EX, 'SVGA Editor EX'); break;
-                        case 'store': setState(AppState.STORE); break;
-                        case 'imageProcessor': handleFeatureAccess(AppState.IMAGE_PROCESSOR, 'Image Processor'); break;
-                        case 'imageMatcher': handleFeatureAccess(AppState.IMAGE_MATCHER, 'Image Matcher'); break;
-                        case 'imageEditor': handleFeatureAccess(AppState.IMAGE_EDITOR, 'Image Editor'); break;
-                        case 'imageEnhancer': handleFeatureAccess(AppState.IMAGE_ENHANCER, 'AI Image Enhancer'); break;
-                        case 'batchImageOpen': setShowBatchImage(true); break;
-                        case 'pagConverterOpen': setShowPagConverter(true); break;
-                     }
-                  }}
+                  isUploading={false} 
+                  onConverterOpen={() => handleFeatureAccess(AppState.VIDEO_CONVERTER, 'Video Converter')}
+                  onMultiSvgaOpen={() => handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview')}
+                  onBatchImageOpen={() => setShowBatchImage(true)}
+                  onPagConverterOpen={() => setShowPagConverter(true)}
+                  globalQuality={globalQuality}
+                  setGlobalQuality={setGlobalQuality}
                 />
               </div>
             )}
@@ -582,14 +470,6 @@ const App: React.FC = () => {
                 globalQuality={globalQuality}
               />
             )}
-            {state === AppState.UNIVERSAL_CONVERTER && (
-              <UniversalMotionTools 
-                currentUser={currentUser} 
-                onCancel={handleReset} 
-                onLoginRequired={() => {}}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-              />
-            )}
             {state === AppState.IMAGE_CONVERTER && (
               <ImageToSvga 
                 currentUser={currentUser} 
@@ -602,13 +482,6 @@ const App: React.FC = () => {
             )}
             {state === AppState.IMAGE_PROCESSOR && (
               <ImageProcessor 
-                currentUser={currentUser} 
-                onCancel={handleReset} 
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-              />
-            )}
-            {state === AppState.IMAGE_ENHANCER && (
-              <ImageEnhancer 
                 currentUser={currentUser} 
                 onCancel={handleReset} 
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}

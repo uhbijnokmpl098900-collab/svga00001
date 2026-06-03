@@ -16,10 +16,10 @@ interface MultiSvgaItem {
   url: string;
   name: string;
   size: number;
-  dimensions?: { width: number; height: number };
-  fps?: number;
-  frames?: number;
-  videoItem?: any;
+  dimensions: { width: number; height: number };
+  fps: number;
+  frames: number;
+  videoItem: any;
   presetId: string;
 }
 
@@ -97,8 +97,6 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [isExporting, setIsExporting] = useState(false);
   const [isZipping, setIsZipping] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
-  const [loadProgress, setLoadProgress] = useState<{current: number, total: number} | null>(null);
-  const isCanceled = useRef(false);
   const [exportDuration, setExportDuration] = useState(10);
   const [gridCols, setGridCols] = useState(3);
   const [forceMobileSize, setForceMobileSize] = useState(false);
@@ -131,35 +129,49 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     fetchPresets();
   }, []);
 
-  useEffect(() => {
-    return () => { isCanceled.current = true; };
-  }, []);
-
   const handleFiles = useCallback(async (files: FileList | File[]) => {
-    const fileArray = Array.from(files).filter(f => (f?.name || '').toLowerCase().endsWith('.svga'));
-    if (fileArray.length === 0) return;
+    const newItems: MultiSvgaItem[] = [];
     
-    setLoadProgress({ current: 0, total: fileArray.length });
-    isCanceled.current = false;
-    
-    const BATCH_SIZE = 50;
-    for (let i = 0; i < fileArray.length; i += BATCH_SIZE) {
-      if (isCanceled.current) break;
-      const batch = fileArray.slice(i, i + BATCH_SIZE);
-      const newItems: MultiSvgaItem[] = batch.map((file) => ({
-        id: Math.random().toString(36).substr(2, 9),
-        file,
-        url: URL.createObjectURL(file),
-        name: file.name,
-        size: file.size,
-        presetId: 'auto'
-      }));
+    for (const file of Array.from(files)) {
+      if (!(file?.name || '').toLowerCase().endsWith('.svga')) continue;
       
-      setItems(prev => [...prev, ...newItems]);
-      setLoadProgress({ current: Math.min(i + BATCH_SIZE, fileArray.length), total: fileArray.length });
-      await new Promise(r => setTimeout(r, 10));
+      const url = URL.createObjectURL(file);
+      
+      try {
+        const item = await new Promise<MultiSvgaItem>((resolve, reject) => {
+          const parser = new SVGA.Parser();
+          parser.load(url, (videoItem: any) => {
+            let extractedFps = videoItem.FPS || videoItem.fps || 30;
+            if (typeof extractedFps === 'string') extractedFps = parseFloat(extractedFps);
+            if (!extractedFps || extractedFps <= 0) extractedFps = 30;
+
+            resolve({
+              id: Math.random().toString(36).substr(2, 9),
+              file,
+              url,
+              name: file.name,
+              size: file.size,
+              dimensions: { 
+                width: videoItem.videoSize?.width || 0, 
+                height: videoItem.videoSize?.height || 0 
+              },
+              fps: extractedFps,
+              frames: videoItem.frames || 0,
+              videoItem,
+              presetId: 'auto'
+            });
+          }, (err: any) => {
+            reject(err);
+          });
+        });
+        newItems.push(item);
+      } catch (err) {
+        console.error("Failed to load SVGA:", file.name, err);
+        URL.revokeObjectURL(url);
+      }
     }
-    setLoadProgress(null);
+    
+    setItems(prev => [...prev, ...newItems]);
   }, []);
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -226,7 +238,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         rows = 1;
         const rawW = selectedPreset ? selectedPreset.width : items[0].dimensions.width;
         const rawH = selectedPreset ? selectedPreset.height : items[0].dimensions.height;
-        const safe = calculateSafeDimensions(rawW, rawH, 16777216);
+        const safe = calculateSafeDimensions(rawW, rawH);
         cardW = safe.width;
         cardH = safe.height;
         canvasWidth = cardW;
@@ -234,8 +246,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       } else {
         cols = gridCols;
         rows = Math.ceil(items.length / cols);
-        cardW = selectedPreset ? selectedPreset.width : items[0].dimensions.width;
-        cardH = selectedPreset ? selectedPreset.height : items[0].dimensions.height;
+        cardW = selectedPreset ? selectedPreset.width : 1334;
+        cardH = selectedPreset ? selectedPreset.height : 750;
         canvasWidth = cols * cardW + (cols + 1) * padding;
         canvasHeight = rows * cardH + (rows + 1) * padding;
       }
@@ -254,7 +266,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         cardH = (canvasHeight - (rows + 1) * padding) / rows;
       }
       
-      const safe = calculateSafeDimensions(canvasWidth, canvasHeight, 16777216);
+      const safe = calculateSafeDimensions(canvasWidth, canvasHeight, 9437184);
       let finalWidth = safe.width;
       let finalHeight = safe.height;
 
@@ -322,15 +334,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         }
       });
 
-      const offscreenPlayers = [];
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        
-        // Ensure videoItem is loaded
-        const videoItem = await parseSvgaIfNeeded(item);
-        
-        const w = items.length === 1 ? (selectedPreset ? selectedPreset.width : (item.dimensions?.width || 500)) : cardW;
-        const h = items.length === 1 ? (selectedPreset ? selectedPreset.height : (item.dimensions?.height || 500)) : cardH;
+      const offscreenPlayers = items.map(item => {
+        const w = items.length === 1 ? (selectedPreset ? selectedPreset.width : item.dimensions.width) : cardW;
+        const h = items.length === 1 ? (selectedPreset ? selectedPreset.height : item.dimensions.height) : cardH;
         
         const div = document.createElement('div');
         div.style.width = w + 'px';
@@ -341,13 +347,13 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         renderContainer.appendChild(div);
         
         const player = new SVGA.Player(div);
-        player.setVideoItem(videoItem);
+        player.setVideoItem(item.videoItem);
         player.setContentMode(selectedPreset ? 'AspectFill' : 'AspectFit');
         
         // Cache the canvas reference
         const internalCanvas = div.querySelector('canvas');
-        offscreenPlayers.push({ player, div, item, cardW, cardH, internalCanvas, videoItem });
-      }
+        return { player, div, item, cardW, cardH, internalCanvas };
+      });
 
       // Wait for initialization and warmup
       await new Promise(resolve => setTimeout(resolve, 1500));
@@ -356,7 +362,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       // Configure encoder right before starting the loop to avoid inactivity reclamation
       try {
         videoEncoder.configure({
-          codec: 'avc1.4D4034', // Main Profile, Level 5.2
+          codec: 'avc1.4D4033', // Main Profile, Level 5.1
           width: finalWidth,
           height: finalHeight,
           bitrate: 4_000_000,
@@ -407,11 +413,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           player.stepToFrame(itemFrame, false);
 
           if (internalCanvas) {
-            const sw = item.dimensions?.width || 500;
-            const sh = item.dimensions?.height || 500;
+            const sw = item.dimensions.width;
+            const sh = item.dimensions.height;
+            const preset = DEVICE_PRESETS.find(p => p.id === item.presetId);
             
-            // Always use AspectFit to match the preview behavior
-            const scale = Math.min(cardW / sw, cardH / sh);
+            // Manual AspectFill calculation for video export
+            const scale = preset ? Math.max(cardW / sw, cardH / sh) : 1;
             const finalW = sw * scale;
             const finalH = sh * scale;
             
@@ -491,65 +498,15 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     }
   };
 
-  const parseSvgaIfNeeded = async (item: MultiSvgaItem): Promise<any> => {
-    // ensure videoItem is valid and has images before returning early
-    if (item.videoItem && item.videoItem.images) return item.videoItem;
-    
-    return new Promise((resolve, reject) => {
-      const parser = new SVGA.Parser();
-      // Bypass cache just in case player.clear() destructed the cached images previously
-      const bypassUrl = item.url + '#' + Math.random().toString(36).substr(2, 9);
-      parser.load(bypassUrl, (videoItem: any) => {
-        if (!videoItem || !videoItem.images) {
-          return reject(new Error("Invalid SVGA format - missing images"));
-        }
-        item.videoItem = videoItem;
-        item.dimensions = { 
-          width: videoItem.videoSize?.width || 500, 
-          height: videoItem.videoSize?.height || 500 
-        };
-        item.fps = videoItem.FPS || videoItem.fps || 30;
-        item.frames = videoItem.frames || 1;
-        resolve(videoItem);
-      }, reject);
-    });
-  };
-
   const captureFrame = async (item: MultiSvgaItem, frameIndex: number = 0): Promise<Blob> => {
-    const videoItem = await parseSvgaIfNeeded(item);
-    if (!item.dimensions) item.dimensions = { width: 500, height: 500 };
-    
     const canvas = document.createElement('canvas');
-    if (previewBg) {
-      try {
-        const bgImg = await new Promise<HTMLImageElement>((resolve, reject) => {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = () => resolve(img);
-          img.onerror = reject;
-          img.src = previewBg;
-        });
-        const dw = selectedPreset ? selectedPreset.width : item.dimensions.width;
-        const dh = selectedPreset ? selectedPreset.height : item.dimensions.height;
-        canvas.width = dw;
-        canvas.height = dh;
-        const ctx = canvas.getContext('2d', { alpha: false })!;
-        // Draw background tiled
-        const pattern = ctx.createPattern(bgImg, 'repeat');
-        if (pattern) {
-          ctx.fillStyle = pattern;
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-      } catch (e) {}
-    }
-
     const dw = selectedPreset ? selectedPreset.width : item.dimensions.width;
     const dh = selectedPreset ? selectedPreset.height : item.dimensions.height;
     
     canvas.width = dw;
     canvas.height = dh;
     const ctx = canvas.getContext('2d', { alpha: true })!;
-    if (!previewBg) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     const div = document.createElement('div');
     div.style.width = `${item.dimensions.width}px`;
@@ -561,14 +518,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     try {
       const player = new SVGA.Player(div);
       await new Promise<void>((resolve) => {
-        player.setVideoItem(videoItem);
+        player.setVideoItem(item.videoItem);
         player.setContentMode('AspectFit'); // Use Fit internally
-        
-        let framesToJump = frameIndex;
-        if (frameIndex === 0 && item.frames) {
-          framesToJump = Math.floor(item.frames / 2); // Default to middle frame if not specified precisely
-        }
-        player.stepToFrame(framesToJump, false);
+        player.stepToFrame(frameIndex, false);
         setTimeout(resolve, 250);
       });
       
@@ -577,19 +529,14 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         const sw = item.dimensions.width;
         const sh = item.dimensions.height;
 
-        // Manual AspectFit calculation
-        const scale = Math.min(dw / sw, dh / sh);
+        // Manual AspectFill calculation
+        const scale = selectedPreset ? Math.max(dw / sw, dh / sh) : 1;
         const finalW = sw * scale;
         const finalH = sh * scale;
         const x = (dw - finalW) / 2;
         const y = (dh - finalH) / 2;
 
         ctx.drawImage(svgaCanvas, x, y, finalW, finalH);
-      }
-      
-      // Drop videoItem reference specifically for large exports to save memory!
-      if (items.length > 50) {
-         item.videoItem = undefined;
       }
     } finally {
       document.body.removeChild(div);
@@ -1017,24 +964,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         </div>
       </div>
 
-        {/* Toolbar: Background & Watermark */}
+      {/* Toolbar: Background & Watermark */}
       <div className="flex flex-col gap-6 mb-6 bg-white/5 p-6 rounded-[2.5rem] border border-white/10">
-        
-        {loadProgress && (
-          <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-2xl p-4 flex flex-col gap-2 mb-4">
-            <div className="flex justify-between items-center text-xs font-black">
-              <span className="text-white flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin text-indigo-400" /> جاري التحميل...</span>
-              <span className="text-indigo-400">{loadProgress.current} / {loadProgress.total}</span>
-            </div>
-            <div className="h-2 w-full bg-black/50 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-indigo-500 transition-all duration-300"
-                style={{ width: `${(loadProgress.current / loadProgress.total) * 100}%` }}
-              />
-            </div>
-          </div>
-        )}
-
         <div className="flex flex-wrap items-center gap-8">
           <div className="flex items-center gap-3 border-r border-white/10 pr-6">
             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">الخلفية:</span>
@@ -1207,7 +1138,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                     backgroundPosition: 'center'
                   }}
                 >
-                  <SvgaPlayer item={selectedItem} />
+                  <SvgaPlayer videoItem={selectedItem.videoItem} />
                   {watermark && (
                     <img 
                       src={watermark} 
@@ -1240,75 +1171,41 @@ const InfoItem: React.FC<{ label: string; value: string | number }> = ({ label, 
   </div>
 );
 
-const SvgaPlayer: React.FC<{ item: any }> = ({ item }) => {
+const SvgaPlayer: React.FC<{ videoItem: any }> = ({ videoItem }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
-  const [isLoaded, setIsLoaded] = useState(false);
-  const selectedPreset = useMemo(() => DEVICE_PRESETS.find(p => p.id === item.presetId), [item.presetId]);
 
   useEffect(() => {
-    let isCanceled = false;
-
-    const loadAndPlay = async () => {
-      if (!containerRef.current || !wrapperRef.current) return;
-      
-      let videoItem = item.videoItem;
-      if (!videoItem) {
-        try {
-          videoItem = await new Promise((resolve, reject) => {
-            const parser = new SVGA.Parser();
-            const bypassUrl = item.url + '#' + Math.random().toString(36).substr(2, 9);
-            parser.load(bypassUrl, (vi: any) => {
-              if (!vi || !vi.images) return reject(new Error("Invalid SVGA"));
-              resolve(vi);
-            }, reject);
-          });
-          item.videoItem = videoItem;
-          if (!isCanceled) setIsLoaded(true);
-        } catch(e) {
-          console.error(e);
-          return;
-        }
-      }
-
-      if (isCanceled || !containerRef.current) return;
-      
-      // Clear container first
-      containerRef.current.innerHTML = '';
-      
-      const player = new SVGA.Player(containerRef.current);
-      playerRef.current = player;
-      
-      // We manually scale and center the container, so use Fill
-      player.setContentMode('Fill');
-      player.setVideoItem(videoItem);
-      player.startAnimation();
-    };
-
-    loadAndPlay();
-    return () => { isCanceled = true; playerRef.current?.stopAnimation(); };
-  }, [item.url, isLoaded]);
-
-  useEffect(() => {
-    if (!containerRef.current || !wrapperRef.current || !item.videoItem) return;
+    if (!containerRef.current || !wrapperRef.current) return;
+    
+    // Clear container first
+    containerRef.current.innerHTML = '';
+    
+    const player = new SVGA.Player(containerRef.current);
+    playerRef.current = player;
+    
+    // We manually scale and center the container, so use Fill
+    player.setContentMode('Fill');
+    player.setVideoItem(videoItem);
+    player.startAnimation();
 
     const updateCanvasStyles = () => {
       if (!wrapperRef.current || !containerRef.current) return;
       
       const wrapperWidth = wrapperRef.current.clientWidth;
       const wrapperHeight = wrapperRef.current.clientHeight;
-      const sw = item.dimensions?.width || item.videoItem?.videoSize?.width || 500;
-      const sh = item.dimensions?.height || item.videoItem?.videoSize?.height || 500;
+      const svgaWidth = videoItem.videoSize?.width || 1;
+      const svgaHeight = videoItem.videoSize?.height || 1;
 
       // Fixed container dimensions as requested
-      const containerWidth = selectedPreset ? selectedPreset.width : sw;
-      const containerHeight = selectedPreset ? selectedPreset.height : sh;
+      const containerWidth = 1334;
+      const containerHeight = 750;
 
       // 1. Scale the SVGA to fit inside the fixed 1334x750 container
-      const svgaScale = Math.min(containerWidth / sw, containerHeight / sh);
-      const finalSvgaWidth = sw * svgaScale;
-      const finalSvgaHeight = sh * svgaScale;
+      const svgaScale = Math.min(containerWidth / svgaWidth, containerHeight / svgaHeight);
+      const finalSvgaWidth = svgaWidth * svgaScale;
+      const finalSvgaHeight = svgaHeight * svgaScale;
 
       // 2. Scale the fixed 1334x750 container to fit inside the screen wrapper
       const wrapperScale = Math.min(wrapperWidth / containerWidth, wrapperHeight / containerHeight);
@@ -1356,8 +1253,10 @@ const SvgaPlayer: React.FC<{ item: any }> = ({ item }) => {
       resizeObserver.disconnect();
       mutationObserver.disconnect();
       clearTimeout(timer);
+      player.stopAnimation();
+      player.clear();
     };
-  }, [item.videoItem, selectedPreset, isLoaded]); // Re-run when videoItem is loaded
+  }, [videoItem]);
 
   return (
     <div ref={wrapperRef} className="w-full h-full relative overflow-hidden flex items-center justify-center">
@@ -1382,91 +1281,43 @@ const SvgaCard: React.FC<{
   const [isPlaying, setIsPlaying] = useState(true);
   const [showInfo, setShowInfo] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const [isLoaded, setIsLoaded] = useState(false);
-    
-  // Derived properties
-  const itemWidth = item.dimensions?.width || 500;
-  const itemHeight = item.dimensions?.height || 500;
-  const itemFrames = item.frames || 1;
-  const itemFps = item.fps || 30;
-  const isPortrait = itemHeight > itemWidth;
+  const isPortrait = item.dimensions.height > item.dimensions.width;
   const selectedPreset = useMemo(() => DEVICE_PRESETS.find(p => p.id === item.presetId), [item.presetId]);
 
-    const [isVisible, setIsVisible] = useState(false);
+  useEffect(() => {
+    if (!containerRef.current || !item.videoItem) return;
+    
+    // Clear container first to avoid multiple canvases
+    containerRef.current.innerHTML = '';
+    
+    const player = new SVGA.Player(containerRef.current);
+    playerRef.current = player;
+    
+    player.loops = 0;
+    player.clearsAfterStop = false;
+    
+    // Always use AspectFit since we want the whole SVGA to be visible
+    player.setContentMode('AspectFit');
+    player.setVideoItem(item.videoItem);
 
-    useEffect(() => {
-      if (!wrapperRef.current) return;
-      const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-          setIsVisible(entry.isIntersecting);
-        });
-      }, { threshold: 0, rootMargin: '300px' });
-      observer.observe(wrapperRef.current);
-      return () => observer.disconnect();
-    }, []);
-
-    useEffect(() => {
-      let isCanceled = false;
-
-      const loadAndPlay = async () => {
-         if (!isVisible) {
-           if (playerRef.current) {
-             playerRef.current.stopAnimation();
-             playerRef.current = null;
-           }
-           if (containerRef.current) containerRef.current.innerHTML = '';
-           // Free memory! Essential for large collections
-           item.videoItem = undefined;
-           return;
-         }
-
-         let videoItem = item.videoItem;
-         if (!videoItem || !videoItem.images) {
-           try {
-             videoItem = await new Promise((resolve, reject) => {
-               const parser = new SVGA.Parser();
-               const bypassUrl = item.url + '#' + Math.random().toString(36).substr(2, 9);
-               parser.load(bypassUrl, (vi: any) => {
-                 if (!vi || !vi.images) return reject(new Error("Invalid SVGA"));
-                 resolve(vi);
-               }, reject);
-             });
-             // Set it statically so we don't re-parse if unmounted and remounted
-             item.videoItem = videoItem;
-             if (!item.dimensions) {
-               item.dimensions = { width: videoItem.videoSize?.width || 500, height: videoItem.videoSize?.height || 500 };
-               item.fps = videoItem.FPS || videoItem.fps || 30;
-               item.frames = videoItem.frames || 1;
-             }
-             if (!isCanceled) setIsLoaded(true); // force re-render for new dimensions
-           } catch(e) {
-             console.error("SVGA load error", e);
-             return;
-           }
-         }
-
-         if (isCanceled || !containerRef.current) return;
-         containerRef.current.innerHTML = '';
-         const player = new SVGA.Player(containerRef.current);
-         playerRef.current = player;
-         
-         player.loops = 0;
-         player.clearsAfterStop = false;
-         player.setContentMode('AspectFit');
-         player.setVideoItem(videoItem);
-         
-         if (isPlaying) player.startAnimation();
-      };
-      
-      loadAndPlay();
-
-      return () => {
-        isCanceled = true;
-        if (playerRef.current) {
-          playerRef.current.stopAnimation();
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          if (isPlaying) player.startAnimation();
+        } else {
+          player.pauseAnimation();
         }
-      };
-    }, [isPlaying, isVisible, item.url, isLoaded]);
+      });
+    }, { threshold: 0.1 });
+
+    observer.observe(containerRef.current);
+    
+    return () => {
+      observer.disconnect();
+      player.stopAnimation();
+      player.clear();
+    };
+  }, [item.videoItem, isPlaying]);
 
     // Separate effect for Zoom and Preset style updates - much faster and smoother
     useEffect(() => {
@@ -1475,12 +1326,12 @@ const SvgaCard: React.FC<{
         
         const wrapperWidth = wrapperRef.current.clientWidth;
         const wrapperHeight = wrapperRef.current.clientHeight;
-        const svgaWidth = item.dimensions?.width || 500;
-        const svgaHeight = item.dimensions?.height || 500;
+        const svgaWidth = item.dimensions.width || 1;
+        const svgaHeight = item.dimensions.height || 1;
   
         // Fixed container dimensions as requested
-        const containerWidth = selectedPreset ? selectedPreset.width : svgaWidth;
-        const containerHeight = selectedPreset ? selectedPreset.height : svgaHeight;
+        const containerWidth = 1334;
+        const containerHeight = 750;
   
         // 1. Scale the SVGA to fit inside the fixed 1334x750 container
         const svgaScale = Math.min(containerWidth / svgaWidth, containerHeight / svgaHeight);
@@ -1570,7 +1421,7 @@ const SvgaCard: React.FC<{
         ref={wrapperRef}
         className={`relative bg-slate-950/50 flex items-center justify-center overflow-hidden w-full`}
         style={{
-          height: selectedPreset ? `${(selectedPreset.height / selectedPreset.width) * 350}px` : `${(itemHeight / itemWidth) * 350}px`,
+          height: selectedPreset ? `${(selectedPreset.height / selectedPreset.width) * 350}px` : `${(750 / 1334) * 400}px`,
           backgroundImage: previewBg ? `url(${previewBg})` : 'none',
           backgroundSize: 'cover',
           backgroundPosition: 'center'
@@ -1594,7 +1445,7 @@ const SvgaCard: React.FC<{
         <div className="absolute bottom-4 left-4 flex flex-col gap-1 z-20">
           <div className="px-3 py-1.5 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl flex items-center gap-2">
             <span className="text-[10px] font-black text-white">
-              {selectedPreset ? `${selectedPreset.width} × ${selectedPreset.height}` : `${itemWidth} × ${itemHeight}`}
+              {selectedPreset ? `${selectedPreset.width} × ${selectedPreset.height}` : `${item.dimensions.width} × ${item.dimensions.height}`}
             </span>
             {isPortrait ? <Smartphone className="w-3 h-3 text-sky-400" /> : <Monitor className="w-3 h-3 text-indigo-400" />}
           </div>
@@ -1723,7 +1574,7 @@ const SvgaCard: React.FC<{
                 </div>
                 <div>
                   <p className="text-[8px] text-slate-500 font-black uppercase tracking-widest mb-1">Ratio</p>
-                  <p className="text-xs text-white font-bold">{(itemWidth / itemHeight).toFixed(2)}</p>
+                  <p className="text-xs text-white font-bold">{(item.dimensions.width / item.dimensions.height).toFixed(2)}</p>
                 </div>
               </div>
             </motion.div>

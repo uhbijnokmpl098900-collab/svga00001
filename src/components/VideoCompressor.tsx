@@ -2,8 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile } from '@ffmpeg/util';
-import { loadFFmpegWithFallbacks } from '../utils/ffmpegLoader';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import { 
   Video, 
   Upload, 
@@ -75,10 +74,17 @@ export const VideoCompressor: React.FC<VideoCompressorProps> = ({
     if (ffmpegLoaded) return;
     
     setStatus('جاري تحميل محرك المعالجة (FFmpeg)...');
+    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+    const ffmpeg = ffmpegRef.current;
+    
+    ffmpeg.on('log', ({ message }) => {
+      console.log('FFmpeg:', message);
+    });
     
     try {
-      await loadFFmpegWithFallbacks(ffmpegRef.current, (msg) => {
-        console.log('FFmpeg:', msg);
+      await ffmpeg.load({
+        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
       });
       setFfmpegLoaded(true);
       setStatus('');

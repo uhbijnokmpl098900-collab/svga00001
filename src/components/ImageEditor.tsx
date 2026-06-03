@@ -1,496 +1,537 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { UserRecord } from '../types';
-import { Download, Upload, X, Sliders, Image as ImageIcon, Sparkles, Wand2, Plus, User, Square, Circle, Trash2, Maximize } from 'lucide-react';
+
+import { useAccessControl } from '../hooks/useAccessControl';
+
+interface OverlayData {
+  id: string;
+  img: HTMLImageElement;
+  scale: number;
+  opacity: number;
+  x: number;
+  y: number;
+}
 
 interface ImageEditorProps {
   currentUser: UserRecord | null;
   onCancel: () => void;
   onLoginRequired: () => void;
   onSubscriptionRequired: () => void;
+  globalQuality?: 'low' | 'medium' | 'high';
 }
 
-export const ImageEditor: React.FC<ImageEditorProps> = ({ onCancel }) => {
-  const [mainImage, setMainImage] = useState<HTMLImageElement | null>(null);
-  const [width, setWidth] = useState<number>(500);
-  const [height, setHeight] = useState<number>(500);
+export const ImageEditor: React.FC<ImageEditorProps> = ({ currentUser, onCancel, onLoginRequired, onSubscriptionRequired, globalQuality: initialGlobalQuality = 'high' }) => {
+  const { checkAccess } = useAccessControl();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [mainImg, setMainImg] = useState<HTMLImageElement | null>(null);
+  const [overlays, setOverlays] = useState<OverlayData[]>([]);
+  const [activeOverlayId, setActiveOverlayId] = useState<string | null>(null);
+  const [selectedQuality, setSelectedQuality] = useState<'low' | 'medium' | 'high'>(initialGlobalQuality);
   
-  const [borderRadius, setBorderRadius] = useState<number>(30); // %
-  const [edgeSoftness, setEdgeSoftness] = useState<number>(0);
-  const [autoTransparent, setAutoTransparent] = useState<boolean>(false);
-  
-  const [mainImageScale, setMainImageScale] = useState<number>(100);
-  const [mainImageX, setMainImageX] = useState<number>(50);
-  const [mainImageY, setMainImageY] = useState<number>(50);
-  
-  const [shadowStrength, setShadowStrength] = useState<number>(0); // opacity
-  const [shadowBlur, setShadowBlur] = useState<number>(10);
-  const [shadowDistance, setShadowDistance] = useState<number>(5);
+  const [config, setConfig] = useState({
+    width: 500,
+    height: 500,
+    borderRadius: 30,
+    mainScale: 100,
+    mainX: 0,
+    mainY: 0,
+    feather: 0,
+    rotation: 0
+  });
 
-  const [overlayImage, setOverlayImage] = useState<HTMLImageElement | null>(null);
-  const [overlayOpacity, setOverlayOpacity] = useState<number>(100);
-  const [overlayScale, setOverlayScale] = useState<number>(100);
-  const [overlayTop, setOverlayTop] = useState<number>(50);
-  const [overlayLeft, setOverlayLeft] = useState<number>(50);
+  const handleConfigChange = (key: string, value: number | string) => {
+    setConfig(prev => ({ ...prev, [key]: value }));
+  };
 
-  const [exportQuality, setExportQuality] = useState<'HIGH_PNG' | 'MEDIUM_WEBP' | 'LOW_WEBP'>('HIGH_PNG');
-  
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  
-  const processImage = () => {
-    if (!mainImage) {
-      setPreviewUrl(null);
-      return;
+  const handleOverlayChange = (id: string, key: keyof OverlayData, value: number) => {
+    setOverlays(prev => prev.map(o => o.id === id ? { ...o, [key]: value } : o));
+  };
+
+  const duplicateOverlay = (id: string) => {
+    const overlayToCopy = overlays.find(o => o.id === id);
+    if (overlayToCopy) {
+      const newOverlay = {
+        ...overlayToCopy,
+        id: Date.now().toString(),
+        x: overlayToCopy.x + 20,
+        y: overlayToCopy.y + 20
+      };
+      setOverlays(prev => [...prev, newOverlay]);
+      setActiveOverlayId(newOverlay.id);
     }
-    
-    // 1. Process Auto Transparency on Main Image
-    let sourceImage: CanvasImageSource = mainImage;
-    if (autoTransparent) {
-      const tCanvas = document.createElement('canvas');
-      tCanvas.width = width;
-      tCanvas.height = height;
-      const tCtx = tCanvas.getContext('2d')!;
-      tCtx.drawImage(mainImage, 0, 0, width, height);
-      
-      const imgData = tCtx.getImageData(0, 0, width, height);
-      const data = imgData.data;
-      for (let i = 0; i < data.length; i += 4) {
-        if (data[i] > 240 && data[i+1] > 240 && data[i+2] > 240) {
-          data[i+3] = 0; // Alpha
+  };
+
+  const removeOverlay = (id: string) => {
+    setOverlays(prev => prev.filter(o => o.id !== id));
+    if (activeOverlayId === id) {
+      setActiveOverlayId(null);
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, isOverlay: boolean) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        if (isOverlay) {
+          const newOverlay: OverlayData = {
+            id: Date.now().toString(),
+            img: img,
+            scale: 40,
+            opacity: 100,
+            x: 0,
+            y: 0
+          };
+          setOverlays(prev => [...prev, newOverlay]);
+          setActiveOverlayId(newOverlay.id);
+        } else {
+          setMainImg(img);
+          // Reset position on new image
+          setConfig(prev => ({ ...prev, mainX: 0, mainY: 0, mainScale: 100, rotation: 0 }));
         }
-      }
-      tCtx.putImageData(imgData, 0, 0);
-      sourceImage = tCanvas;
-    }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
 
-    // 2. Prepare Mask for Border Radius & Edge Softness
-    const maskCanvas = document.createElement('canvas');
-    maskCanvas.width = width;
-    maskCanvas.height = height;
-    const mCtx = maskCanvas.getContext('2d')!;
-    
-    // Draw the shape mask (white)
-    mCtx.fillStyle = 'white';
-    mCtx.beginPath();
-    if (borderRadius > 0) {
-      const radius = (borderRadius / 100) * (Math.min(width, height) / 2);
-      mCtx.moveTo(radius, 0);
-      mCtx.lineTo(width - radius, 0);
-      mCtx.quadraticCurveTo(width, 0, width, radius);
-      mCtx.lineTo(width, height - radius);
-      mCtx.quadraticCurveTo(width, height, width - radius, height);
-      mCtx.lineTo(radius, height);
-      mCtx.quadraticCurveTo(0, height, 0, height - radius);
-      mCtx.lineTo(0, radius);
-      mCtx.quadraticCurveTo(0, 0, radius, 0);
-    } else {
-      mCtx.rect(0, 0, width, height);
-    }
-    mCtx.closePath();
-    mCtx.fill();
-
-    // If edge softness exists, blur the mask
-    if (edgeSoftness > 0) {
-      const blurCanvas = document.createElement('canvas');
-      blurCanvas.width = width;
-      blurCanvas.height = height;
-      const bCtx = blurCanvas.getContext('2d')!;
-      bCtx.filter = `blur(${edgeSoftness}px)`;
-      // To pull the blur inwards, we draw the original shape, then we draw a slightly inset/blurred mask
-      bCtx.drawImage(maskCanvas, 0, 0);
-      
-      mCtx.clearRect(0, 0, width, height);
-      mCtx.drawImage(blurCanvas, 0, 0);
-    }
-
-    // Process Pan & Zoom onto mask via source-in
-    mCtx.globalCompositeOperation = 'source-in';
-    
-    const iw = mainImage.width;
-    const ih = mainImage.height;
-    
-    // Default fit: scale the image to cover the canvas
-    const defaultScale = Math.max(width / iw, height / ih);
-    const renderScale = defaultScale * (mainImageScale / 100);
-    
-    const swo = iw * renderScale;
-    const sho = ih * renderScale;
-    
-    // Position (50% is center)
-    const px = (mainImageX / 100) * width - swo / 2;
-    const py = (mainImageY / 100) * height - sho / 2;
-    
-    mCtx.drawImage(sourceImage, px, py, swo, sho);
-
-    // 3. Final Canvas Composition
-    const canvas = document.createElement('canvas');
-    // Add extra padding for shadows so they don't clip at boundaries instantly if distance is large
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
+  const redrawCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { alpha: true });
     if (!ctx) return;
-    
-    ctx.clearRect(0, 0, width, height);
+
+    // Resize canvas
+    canvas.width = config.width;
+    canvas.height = config.height;
+
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!mainImg) return;
 
     ctx.save();
-    if (shadowStrength > 0) {
-      ctx.shadowColor = `rgba(0,0,0,${shadowStrength / 100})`;
-      ctx.shadowBlur = shadowBlur;
-      ctx.shadowOffsetX = shadowDistance;
-      ctx.shadowOffsetY = shadowDistance;
-    }
+
+    // Draw rounded rectangle path
+    const radiusPercent = config.borderRadius / 100;
+    const minSide = Math.min(canvas.width, canvas.height);
+    const borderRadius = minSide * radiusPercent;
+
+    // Create a temporary canvas for the mask
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = canvas.width;
+    maskCanvas.height = canvas.height;
+    const maskCtx = maskCanvas.getContext('2d');
     
-    ctx.drawImage(maskCanvas, 0, 0);
+    if (maskCtx) {
+      maskCtx.fillStyle = 'white';
+      
+      // Calculate inset for feathering
+      // We inset the shape so the blur fades out to the original edge
+      const feather = config.feather || 0;
+      const inset = feather; 
+      
+      // Adjust dimensions for inset
+      const maskW = Math.max(0, canvas.width - (inset * 2));
+      const maskH = Math.max(0, canvas.height - (inset * 2));
+      const maskX = inset;
+      const maskY = inset;
+      
+      // Adjust radius for inset (prevent negative radius)
+      // If feather is large, radius shrinks
+      const maskRadius = Math.max(0, borderRadius - inset);
+
+      maskCtx.beginPath();
+      maskCtx.moveTo(maskX + maskRadius, maskY);
+      maskCtx.lineTo(maskX + maskW - maskRadius, maskY);
+      maskCtx.quadraticCurveTo(maskX + maskW, maskY, maskX + maskW, maskY + maskRadius);
+      maskCtx.lineTo(maskX + maskW, maskY + maskH - maskRadius);
+      maskCtx.quadraticCurveTo(maskX + maskW, maskY + maskH, maskX + maskW - maskRadius, maskY + maskH);
+      maskCtx.lineTo(maskX + maskRadius, maskY + maskH);
+      maskCtx.quadraticCurveTo(maskX, maskY + maskH, maskX, maskY + maskH - maskRadius);
+      maskCtx.lineTo(maskX, maskY + maskRadius);
+      maskCtx.quadraticCurveTo(maskX, maskY, maskX + maskRadius, maskY);
+      maskCtx.closePath();
+
+      if (feather > 0) {
+        maskCtx.filter = `blur(${feather}px)`;
+      }
+      maskCtx.fill();
+      
+      // Reset filter for other operations if needed (though we discard maskCtx)
+      maskCtx.filter = 'none';
+    }
+
+    // Draw the image first (without clipping yet)
+    // Calculate scale to cover
+    const scaleX = canvas.width / mainImg.naturalWidth;
+    const scaleY = canvas.height / mainImg.naturalHeight;
+    const coverScale = Math.max(scaleX, scaleY);
+
+    // Apply user scale (relative to cover scale)
+    const finalScale = coverScale * (config.mainScale / 100);
+
+    const drawW = mainImg.naturalWidth * finalScale;
+    const drawH = mainImg.naturalHeight * finalScale;
+
+    // Center position
+    const centerX = (canvas.width - drawW) / 2;
+    const centerY = (canvas.height - drawH) / 2;
+
+    // Apply user offsets
+    const drawX = centerX + config.mainX;
+    const drawY = centerY + config.mainY;
+
+    // Apply rotation
+    ctx.save();
+    const pivotX = drawX + drawW / 2;
+    const pivotY = drawY + drawH / 2;
+    ctx.translate(pivotX, pivotY);
+    ctx.rotate((config.rotation * Math.PI) / 180);
+    ctx.translate(-pivotX, -pivotY);
+
+    ctx.drawImage(mainImg, drawX, drawY, drawW, drawH);
     ctx.restore();
 
-    // 4. Draw Overlay Image
-    if (overlayImage) {
-      ctx.save();
-      ctx.globalAlpha = overlayOpacity / 100;
+    // Draw overlay BEFORE masking so it gets feathered too
+    overlays.forEach(overlay => {
+      const scale = overlay.scale / 100;
+      const overlayW = overlay.img.naturalWidth * scale;
+      const overlayH = overlay.img.naturalHeight * scale;
       
-      const ow = overlayImage.width * (overlayScale / 100);
-      const oh = overlayImage.height * (overlayScale / 100);
-      
-      const px = (overlayLeft / 100) * width - ow / 2;
-      const py = (overlayTop / 100) * height - oh / 2;
-      
-      ctx.drawImage(overlayImage, px, py, ow, oh);
-      ctx.restore();
-    }
+      let posX = (canvas.width - overlayW) / 2 + overlay.x;
+      let posY = (canvas.height - overlayH) / 2 + overlay.y;
+
+      const opacity = overlay.opacity / 100;
+      ctx.globalAlpha = opacity;
+
+      ctx.drawImage(overlay.img, posX, posY, overlayW, overlayH);
+
+      ctx.globalAlpha = 1.0;
+    });
+
+    // Apply the mask using destination-in
+    // This keeps the image where the mask is white (opaque) and fades it where mask is transparent
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.drawImage(maskCanvas, 0, 0);
     
-    try {
-      setPreviewUrl(canvas.toDataURL('image/png'));
-    } catch(e) {
-      // tainted canvas if cross-origin
-    }
-  };
+    // Reset composite operation for overlay
+    ctx.globalCompositeOperation = 'source-over';
+
+    ctx.restore();
+
+  }, [config, mainImg, overlays]);
 
   useEffect(() => {
-    processImage();
-  }, [mainImage, width, height, borderRadius, edgeSoftness, autoTransparent, shadowStrength, shadowBlur, shadowDistance, overlayImage, overlayOpacity, overlayScale, overlayTop, overlayLeft, mainImageScale, mainImageX, mainImageY]);
+    redrawCanvas();
+  }, [redrawCanvas]);
 
-  const handleMainImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        setMainImage(img);
-        setWidth(img.width);
-        setHeight(img.height);
-      };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
+  const handleDownload = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    if (!currentUser) {
+      onLoginRequired();
+      return;
+    }
+
+    const { allowed, reason } = await checkAccess('Image Editor Export');
+    if (!allowed) {
+      onSubscriptionRequired();
+      return;
+    }
+
+    const link = document.createElement('a');
+    if (selectedQuality === 'high') {
+        link.download = 'edited-image.png';
+        link.href = canvas.toDataURL('image/png');
+    } else {
+        const q = selectedQuality === 'medium' ? 0.85 : 0.6;
+        link.download = 'edited-image.webp';
+        link.href = canvas.toDataURL('image/webp', q);
+    }
+    link.click();
   };
-
-  const handleOverlayUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        setOverlayImage(img);
-      };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleDownload = () => {
-    if (!previewUrl) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    const finalImg = new Image();
-    finalImg.onload = () => {
-       ctx.drawImage(finalImg, 0, 0);
-       
-       let mime = 'image/png';
-       let qual = 1.0;
-       let ext = 'png';
-       
-       if (exportQuality === 'MEDIUM_WEBP') {
-          mime = 'image/webp'; qual = 0.7; ext = 'webp';
-       } else if (exportQuality === 'LOW_WEBP') {
-          mime = 'image/webp'; qual = 0.4; ext = 'webp';
-       }
-       
-       const url = canvas.toDataURL(mime, qual);
-       const link = document.createElement('a');
-       link.download = `edited_image.${ext}`;
-       link.href = url;
-       link.click();
-    };
-    finalImg.src = previewUrl;
-  };
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const overlayInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0a0f1c] flex flex-col font-sans transition-colors duration-300">
-      
-      {/* Top Header */}
-      <div className="h-16 bg-[#040812] border-b border-indigo-500/10 flex items-center justify-between px-6 shrink-0 z-20">
-        <div className="flex items-center gap-4">
-          <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center shadow-lg shadow-indigo-500/20">
-            <User className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-white font-bold tracking-wide">Smart Image Editor</h1>
-            <p className="text-[10px] text-indigo-400 font-medium tracking-wide">.Create rounded images with overlays and shadows easily</p>
-          </div>
+    <div className="w-full max-w-6xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h2 className="text-3xl font-black text-white mb-2 tracking-tight">Image Editor</h2>
+          <p className="text-slate-400">Create rounded images with overlays easily.</p>
         </div>
-        
-        <div className="flex items-center gap-3">
-          <button onClick={onCancel} className="flex items-center gap-2 px-4 py-1.5 bg-white/5 hover:bg-white/10 text-white text-xs font-bold rounded-full transition-colors border border-white/10">
-            <X className="w-3.5 h-3.5" />
-            <span>Back</span>
-          </button>
-        </div>
+        <button 
+          onClick={onCancel}
+          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold transition-colors"
+        >
+          Back
+        </button>
       </div>
 
-      <div className="flex-1 flex overflow-hidden p-4 md:p-6 gap-6 justify-center items-start max-w-7xl mx-auto w-full">
-        {/* Left Sidebar - Properties Panel */}
-        <div className="w-[420px] bg-[#0d1425] border border-white/5 flex flex-col shrink-0 rounded-3xl overflow-hidden shadow-2xl">
-          <div className="p-6 flex flex-col gap-6 overflow-y-auto custom-scrollbar h-[calc(100vh-100px)]">
-            
-            {/* Main Image */}
-            <div className="space-y-4">
-              <div className="flex justify-between items-center text-sm font-black text-white">
-                 <span>1. Main Image</span>
-                 <button onClick={() => setAutoTransparent(!autoTransparent)} className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold rounded-full transition-colors border ${autoTransparent ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' : 'bg-[#1a233a] text-slate-400 border-transparent hover:text-white'}`}>
-                   <Sparkles className="w-3 h-3" /> Auto Transparency
-                 </button>
-              </div>
-              <div className="flex items-center gap-3 bg-[#0a0f1c] p-2 flex-wrap rounded-xl border border-white/5">
-                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleMainImageUpload} />
-                 <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-[#1a233a] hover:bg-[#222e4a] text-xs font-bold text-slate-200 rounded-lg transition-colors whitespace-nowrap">
-                    Choose File
-                 </button>
-                 <span className="text-[11px] text-slate-400 truncate flex-1" dir="auto">{mainImage ? 'Image loaded' : 'No file chosen'}</span>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                 <div className="space-y-1 text-right">
-                    <label className="text-[11px] font-bold text-slate-400 block mb-1">Height (px)</label>
-                    <input type="number" value={height} onChange={e => setHeight(Number(e.target.value))} className="w-full bg-[#0a0f1c] border border-white/10 rounded-xl px-3 py-2 text-sm text-right text-white font-mono focus:border-indigo-500 outline-none transition-colors" />
-                 </div>
-                 <div className="space-y-1 text-right">
-                    <label className="text-[11px] font-bold text-slate-400 block mb-1">Width (px)</label>
-                    <input type="number" value={width} onChange={e => setWidth(Number(e.target.value))} className="w-full bg-[#0a0f1c] border border-white/10 rounded-xl px-3 py-2 text-sm text-right text-white font-mono focus:border-indigo-500 outline-none transition-colors" />
-                 </div>
-              </div>
-
-              {mainImage && (
-                <div className="space-y-4 pt-2 bg-white/[0.02] p-3 rounded-xl border border-white/5">
-                   <div>
-                     <div className="flex justify-between text-[11px] font-bold mb-2 text-emerald-400">
-                       <span className="font-mono">{mainImageScale}%</span><span>Scale (Zoom)</span>
-                     </div>
-                     <input type="range" min="10" max="300" value={mainImageScale} onChange={e => setMainImageScale(Number(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-full appearance-none cursor-pointer accent-emerald-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-emerald-500 [&::-webkit-slider-thumb]:rounded-full" />
-                   </div>
-                   <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <div className="flex justify-between text-[11px] font-bold mb-2 text-emerald-400"><span>Pos X</span><span className="font-mono">{mainImageX}%</span></div>
-                        <input type="range" min="0" max="100" value={mainImageX} onChange={e => setMainImageX(Number(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-full appearance-none accent-emerald-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-emerald-500 [&::-webkit-slider-thumb]:rounded-full" />
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-[11px] font-bold mb-2 text-emerald-400"><span>Pos Y</span><span className="font-mono">{mainImageY}%</span></div>
-                        <input type="range" min="0" max="100" value={mainImageY} onChange={e => setMainImageY(Number(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-full appearance-none accent-emerald-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-emerald-500 [&::-webkit-slider-thumb]:rounded-full" />
-                      </div>
-                   </div>
-                </div>
-              )}
-            </div>
-
-            <div className="h-px bg-white/5 w-full"></div>
-
-            {/* Edge Control & Shapes */}
-            <div className="space-y-5">
-              <div className="flex justify-between items-center text-sm font-black text-white">
-                 <span>2. Shape & Edges</span>
-              </div>
-              
-              <div className="grid grid-cols-4 gap-2">
-                 <button onClick={() => { setBorderRadius(0); }} className="py-2 flex flex-col items-center justify-center gap-1 bg-[#0a0f1c] hover:bg-[#1a233a] rounded-xl border border-white/5 text-slate-400 hover:text-white transition-colors">
-                    <Square className="w-4 h-4" /> <span className="text-[9px] font-bold">Square</span>
-                 </button>
-                 <button onClick={() => { setBorderRadius(25); }} className="py-2 flex flex-col items-center justify-center gap-1 bg-[#0a0f1c] hover:bg-[#1a233a] rounded-xl border border-white/5 text-slate-400 hover:text-white transition-colors">
-                    <div className="w-4 h-4 border-2 border-current rounded-md"></div> <span className="text-[9px] font-bold">Rounded</span>
-                 </button>
-                 <button onClick={() => { setBorderRadius(100); }} className="py-2 flex flex-col items-center justify-center gap-1 bg-[#0a0f1c] hover:bg-[#1a233a] rounded-xl border border-white/5 text-slate-400 hover:text-white transition-colors">
-                    <Circle className="w-4 h-4" /> <span className="text-[9px] font-bold">Circle</span>
-                 </button>
-                 <button onClick={() => { setBorderRadius(100); setEdgeSoftness(15); }} className="py-2 flex flex-col items-center justify-center gap-1 bg-[#0a0f1c] hover:bg-[#1a233a] rounded-xl border border-white/5 text-slate-400 hover:text-white transition-colors">
-                    <Wand2 className="w-4 h-4" /> <span className="text-[9px] font-bold">Soft</span>
-                 </button>
-              </div>
-
-              <div>
-                <div className="flex justify-between text-[11px] font-bold mb-2">
-                  <span className="text-pink-500 font-mono">{borderRadius}%</span>
-                  <span className="text-slate-200">Border Radius</span>
-                </div>
-                <input type="range" min="0" max="100" value={borderRadius} onChange={(e) => setBorderRadius(Number(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-pink-500 [&::-webkit-slider-thumb]:rounded-full cursor-pointer accent-pink-500" />
-              </div>
-              
-              <div>
-                <div className="flex justify-between text-[11px] font-bold mb-2">
-                  <span className="text-pink-500 font-mono">{edgeSoftness}px</span>
-                  <span className="text-slate-200">Edge Softness (Blur)</span>
-                </div>
-                <input type="range" min="0" max="100" value={edgeSoftness} onChange={(e) => setEdgeSoftness(Number(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-pink-500 [&::-webkit-slider-thumb]:rounded-full cursor-pointer accent-pink-500" />
-              </div>
-            </div>
-
-            <div className="h-px bg-white/5 w-full"></div>
-
-            {/* Smart Shadow */}
-            <div className="space-y-4">
-              <div className="flex justify-between items-center text-sm font-black text-white">
-                 <span>3. Smart Shadow</span>
-              </div>
-              <div className="grid grid-cols-1 gap-4">
-                  <div>
-                    <div className="flex justify-between text-[11px] font-bold mb-2 text-cyan-400">
-                      <span className="font-mono">{shadowStrength}%</span><span>Strength (Opacity)</span>
-                    </div>
-                    <input type="range" min="0" max="100" value={shadowStrength} onChange={e => setShadowStrength(Number(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-full appearance-none cursor-pointer accent-cyan-400 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                     <div>
-                       <div className="flex justify-between text-[11px] font-bold mb-2 text-cyan-400"><span>Blur</span><span className="font-mono">{shadowBlur}px</span></div>
-                       <input type="range" min="0" max="100" value={shadowBlur} onChange={e => setShadowBlur(Number(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-full appearance-none accent-cyan-400 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full" />
-                     </div>
-                     <div>
-                       <div className="flex justify-between text-[11px] font-bold mb-2 text-cyan-400"><span>Distance</span><span className="font-mono">{shadowDistance}px</span></div>
-                       <input type="range" min="-50" max="50" value={shadowDistance} onChange={e => setShadowDistance(Number(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-full appearance-none accent-cyan-400 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full" />
-                     </div>
-                  </div>
-              </div>
-            </div>
-
-            <div className="h-px bg-white/5 w-full"></div>
-
-            {/* Overlay */}
-            <div className="space-y-4">
-              <div className="flex justify-between items-center text-sm font-black text-white">
-                 <span>4. Overlay (Optional)</span>
-              </div>
-              <div className="flex items-center gap-3 bg-[#0a0f1c] p-2 rounded-xl border border-white/5 flex-wrap">
-                 <input type="file" ref={overlayInputRef} className="hidden" accept="image/*" onChange={handleOverlayUpload} />
-                 <button onClick={() => overlayInputRef.current?.click()} className="px-4 py-2 bg-[#1a233a] hover:bg-[#222e4a] text-xs font-bold text-slate-200 rounded-lg transition-colors whitespace-nowrap">
-                    Choose File
-                 </button>
-                 <span className="text-[11px] text-slate-400 truncate flex-1" dir="auto">{overlayImage ? 'Overlay loaded' : 'No file'}</span>
-                 {overlayImage && (
-                    <button onClick={() => setOverlayImage(null)} className="p-1 px-2 bg-red-500/10 text-red-400 rounded hover:bg-red-500/20">
-                       <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                 )}
-              </div>
-              
-              {overlayImage && (
-                <div className="space-y-4 p-3 bg-white/[0.02] rounded-xl border border-white/5">
-                   <div>
-                     <div className="flex justify-between text-[11px] font-bold mb-2 text-indigo-400">
-                       <span className="font-mono">{overlayOpacity}%</span><span>Opacity</span>
-                     </div>
-                     <input type="range" min="0" max="100" value={overlayOpacity} onChange={e => setOverlayOpacity(Number(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-full appearance-none cursor-pointer accent-indigo-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-indigo-500 [&::-webkit-slider-thumb]:rounded-full" />
-                   </div>
-                   <div>
-                     <div className="flex justify-between text-[11px] font-bold mb-2 text-indigo-400">
-                       <span className="font-mono">{overlayScale}%</span><span>Scale</span>
-                     </div>
-                     <input type="range" min="10" max="300" value={overlayScale} onChange={e => setOverlayScale(Number(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-full appearance-none cursor-pointer accent-indigo-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-indigo-500 [&::-webkit-slider-thumb]:rounded-full" />
-                   </div>
-                   <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <div className="flex justify-between text-[11px] font-bold mb-2 text-indigo-400"><span>Pos X</span><span className="font-mono">{overlayLeft}%</span></div>
-                        <input type="range" min="0" max="100" value={overlayLeft} onChange={e => setOverlayLeft(Number(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-full appearance-none accent-indigo-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-indigo-500 [&::-webkit-slider-thumb]:rounded-full" />
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-[11px] font-bold mb-2 text-indigo-400"><span>Pos Y</span><span className="font-mono">{overlayTop}%</span></div>
-                        <input type="range" min="0" max="100" value={overlayTop} onChange={e => setOverlayTop(Number(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-full appearance-none accent-indigo-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-indigo-500 [&::-webkit-slider-thumb]:rounded-full" />
-                      </div>
-                   </div>
-                </div>
-              )}
-            </div>
-
-            <div className="h-px bg-white/5 w-full"></div>
-
-            {/* Export & Download */}
-            <div className="space-y-4 pb-4">
-              <div className="flex justify-between items-center text-sm font-black text-white">
-                 <span>5. Export</span>
-              </div>
-              
-              <div className="flex bg-[#0a0f1c] rounded-xl p-1 border border-white/5 gap-1">
-                 <button onClick={() => setExportQuality('HIGH_PNG')} className={`flex-1 py-2 text-[9px] lg:text-[10px] font-black rounded-lg transition-colors ${exportQuality === 'HIGH_PNG' ? 'bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/20 shadow-sm' : 'text-slate-500 border border-transparent hover:bg-white/5'}`}>HIGH (PNG)</button>
-                 <button onClick={() => setExportQuality('MEDIUM_WEBP')} className={`flex-1 py-2 text-[9px] lg:text-[10px] font-black rounded-lg transition-colors ${exportQuality === 'MEDIUM_WEBP' ? 'bg-[#1a233a] border border-white/10 text-white shadow-sm' : 'text-slate-500 border border-transparent hover:bg-white/5'}`}>MEDIUM (WEBP)</button>
-                 <button onClick={() => setExportQuality('LOW_WEBP')} className={`flex-1 py-2 text-[9px] lg:text-[10px] font-black rounded-lg transition-colors ${exportQuality === 'LOW_WEBP' ? 'bg-[#1a233a] border border-white/10 text-white shadow-sm' : 'text-slate-500 border border-transparent hover:bg-white/5'}`}>LOW (WEBP)</button>
-              </div>
-              
-              <button 
-                onClick={handleDownload} 
-                disabled={!previewUrl} 
-                className={`w-full py-4 mt-2 text-sm font-black tracking-wide rounded-xl transition-colors shadow-lg ${
-                  previewUrl ? 'bg-[#2d3748] hover:bg-[#3a475c] text-white cursor-pointer active:scale-95' : 'bg-[#1a233a] text-slate-600 cursor-not-allowed'
-                }`}
-              >
-                DOWNLOAD {exportQuality.includes('PNG') ? 'PNG' : 'WEBP'}
-              </button>
-            </div>
-            
-          </div>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Canvas Area */}
+        <div className="lg:col-span-7 flex flex-col items-center justify-center bg-slate-900/50 border border-white/10 rounded-3xl p-8 backdrop-blur-sm">
+           <div className="relative max-w-full overflow-auto custom-scrollbar rounded-2xl shadow-2xl bg-[url('data:image/svg+xml;utf8,<svg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'><rect width=\'10\' height=\'10\' fill=\'%231e293b\'/><rect x=\'10\' y=\'10\' width=\'10\' height=\'10\' fill=\'%231e293b\'/><rect x=\'0\' y=\'10\' width=\'10\' height=\'10\' fill=\'%230f172a\'/><rect x=\'10\' y=\'0\' width=\'10\' height=\'10\' fill=\'%230f172a\'/></svg>')]">
+              <canvas ref={canvasRef} className="max-w-full h-auto block" />
+           </div>
+           <div className="mt-4 flex items-center gap-2 text-slate-500 text-xs">
+             <div className="w-4 h-4 bg-[url('data:image/svg+xml;utf8,<svg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'><rect width=\'10\' height=\'10\' fill=\'%231e293b\'/><rect x=\'10\' y=\'10\' width=\'10\' height=\'10\' fill=\'%231e293b\'/><rect x=\'0\' y=\'10\' width=\'10\' height=\'10\' fill=\'%230f172a\'/><rect x=\'10\' y=\'0\' width=\'10\' height=\'10\' fill=\'%230f172a\'/></svg>')] border border-slate-600 rounded"></div>
+             <span>Checkerboard pattern indicates transparent areas</span>
+           </div>
+           {!mainImg && (
+             <div className="mt-2 text-slate-500 text-sm">Upload an image to start editing</div>
+           )}
         </div>
 
-        {/* Center Canvas Area (Interactive Stage) */}
-        <div className="flex-1 bg-[#0d1425] rounded-3xl border border-white/5 overflow-auto relative flex flex-col items-center justify-center shadow-2xl p-6 h-[calc(100vh-100px)]">
-          
-          <div className="w-full h-full flex flex-col items-center justify-center relative">
-            <div className="absolute inset-4 bg-[#0a0f1c]/50 rounded-2xl border border-white/5"></div>
+        {/* Controls */}
+        <div className="lg:col-span-5 space-y-6">
+          <div className="bg-slate-900/80 border border-white/10 rounded-3xl p-6 backdrop-blur-md">
             
-            {!mainImage && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-slate-500 z-10 pointer-events-none">
-                 <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center border border-white/5 border-dashed">
-                   <ImageIcon className="w-8 h-8 opacity-50" />
-                 </div>
-                 <div className="text-center font-medium">
-                   <p className="text-sm text-slate-300">Upload an image to start editing</p>
-                   <p className="text-[10px] mt-1 opacity-70">Checkerboard pattern below indicates transparent areas</p>
-                 </div>
+            {/* Main Image */}
+            <div className="mb-6 pb-6 border-b border-white/5">
+              <label className="block text-sm font-bold text-slate-300 mb-3">Main Image</label>
+              <input 
+                type="file" 
+                accept="image/*"
+                onChange={(e) => handleImageUpload(e, false)}
+                className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-pink-500/10 file:text-pink-400 hover:file:bg-pink-500/20 transition-all cursor-pointer"
+              />
+              
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">Width (px)</label>
+                  <input 
+                    type="number" 
+                    value={config.width}
+                    onChange={(e) => handleConfigChange('width', parseInt(e.target.value) || 0)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:border-pink-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">Height (px)</label>
+                  <input 
+                    type="number" 
+                    value={config.height}
+                    onChange={(e) => handleConfigChange('height', parseInt(e.target.value) || 0)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:border-pink-500 outline-none"
+                  />
+                </div>
               </div>
-            )}
-            
-            {previewUrl && (
-              <div 
-                className="relative max-w-[90%] max-h-[90%] object-contain rounded-xl drop-shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-20 pointer-events-none checker-bg-div" 
-                style={{
-                  backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M0 0h10v10H0zm10 10h10v10H10z\' fill=\'%231a233a\'/%3E%3Cpath d=\'M10 0h10v10H10zM0 10h10v10H0z\' fill=\'%230f172a\'/%3E%3C/svg%3E")'
-                }}
-              >
-                <img src={previewUrl} alt="Preview" className="max-w-full max-h-[70vh] object-contain rounded" style={{ animation: 'fadeIn 0.3s ease-out forwards' }} />
+
+              {mainImg && (
+                <div className="mt-6 pt-6 border-t border-white/5 space-y-4">
+                  <div>
+                    <div className="flex justify-between mb-1">
+                      <label className="text-xs font-bold text-slate-400">Zoom</label>
+                      <span className="text-[10px] font-mono text-pink-400">{config.mainScale}%</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="10" 
+                      max="300" 
+                      value={config.mainScale}
+                      onChange={(e) => handleConfigChange('mainScale', parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-pink-500"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between mb-1">
+                      <label className="text-xs font-bold text-slate-400">Rotation</label>
+                      <span className="text-[10px] font-mono text-pink-400">{config.rotation}°</span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="360" 
+                      value={config.rotation}
+                      onChange={(e) => handleConfigChange('rotation', parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-pink-500"
+                    />
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 mb-1">Position X</label>
+                      <input 
+                        type="range" 
+                        min={-config.width} 
+                        max={config.width} 
+                        value={config.mainX}
+                        onChange={(e) => handleConfigChange('mainX', parseInt(e.target.value))}
+                        className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-pink-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 mb-1">Position Y</label>
+                      <input 
+                        type="range" 
+                        min={-config.height} 
+                        max={config.height} 
+                        value={config.mainY}
+                        onChange={(e) => handleConfigChange('mainY', parseInt(e.target.value))}
+                        className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-pink-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Border Radius */}
+            <div className="mb-6 pb-6 border-b border-white/5">
+              <div className="flex justify-between mb-2">
+                <label className="text-sm font-bold text-slate-300">Border Radius</label>
+                <span className="text-xs font-mono text-pink-400">{config.borderRadius}%</span>
               </div>
-            )}
+              <input 
+                type="range" 
+                min="0" 
+                max="50" 
+                value={config.borderRadius}
+                onChange={(e) => handleConfigChange('borderRadius', parseInt(e.target.value))}
+                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-pink-500"
+              />
+            </div>
+
+            {/* Edge Softness (Feather) */}
+            <div className="mb-6 pb-6 border-b border-white/5">
+              <div className="flex justify-between mb-2">
+                <label className="text-sm font-bold text-slate-300">Edge Softness</label>
+                <span className="text-xs font-mono text-pink-400">{config.feather}px</span>
+              </div>
+              <input 
+                type="range" 
+                min="0" 
+                max="100" 
+                value={config.feather}
+                onChange={(e) => handleConfigChange('feather', parseInt(e.target.value))}
+                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-pink-500"
+              />
+            </div>
+
+            {/* Overlay Image */}
+            <div className="mb-6 pb-6 border-b border-white/5">
+              <label className="block text-sm font-bold text-slate-300 mb-3">Overlay Image (Optional)</label>
+              <input 
+                type="file" 
+                accept="image/*"
+                onChange={(e) => handleImageUpload(e, true)}
+                className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-500/10 file:text-indigo-400 hover:file:bg-indigo-500/20 transition-all cursor-pointer"
+              />
+              
+              {overlays.length > 0 && (
+                <div className="mt-4 space-y-4">
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {overlays.map((overlay, index) => (
+                      <button
+                        key={overlay.id}
+                        onClick={() => setActiveOverlayId(overlay.id)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${activeOverlayId === overlay.id ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                      >
+                        Layer {index + 1}
+                      </button>
+                    ))}
+                  </div>
+
+                  {overlays.map(overlay => overlay.id === activeOverlayId && (
+                    <div key={overlay.id} className="space-y-4 bg-slate-800/50 p-4 rounded-xl border border-white/5">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-bold text-slate-300">Layer Settings</span>
+                        <div className="flex gap-2">
+                          <button onClick={() => duplicateOverlay(overlay.id)} className="text-[10px] bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 px-2 py-1 rounded font-bold transition-colors">Duplicate</button>
+                          <button onClick={() => removeOverlay(overlay.id)} className="text-[10px] bg-red-500/20 text-red-400 hover:bg-red-500/30 px-2 py-1 rounded font-bold transition-colors">Remove</button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="flex justify-between mb-1">
+                            <label className="text-xs font-bold text-slate-400">Scale</label>
+                            <span className="text-[10px] font-mono text-indigo-400">{overlay.scale}%</span>
+                          </div>
+                          <input 
+                            type="range" 
+                            min="10" 
+                            max="200" 
+                            value={overlay.scale}
+                            onChange={(e) => handleOverlayChange(overlay.id, 'scale', parseInt(e.target.value))}
+                            className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex justify-between mb-1">
+                            <label className="text-xs font-bold text-slate-400">Opacity</label>
+                            <span className="text-[10px] font-mono text-indigo-400">{overlay.opacity}%</span>
+                          </div>
+                          <input 
+                            type="range" 
+                            min="0" 
+                            max="100" 
+                            value={overlay.opacity}
+                            onChange={(e) => handleOverlayChange(overlay.id, 'opacity', parseInt(e.target.value))}
+                            className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-400 mb-1">Position X</label>
+                          <input 
+                            type="range" 
+                            min={-config.width} 
+                            max={config.width} 
+                            value={overlay.x}
+                            onChange={(e) => handleOverlayChange(overlay.id, 'x', parseInt(e.target.value))}
+                            className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-400 mb-1">Position Y</label>
+                          <input 
+                            type="range" 
+                            min={-config.height} 
+                            max={config.height} 
+                            value={overlay.y}
+                            onChange={(e) => handleOverlayChange(overlay.id, 'y', parseInt(e.target.value))}
+                            className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Quality Settings */}
+            <div className="mb-6 pb-6 border-b border-white/5">
+              <label className="block text-sm font-bold text-slate-300 mb-3">Export Quality</label>
+              <div className="flex gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
+                  <button onClick={() => setSelectedQuality('low')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${selectedQuality === 'low' ? 'bg-red-500/20 text-red-400 shadow-glow-red' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>Low (WebP)</button>
+                  <button onClick={() => setSelectedQuality('medium')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${selectedQuality === 'medium' ? 'bg-yellow-500/20 text-yellow-400 shadow-glow-yellow' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>Medium (WebP)</button>
+                  <button onClick={() => setSelectedQuality('high')} className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${selectedQuality === 'high' ? 'bg-emerald-500/20 text-emerald-400 shadow-glow-green' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>High (PNG)</button>
+              </div>
+            </div>
+
+            {/* Download Button */}
+            <button 
+              onClick={handleDownload}
+              disabled={!mainImg}
+              className={`w-full py-4 rounded-xl font-black text-sm uppercase tracking-widest shadow-lg transition-all hover:scale-[1.02] ${
+                mainImg
+                  ? 'bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white shadow-pink-900/20' 
+                  : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+              }`}
+            >
+              {selectedQuality === 'high' ? 'DOWNLOAD PNG' : 'DOWNLOAD WEBP'}
+            </button>
+
           </div>
-          
-          <style>{`
-            @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-            .checker-bg-div { box-shadow: 0 0 0 1px rgba(255,255,255,0.05); }
-          `}</style>
-          
-          <div className="absolute bottom-6 flex items-center gap-2 text-xs font-medium text-slate-500 bg-[#0a0f1c] px-4 py-2 rounded-full border border-white/5 shadow-xl">
-             <div className="w-3 h-3 rounded-[2px] opacity-70 bg-[#1a233a]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'6\' height=\'6\' viewBox=\'0 0 6 6\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M0 0h3v3H0zm3 3h3v3H3z\' fill=\'%233a475c\'/%3E%3C/svg%3E")' }}></div>
-             Preview renders real-time
-          </div>
-          
         </div>
       </div>
     </div>

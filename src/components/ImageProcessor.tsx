@@ -196,7 +196,7 @@ export const ImageProcessor: React.FC<ImageProcessorProps> = ({ onCancel, curren
     processImage();
   }, [processImage]);
 
-  const handleExport = async (format: 'png' | 'jpg' | 'webp') => {
+  const handleExport = async (format: 'png' | 'jpg') => {
     if (!canvasRef.current) return;
 
     const { allowed } = await checkAccess('Image Processor Export');
@@ -207,8 +207,7 @@ export const ImageProcessor: React.FC<ImageProcessorProps> = ({ onCancel, curren
 
     const link = document.createElement('a');
     link.download = `processed-image.${format}`;
-    const mimeType = format === 'png' ? 'image/png' : format === 'jpg' ? 'image/jpeg' : 'image/webp';
-    link.href = canvasRef.current.toDataURL(mimeType, 0.9);
+    link.href = canvasRef.current.toDataURL(format === 'png' ? 'image/png' : 'image/jpeg', 0.9);
     link.click();
   };
 
@@ -445,27 +444,20 @@ export const ImageProcessor: React.FC<ImageProcessorProps> = ({ onCancel, curren
                 </div>
                 
                 {/* Export Buttons */}
-                <div className="mt-8 flex flex-wrap justify-center gap-4">
+                <div className="mt-8 flex gap-4">
                   <button 
                     onClick={() => handleExport('png')}
-                    className="px-6 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl flex items-center gap-3 transition-all shadow-lg shadow-blue-600/20 font-black text-xs uppercase tracking-widest"
+                    className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl flex items-center gap-3 transition-all shadow-lg shadow-blue-600/20 font-black text-xs uppercase tracking-widest"
                   >
                     <Download className="w-5 h-5" />
-                    حفظ الصورة (PNG)
+                    تصدير PNG (شفاف)
                   </button>
                   <button 
                     onClick={() => handleExport('jpg')}
-                    className="px-6 py-4 bg-white/10 hover:bg-white/20 text-white rounded-2xl flex items-center gap-3 transition-all font-black text-xs uppercase tracking-widest border border-white/10"
+                    className="px-8 py-4 bg-white/10 hover:bg-white/20 text-white rounded-2xl flex items-center gap-3 transition-all font-black text-xs uppercase tracking-widest border border-white/10"
                   >
                     <Download className="w-5 h-5" />
-                    حفظ الصورة (JPG)
-                  </button>
-                  <button 
-                    onClick={() => handleExport('webp')}
-                    className="px-6 py-4 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-400 hover:to-purple-400 text-white rounded-2xl flex items-center gap-3 transition-all font-black text-xs uppercase tracking-widest shadow-lg shadow-purple-500/20"
-                  >
-                    <Download className="w-5 h-5" />
-                    حفظ الصورة (WEBP)
+                    تصدير JPG
                   </button>
                 </div>
               </>
