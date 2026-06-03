@@ -163,6 +163,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [isPlaying, setIsPlaying] = useState(true);
+  const [showMainBackground, setShowMainBackground] = useState(false);
   const [pauseOnManipulate, setPauseOnManipulate] = useState(true);
   const isPlayingRef = useRef(isPlaying);
   useEffect(() => {
@@ -280,6 +281,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [exportScale, setExportScale] = useState(1.0); // 0.1 to 1.0 for file size control
+  const [exportMergedItems, setExportMergedItems] = useState(false);
   const [isProcessingVideo, setIsProcessingVideo] = useState(false);
   const [exportResult, setExportResult] = useState<{
     url: string;
@@ -7382,21 +7384,43 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     else if (currentFormat === "SVGA → Animated SVG")
       await handleExportAnimatedSVG({ decrement: false });
     else if (currentFormat === "SVGA 2.0 EX") {
-      const unified = getUnifiedExportData();
+      let exportData;
+      
+      if (exportMergedItems) {
+        exportData = getUnifiedExportData();
+      } else {
+        const currentActiveInfo = compositions.find(c => c.id === activeCompositionId);
+        
+        exportData = {
+          metadata: currentActiveInfo?.metadata || metadata,
+          layerImages: currentActiveInfo?.layerImages || layerImages,
+          assetColors: currentActiveInfo?.assetColors || assetColors,
+          assetColorModes: currentActiveInfo?.assetColorModes || assetColorModes,
+          assetBlurs: currentActiveInfo?.assetBlurs || assetBlurs,
+          deletedKeys: currentActiveInfo?.deletedKeys || deletedKeys,
+          layerDisplayNames: currentActiveInfo?.layerDisplayNames || layerDisplayNames,
+          customLayers: currentActiveInfo?.customLayers || customLayers,
+          svgaScale: currentActiveInfo?.svgaScale !== undefined ? currentActiveInfo.svgaScale : svgaScale,
+          svgaPos: currentActiveInfo?.svgaPos || svgaPos,
+          svgaOpacity: typeof currentActiveInfo?.svgaOpacity !== 'undefined' ? currentActiveInfo.svgaOpacity : svgaOpacity,
+          svgaRotation: typeof currentActiveInfo?.svgaRotation !== 'undefined' ? currentActiveInfo.svgaRotation : svgaRotation,
+        };
+      }
+
       await handleSvgaExExport({
-        metadata: unified.metadata,
+        metadata: exportData.metadata,
         videoWidth,
         videoHeight,
         exportScale,
-        svgaScale: unified.svgaScale,
-        svgaPos: unified.svgaPos,
-        layerImages: unified.layerImages,
-        assetColors: unified.assetColors,
-        assetColorModes: unified.assetColorModes,
-        assetBlurs: unified.assetBlurs,
-        deletedKeys: unified.deletedKeys,
-        layerDisplayNames: unified.layerDisplayNames,
-        customLayers: unified.customLayers,
+        svgaScale: exportData.svgaScale,
+        svgaPos: exportData.svgaPos,
+        layerImages: exportData.layerImages,
+        assetColors: exportData.assetColors,
+        assetColorModes: exportData.assetColorModes,
+        assetBlurs: exportData.assetBlurs,
+        deletedKeys: exportData.deletedKeys,
+        layerDisplayNames: exportData.layerDisplayNames,
+        customLayers: exportData.customLayers,
         watermark,
         wmScale,
         wmPos,
@@ -7417,7 +7441,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         logActivity(
           currentUser,
           "export",
-          `Exported SVGA 2.0 EX: ${unified.metadata.name || metadata.name}.svga`,
+          `Exported SVGA 2.0 EX: ${exportData.metadata.name || metadata.name}.svga`,
         );
       }
     } else if (currentFormat === "Image Sequence")
@@ -9304,8 +9328,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                   ))}
 
                 {/* Background Main SVGA Player played in the back of the Composition Editor */}
-                {activeCompositionId !== "main" && (
-                  <div className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none opacity-100">
+                {activeCompositionId !== "main" && showMainBackground && (
+                  <div className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none opacity-50">
                     <div
                       ref={backgroundPlayerRef}
                       className="w-full h-full relative flex items-center justify-center overflow-visible"
@@ -9466,6 +9490,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                   >
                     🏠 العودة للمشهد الرئيسي
                   </button>
+                  {activeCompositionId !== "main" && (
+                    <button
+                      onClick={() => setShowMainBackground(!showMainBackground)}
+                      className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all flex items-center justify-center gap-1 cursor-pointer border ${showMainBackground ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-slate-500/20 text-slate-400 border-slate-500/30'}`}
+                    >
+                      {showMainBackground ? '👁️ إخفاء خلفية الملف الأساسي' : '🙈 إظهار خلفية الملف الأساسي (شفافية)'}
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -12388,6 +12420,18 @@ class _MyAppState extends State<MyApp> {
                       تصدير الملف (Export)
                     </h4>
                   </div>
+
+                  {selectedFormat === "SVGA 2.0 EX" && (
+                    <div className="flex items-center justify-between bg-slate-900 border border-white/5 p-4 rounded-xl">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors ${exportMergedItems ? 'bg-sky-500' : 'bg-slate-700'}`} onClick={() => setExportMergedItems(!exportMergedItems)}>
+                          <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${exportMergedItems ? 'translate-x-0' : '-translate-x-4'}`}></div>
+                        </div>
+                        <span className="text-white text-xs font-bold font-arabic">دمج جميع الطبقات (Merged Export)</span>
+                      </div>
+                      <span className="text-slate-400 text-[9px]">تصدير جميع الصفحات معاً</span>
+                    </div>
+                  )}
 
                   <div className="space-y-4">
                     <select
