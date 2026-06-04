@@ -3680,21 +3680,23 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           });
       }
 
-      if (audioUrl) {
-          const audioKey = "quantum_audio_track";
+      if (audioUrl && audioUrl !== originalAudioUrl) {
+          const audioKey = "quantum_audio_track_" + Date.now();
           let bytes: Uint8Array | null = null;
           
-          if (audioFile) {
-              const arrayBuffer = await audioFile.arrayBuffer();
-              bytes = new Uint8Array(arrayBuffer);
-          } else if (audioUrl === originalAudioUrl) {
-               bytes = null;
-          } else {
-              try {
+          try {
+              if (audioFile) {
+                  const arrayBuffer = await audioFile.arrayBuffer();
+                  bytes = new Uint8Array(arrayBuffer);
+              } else {
                   const response = await fetch(audioUrl);
+                  if (!response.ok) throw new Error("Fetch failed");
                   const arrayBuffer = await response.arrayBuffer();
                   bytes = new Uint8Array(arrayBuffer);
-              } catch (e) { console.error("Failed to fetch audio", e); }
+              }
+          } catch (e) {
+              console.error("Failed to fetch audio", e);
+              alert("فشل تضمين الصوت داخل ملف SVGA. يرجى التحقق من الملف وإعادة المحاولة.");
           }
 
           if (bytes) {
@@ -3707,6 +3709,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                   totalTime: Math.floor(((message.params.frames || 0) / (message.params.fps || 30)) * 1000)
               }];
           }
+      } else if (!audioUrl) {
+          message.audios = [];
+      } else if (audioUrl === originalAudioUrl && metadata.videoItem?.audios) {
+          // Preserve original audio metadata, no need to touch images map as it's already inherited
+          message.audios = [...metadata.videoItem.audios];
       } else {
           message.audios = [];
       }
@@ -4872,15 +4879,44 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     }
   };
 
-  const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
+    if (!file) {
+        alert("تعذر العثور على الملف الصوتي المحدد. يرجى إعادة اختيار الملف.");
+        return;
+    }
+
+    const validExtensions = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp3'];
+    const validExtensionsFallback = /\.(mp3|wav|ogg)$/i;
+    const isSupported = validExtensions.includes(file.type) || validExtensionsFallback.test(file.name);
+    
+    if (!isSupported) {
+        alert("تنسيق الملف الصوتي غير مدعوم. استخدم MP3 أو WAV أو OGG.");
+        e.target.value = '';
+        return;
+    }
+
+    try {
+        const arrayBuffer = await file.arrayBuffer();
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const decodedData = await audioContext.decodeAudioData(arrayBuffer);
+        
+        const audioDuration = decodedData.duration;
+        const animationDuration = metadata.frames / (metadata.fps || 30);
+        
+        if (audioDuration > animationDuration + 0.5) {
+            alert(`مدة الملف الصوتي أطول من مدة الأنيميشن. يرجى تقصير الصوت أو تمديد مدة المشروع.`);
+        }
+        
         setAudioFile(file);
         const url = URL.createObjectURL(file);
         setAudioUrl(url);
-        // Reset input value to allow re-uploading same file
-        e.target.value = '';
+    } catch (err) {
+        console.error("Audio validation failed:", err);
+        alert("الملف الصوتي يحتوي على بيانات غير صالحة أو تالف.");
     }
+
+    e.target.value = '';
   };
 
   const handleDownloadFrame = async () => {
@@ -6884,21 +6920,23 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                     });
                 }
 
-                if (audioUrl) {
-                    const audioKey = "quantum_audio_track";
+                if (audioUrl && audioUrl !== originalAudioUrl) {
+                    const audioKey = "quantum_audio_track_" + Date.now();
                     let bytes: Uint8Array | null = null;
                     
-                    if (audioFile) {
-                        const arrayBuffer = await audioFile.arrayBuffer();
-                        bytes = new Uint8Array(arrayBuffer);
-                    } else if (audioUrl === originalAudioUrl) {
-                         bytes = null;
-                    } else {
-                        try {
+                    try {
+                        if (audioFile) {
+                            const arrayBuffer = await audioFile.arrayBuffer();
+                            bytes = new Uint8Array(arrayBuffer);
+                        } else {
                             const response = await fetch(audioUrl);
+                            if (!response.ok) throw new Error("Fetch failed");
                             const arrayBuffer = await response.arrayBuffer();
                             bytes = new Uint8Array(arrayBuffer);
-                        } catch (e) { console.error("Failed to fetch audio", e); }
+                        }
+                    } catch (e) { 
+                        console.error("Failed to fetch audio", e); 
+                        alert("فشل تضمين الصوت داخل ملف SVGA. يرجى التحقق من الملف وإعادة المحاولة.");
                     }
 
                     if (bytes) {
@@ -6911,11 +6949,26 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                             totalTime: Math.floor(((message.params.frames || 0) / (message.params.fps || 30)) * 1000)
                         }];
                     }
+                } else if (!audioUrl) {
+                    message.audios = [];
+                } else if (audioUrl === originalAudioUrl && metadata.videoItem?.audios) {
+                    message.audios = [...metadata.videoItem.audios];
                 } else {
                     message.audios = [];
                 }
 
                 const bufferOut = MovieEntity.encode(message).finish();
+
+                // التحقق من سلامة الملف قبل الحفظ
+                try {
+                    const testVerify = MovieEntity.decode(bufferOut) as any;
+                    if (!testVerify.params || testVerify.params.frames === undefined) {
+                         throw new Error("بنية الملف غير صالحة");
+                    }
+                } catch (verifyError) {
+                    throw new Error("التأكد من سلامة الملف فشل: " + verifyError);
+                }
+
                 const compressedBuffer = pako.deflate(bufferOut);
                 
                 const link = document.createElement("a");
@@ -7169,27 +7222,23 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                     });
                 }
 
-                if (audioUrl) {
-                    const audioKey = "quantum_audio_track";
+                if (audioUrl && audioUrl !== originalAudioUrl) {
+                    const audioKey = "quantum_audio_track_" + Date.now();
                     let bytes: Uint8Array | null = null;
                     
-                    if (audioFile) {
-                        const arrayBuffer = await audioFile.arrayBuffer();
-                        bytes = new Uint8Array(arrayBuffer);
-                    } 
-                    else if (audioUrl === originalAudioUrl) {
-                         try {
+                    try {
+                        if (audioFile) {
+                            const arrayBuffer = await audioFile.arrayBuffer();
+                            bytes = new Uint8Array(arrayBuffer);
+                        } else {
                             const response = await fetch(audioUrl);
+                            if (!response.ok) throw new Error("Fetch failed");
                             const arrayBuffer = await response.arrayBuffer();
                             bytes = new Uint8Array(arrayBuffer);
-                         } catch (e) { console.error("Failed to fetch audio blob", e); }
-                    }
-                    else {
-                        try {
-                            const response = await fetch(audioUrl);
-                            const arrayBuffer = await response.arrayBuffer();
-                            bytes = new Uint8Array(arrayBuffer);
-                        } catch (e) { console.error("Failed to fetch audio", e); }
+                        }
+                    } catch (e) {
+                        console.error("Failed to fetch audio", e);
+                        alert("فشل تضمين الصوت داخل ملف SVGA. يرجى التحقق من الملف وإعادة المحاولة.");
                     }
 
                     if (bytes) {
@@ -7203,6 +7252,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                             totalTime: Math.floor(((metadata.frames || 0) / (metadata.fps || 30)) * 1000)
                         });
                     }
+                } else if (!audioUrl) {
+                    audioList.length = 0;
+                } else if (audioUrl === originalAudioUrl && metadata.videoItem?.audios) {
+                    // Do nothing, list already copied from original metadata at start
                 }
 
                 const payload = { 
@@ -7219,6 +7272,17 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                 };
 
                 const buffer = MovieEntity.encode(MovieEntity.create(payload)).finish();
+
+                // التحقق من سلامة الملف قبل الحفظ
+                try {
+                    const testVerify = MovieEntity.decode(buffer) as any;
+                    if (!testVerify.params || testVerify.params.frames === undefined) {
+                         throw new Error("بنية الملف غير صالحة");
+                    }
+                } catch (verifyError) {
+                    throw new Error("التأكد من سلامة الملف فشل: " + verifyError);
+                }
+
                 const compressedBuffer = pako.deflate(buffer);
                 
                 const link = document.createElement("a");
@@ -7234,7 +7298,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
             }
         } catch (e) {
             console.error(e);
-            alert("فشل التصدير: " + (e as any).message);
+            alert("حدث خطأ أثناء تصدير ملف SVGA. راجع سجل الأخطاء للمزيد من التفاصيل.");
         } finally { 
             setTimeout(() => setIsExporting(false), 800); 
         }
