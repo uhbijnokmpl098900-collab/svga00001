@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Play, Pause, Trash2, Download, RefreshCcw, Volume2, Upload } from 'lucide-react';
+import { X, Play, Pause, Trash2, Download, RefreshCcw, Volume2, Upload, Scissors } from 'lucide-react';
 import WaveSurfer from 'wavesurfer.js';
+import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js';
 
 interface AudioEditorModalProps {
   isOpen: boolean;
@@ -13,7 +14,7 @@ interface AudioEditorModalProps {
   onKeep: () => void;
   volume: number;
   onVolumeChange: (vol: number) => void;
-  onExecute: (volume: number, file: File | null) => Promise<void>;
+  onExecute: (volume: number, file: File | null, start?: number, end?: number) => Promise<void>;
   isProcessing?: boolean;
 }
 
@@ -32,11 +33,15 @@ export function AudioEditorModal({
 }: AudioEditorModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wavesurfer = useRef<WaveSurfer | null>(null);
+  const wsRegions = useRef<any>(null);
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [activeTab, setActiveTab] = useState<'audio' | 'rename'>('audio');
+  
+  const [startTime, setStartTime] = useState(0);
+  const [endTime, setEndTime] = useState(0);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -55,8 +60,32 @@ export function AudioEditorModal({
           normalize: true,
         });
 
+        wsRegions.current = wavesurfer.current.registerPlugin(RegionsPlugin.create());
+
         wavesurfer.current.on('ready', () => {
-          setDuration(wavesurfer.current?.getDuration() || 0);
+          const dur = wavesurfer.current?.getDuration() || 0;
+          setDuration(dur);
+          
+          wsRegions.current.clearRegions();
+          wsRegions.current.addRegion({
+            start: 0,
+            end: dur,
+            color: 'rgba(16, 185, 129, 0.2)',
+            drag: true,
+            resize: true
+          });
+          
+          wsRegions.current.on('region-updated', (region: any) => {
+             setStartTime(region.start);
+             setEndTime(region.end);
+          });
+          wsRegions.current.on('region-created', (region: any) => {
+             setStartTime(region.start);
+             setEndTime(region.end);
+          });
+          
+          setStartTime(0);
+          setEndTime(dur);
         });
 
         wavesurfer.current.on('audioprocess', () => {
@@ -80,7 +109,7 @@ export function AudioEditorModal({
 
   useEffect(() => {
     if (wavesurfer.current) {
-      wavesurfer.current.setVolume(volume);
+      wavesurfer.current.setVolume(Math.min(volume, 1));
     }
   }, [volume]);
 
@@ -158,6 +187,14 @@ export function AudioEditorModal({
                   </div>
                 )}
                 <div ref={containerRef} className={!audioUrl ? 'hidden' : ''} />
+                
+                {audioUrl && duration > 0 && (
+                  <div className="absolute top-2 left-2 px-2 py-1 bg-black/80 rounded-md text-[10px] text-white/70 font-mono flex items-center gap-2 border border-white/10 shadow-lg">
+                    <Scissors className="w-3 h-3 text-emerald-400" />
+                    <span>{formatTime(startTime)} - {formatTime(endTime)}</span>
+                    <span className="text-white/40">({formatTime(endTime - startTime)})</span>
+                  </div>
+                )}
               </div>
 
               {audioUrl && (
@@ -260,7 +297,7 @@ export function AudioEditorModal({
           <button onClick={onClose} disabled={isProcessing} className="px-6 py-2.5 bg-white/5 text-white/70 hover:text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 font-cairo">
             إلغاء
           </button>
-          <button onClick={() => onExecute(volume, audioFile)} disabled={isProcessing || !audioUrl} className="px-8 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl text-xs font-black shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-cairo">
+          <button onClick={() => onExecute(volume, audioFile, startTime, endTime)} disabled={isProcessing || !audioUrl} className="px-8 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl text-xs font-black shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed font-cairo">
             {isProcessing ? 'جاري المعالجة...' : 'تنفيذ'} {!isProcessing && <Play className="w-3 h-3 fill-current rotate-180" />}
           </button>
         </div>

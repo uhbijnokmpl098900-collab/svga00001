@@ -913,8 +913,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
     }
   };
 
-  const handleAudioExecute = async (executeVolume: number, file: File | null) => {
-      if (!file) return;
+  const handleAudioExecute = async (executeVolume: number, file: File | null, startTime?: number, endTime?: number) => {
+      if (!file && !audioUrl) return;
       setIsProcessingVideo(true);
       try {
           await loadFfmpeg();
@@ -923,20 +923,34 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
           const audioInputName = 'input_audio' + Date.now();
           const audioOutputName = 'output_audio' + Date.now() + '.mp3';
           
-          await ffmpeg.writeFile(audioInputName, await fetchFile(file));
+          if (file) {
+              await ffmpeg.writeFile(audioInputName, await fetchFile(file));
+          } else if (audioUrl) {
+              await ffmpeg.writeFile(audioInputName, await fetchFile(audioUrl));
+          }
           
-          // Apply volume filter and convert to 128k MP3, ensuring 44100Hz 2 channels for SVGA standard
-          await ffmpeg.exec([
-              '-i', audioInputName, 
+          const ffmpegArgs = [];
+          
+          if (startTime !== undefined && endTime !== undefined) {
+              ffmpegArgs.push('-ss', startTime.toString(), '-to', endTime.toString());
+          }
+          
+          ffmpegArgs.push('-i', audioInputName);
+          
+          ffmpegArgs.push(
               '-filter:a', `volume=${executeVolume}`, 
               '-ac', '2', 
               '-ar', '44100', 
               '-b:a', '128k', 
               audioOutputName
-          ]);
+          );
+          
+          // Apply volume filter and convert to 128k MP3, ensuring 44100Hz 2 channels for SVGA standard
+          await ffmpeg.exec(ffmpegArgs);
           
           const data = await ffmpeg.readFile(audioOutputName);
-          const processedFile = new File([data], file.name.replace(/\.[^/.]+$/, "") + "_processed.mp3", { type: 'audio/mp3' });
+          const newFileName = file ? file.name.replace(/\.[^/.]+$/, "") + "_processed.mp3" : "audio_processed.mp3";
+          const processedFile = new File([data], newFileName, { type: 'audio/mp3' });
           
           setAudioFile(processedFile);
           setAudioUrl(URL.createObjectURL(processedFile));
@@ -1353,7 +1367,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
 
   useEffect(() => {
     if (audioRef.current) {
-        audioRef.current.volume = volume;
+        audioRef.current.volume = Math.min(volume, 1);
         audioRef.current.muted = isMuted;
         
         if (isPlaying && audioUrl) {
