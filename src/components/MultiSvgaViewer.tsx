@@ -520,56 +520,52 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     if (!item.dimensions) item.dimensions = { width: 500, height: 500 };
     
     const canvas = document.createElement('canvas');
-    if (previewBg) {
-      try {
-        const bgImg = await new Promise<HTMLImageElement>((resolve, reject) => {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = () => resolve(img);
-          img.onerror = reject;
-          img.src = previewBg;
-        });
-        const dw = selectedPreset ? selectedPreset.width : item.dimensions.width;
-        const dh = selectedPreset ? selectedPreset.height : item.dimensions.height;
-        canvas.width = dw;
-        canvas.height = dh;
-        const ctx = canvas.getContext('2d', { alpha: false })!;
-        // Draw background tiled
-        const pattern = ctx.createPattern(bgImg, 'repeat');
-        if (pattern) {
-          ctx.fillStyle = pattern;
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-      } catch (e) {}
-    }
-
     const dw = selectedPreset ? selectedPreset.width : item.dimensions.width;
     const dh = selectedPreset ? selectedPreset.height : item.dimensions.height;
-    
     canvas.width = dw;
     canvas.height = dh;
+    
+    // Create context ONCE with alpha: true
     const ctx = canvas.getContext('2d', { alpha: true })!;
-    if (!previewBg) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Background is intentionally omitted here to ensure the exported PNG is transparent
 
     const div = document.createElement('div');
     div.style.width = `${item.dimensions.width}px`;
     div.style.height = `${item.dimensions.height}px`;
     div.style.position = 'fixed';
-    div.style.top = '-9999px';
+    div.style.left = '0px';
+    div.style.top = '0px';
+    div.style.opacity = '0.001';
+    div.style.pointerEvents = 'none';
+    div.style.backgroundColor = 'transparent';
     document.body.appendChild(div);
 
     try {
       const player = new SVGA.Player(div);
+      player.clearsAfterStop = false;
       await new Promise<void>((resolve) => {
         player.setVideoItem(videoItem);
         player.setContentMode('AspectFit'); // Use Fit internally
+        
+        // Wait for rendering
+        player.onFrame = (frame) => {
+            if (frame === framesToJump) {
+                 setTimeout(resolve, 50); // Small wait to ensure drawing buffer is presented
+                 player.pauseAnimation();
+            }
+        };
         
         let framesToJump = frameIndex;
         if (frameIndex === 0 && item.frames) {
           framesToJump = Math.floor(item.frames / 2); // Default to middle frame if not specified precisely
         }
-        player.stepToFrame(framesToJump, false);
-        setTimeout(resolve, 250);
+        
+        player.stepToFrame(framesToJump, true); // Use true so it actively plays to that frame to trigger onFrame
+        
+        // Fallback resolve
+        setTimeout(resolve, 500);
       });
       
       const svgaCanvas = div.querySelector('canvas');
