@@ -33,7 +33,8 @@
     "svga.lite": "^1.6.1",
     "tailwind-merge": "^3.5.0",
     "tsx": "^4.21.0",
-    "upng-js": "^2.1.0"
+    "upng-js": "^2.1.0",
+    "wavesurfer.js": "^7.12.8"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",

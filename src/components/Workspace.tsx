@@ -23,6 +23,7 @@ declare var VideoFrame: any;
 import { db } from '../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { VapPlayer } from './VapPlayer';
+import { AudioEditorModal } from './AudioEditorModal';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAccessControl } from '../hooks/useAccessControl';
 import { svgaSchema } from '../svga-proto';
@@ -170,6 +171,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
   const [presetBgs, setPresetBgs] = useState<PresetBackground[]>([]);
   const [previewBg, setPreviewBg] = useState<string | null>(null);
   const [previewBgType, setPreviewBgType] = useState<'image' | 'video'>('image');
+  const [showAudioModal, setShowAudioModal] = useState(false);
   const [activePreset, setActivePreset] = useState<string>('none');
   const [watermark, setWatermark] = useState<string | null>(null);
   const [deletedKeys, setDeletedKeys] = useState<Set<string>>(new Set());
@@ -909,6 +911,42 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
         console.error("FFmpeg load error:", e);
         throw e;
     }
+  };
+
+  const handleAudioExecute = async (executeVolume: number, file: File | null) => {
+      if (!file) return;
+      setIsProcessingVideo(true);
+      try {
+          await loadFfmpeg();
+          const ffmpeg = ffmpegRef.current;
+          
+          const audioInputName = 'input_audio' + Date.now();
+          const audioOutputName = 'output_audio' + Date.now() + '.mp3';
+          
+          await ffmpeg.writeFile(audioInputName, await fetchFile(file));
+          
+          // Apply volume filter and convert to 128k MP3, ensuring 44100Hz 2 channels for SVGA standard
+          await ffmpeg.exec([
+              '-i', audioInputName, 
+              '-filter:a', `volume=${executeVolume}`, 
+              '-ac', '2', 
+              '-ar', '44100', 
+              '-b:a', '128k', 
+              audioOutputName
+          ]);
+          
+          const data = await ffmpeg.readFile(audioOutputName);
+          const processedFile = new File([data], file.name.replace(/\.[^/.]+$/, "") + "_processed.mp3", { type: 'audio/mp3' });
+          
+          setAudioFile(processedFile);
+          setAudioUrl(URL.createObjectURL(processedFile));
+          setShowAudioModal(false);
+      } catch (e) {
+          console.error("Audio processing failed", e);
+          alert("فشل معالجة الصوت");
+      } finally {
+          setIsProcessingVideo(false);
+      }
   };
 
   const handleRemoveAudio = () => {
@@ -8787,7 +8825,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({ metadata: initialMetadata,
                        <button onClick={() => bgInputRef.current?.click()} className="py-4 bg-white/5 border border-white/5 rounded-2xl text-[10px] text-white font-black uppercase">رفع خلفية</button>
                        <button onClick={() => watermarkInputRef.current?.click()} className="py-4 bg-white/5 border border-white/5 rounded-2xl text-[10px] text-white font-black uppercase">رفع علامة</button>
                        <div className="flex gap-2 col-span-1">
-                           <button onClick={() => audioInputRef.current?.click()} className={`flex-1 py-4 border border-white/5 rounded-2xl text-[10px] font-black uppercase ${audioUrl ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-white'}`}>{audioUrl ? 'تغيير الصوت' : 'رفع صوت'}</button>
+                           <button onClick={() => {
+                               if (audioUrl) {
+                                   setShowAudioModal(true);
+                               } else {
+                                   audioInputRef.current?.click();
+                               }
+                           }} className={`flex-1 py-4 border border-white/5 rounded-2xl text-[10px] font-black uppercase ${audioUrl ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-white'}`}>{audioUrl ? 'تعديل الصوت' : 'رفع صوت'}</button>
                            {audioUrl && (
                                <button onClick={handleRemoveAudio} className="w-12 flex items-center justify-center bg-red-500/20 border border-red-500/30 rounded-2xl text-red-400 hover:bg-red-500/30 transition-all" title="إزالة الصوت">
                                    <Trash2 className="w-4 h-4" />
@@ -9927,6 +9971,27 @@ class _MyAppState extends State<MyApp> {
         </div>
       )}
       
+      <AudioEditorModal
+        isOpen={showAudioModal}
+        onClose={() => setShowAudioModal(false)}
+        audioUrl={audioUrl}
+        audioFile={audioFile}
+        volume={volume}
+        onVolumeChange={setVolume}
+        onExecute={handleAudioExecute}
+        isProcessing={isProcessingVideo}
+        onReplace={(file) => {
+          setAudioFile(file);
+          setAudioUrl(URL.createObjectURL(file));
+        }}
+        onRemove={() => {
+          handleRemoveAudio();
+        }}
+        onKeep={() => {
+          setShowAudioModal(false);
+        }}
+      />
+
       <AnimatePresence>
         {lottiePreviewData && (
           <LottieViewer 
