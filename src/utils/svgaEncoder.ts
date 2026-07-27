@@ -17,20 +17,24 @@ export const parseSVGA = async (file: File): Promise<any> => {
         throw new Error("SVGA 1.0 (ZIP) is not supported in this editor. Please use SVGA 2.0.");
     }
 
-    let inflated;
+    let inflated: Uint8Array;
     try {
         inflated = pako.inflate(uint8Array);
     } catch (e) {
-        console.warn("Failed to inflate SVGA, trying uncompressed:", e);
-        inflated = uint8Array;
+        try {
+            inflated = pako.inflateRaw(uint8Array);
+        } catch (e2) {
+            inflated = uint8Array;
+        }
     }
     
     const message = MovieEntity.decode(inflated);
     return MovieEntity.toObject(message, {
         keepCase: true,
-        longs: String,
-        enums: String,
-        defaults: true,
+        longs: Number,
+        enums: Number,
+        bytes: Uint8Array,
+        defaults: false,
         arrays: true,
         objects: true,
         oneofs: true
@@ -43,7 +47,7 @@ export const encodeSVGA = async (movieData: any): Promise<Blob> => {
 
     const message = MovieEntity.fromObject(movieData);
     const buffer = MovieEntity.encode(message).finish();
-    const deflated = pako.deflate(buffer);
+    const deflated = pako.deflate(buffer, { level: 9 });
     return new Blob([deflated], { type: 'application/octet-stream' });
 };
 

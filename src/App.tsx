@@ -15,6 +15,7 @@ import { ImageEnhancer } from './components/ImageEnhancer';
 import { BatchImageProcessor } from './components/BatchImageProcessor';
 import { BatchImageConverter } from './components/BatchImageConverter';
 import { PagConverter } from './components/PagConverter';
+import { PagToSvgaStudio } from './components/PagToSvgaStudio';
 import { ImageEditor } from './components/ImageEditor';
 import { ImageMatcher } from './components/ImageMatcher';
 import { Store } from './components/Store';
@@ -53,6 +54,7 @@ const App: React.FC = () => {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showBatchImage, setShowBatchImage] = useState(false);
   const [showPagConverter, setShowPagConverter] = useState(false);
+  const [uploadedPagFile, setUploadedPagFile] = useState<File | null>(null);
   const [globalQuality, setGlobalQuality] = useState<'low' | 'medium' | 'high'>('high');
   const [initialLottieFile, setInitialLottieFile] = useState<File | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
@@ -168,6 +170,13 @@ const App: React.FC = () => {
 
     const file = files[0];
     const fileUrl = URL.createObjectURL(file);
+
+    // Check for PAG file
+    if ((file?.name || '').toLowerCase().endsWith('.pag')) {
+      setUploadedPagFile(file);
+      setShowPagConverter(true);
+      return;
+    }
 
     // Check for Lottie JSON
     if ((file?.name || '').toLowerCase().endsWith('.json') || file?.type === 'application/json') {
@@ -689,8 +698,12 @@ const App: React.FC = () => {
       )}
 
       {showPagConverter && (
-        <PagConverter
-          onClose={() => setShowPagConverter(false)}
+        <PagToSvgaStudio
+          initialFile={uploadedPagFile}
+          onClose={() => {
+            setShowPagConverter(false);
+            setUploadedPagFile(null);
+          }}
         />
       )}
 

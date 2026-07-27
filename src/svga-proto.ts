@@ -13,7 +13,6 @@ message SpriteEntity {
     string imageKey = 1;
     repeated FrameEntity frames = 2;
     string matteKey = 3;
-    string name = 4;
 }
 
 message AudioEntity {
@@ -47,20 +46,46 @@ message ShapeEntity {
         ELLIPSE = 2;
         KEEP = 3;
     }
+    message ShapeArgs {
+        string d = 1;
+    }
+    message RectArgs {
+        float x = 1;
+        float y = 2;
+        float width = 3;
+        float height = 4;
+        float cornerRadius = 5;
+    }
+    message EllipseArgs {
+        float x = 1;
+        float y = 2;
+        float radiusX = 3;
+        float radiusY = 4;
+    }
     ShapeType type = 1;
-    map<string, float> args = 2;
-    ShapeStyle styles = 3;
-    Transform transform = 4;
+    ShapeArgs shape = 2;
+    RectArgs rect = 3;
+    EllipseArgs ellipse = 4;
+    ShapeStyle styles = 10;
+    Transform transform = 11;
 }
 
 message ShapeStyle {
-    map<string, float> fill = 1;
-    map<string, float> stroke = 2;
+    message RGBAColor {
+        float r = 1;
+        float g = 2;
+        float b = 3;
+        float a = 4;
+    }
+    RGBAColor fill = 1;
+    RGBAColor stroke = 2;
     float strokeWidth = 3;
     string lineCap = 4;
     string lineJoin = 5;
     float miterLimit = 6;
-    repeated float lineDash = 7;
+    float lineDashI = 7;
+    float lineDashII = 8;
+    float lineDashIII = 9;
 }
 
 message FrameEntity {
@@ -69,7 +94,6 @@ message FrameEntity {
     Transform transform = 3;
     string clipPath = 4;
     repeated ShapeEntity shapes = 5;
-    string blendMode = 6;
 }
 
 message MovieEntity {
@@ -80,3 +104,4 @@ message MovieEntity {
     repeated AudioEntity audios = 5;
 }
 `;
+

@@ -37,6 +37,7 @@ const categories = [
     textColor: 'text-indigo-400',
     tools: [
       { id: 'svga-ex', label: 'SVGA Editor EX', icon: <Layers className="w-8 h-8" />, actionKey: 'svgaEx', descAr: 'محرر احترافي لعمل تركيبات معقدة ومدمجة من عدة ملفات متزامنة.', descEn: 'Professional editor for complex compositions of multiple SVGA files.', highlight: true },
+      { id: 'pag-to-svga', label: 'PAG to SVGA Converter', icon: <Box className="w-8 h-8" />, actionKey: 'pagConverterOpen', descAr: 'تحويل ملفات PAG إلى SVGA مع الحفاظ الكامل على الطبقات والحركة والشفافية.', descEn: 'Convert PAG files to SVGA preserving layers, keyframes and alpha.', highlight: true },
       { id: 'multi-svga', label: 'Multi SVGA Preview', icon: <LayoutGrid className="w-8 h-8" />, actionKey: 'multiSvga', descAr: 'استعراض ومقارنة عدة ملفات SVGA في نفس الوقت بخصائص دقيقة للمزامنة.', descEn: 'Preview and compare multiple SVGA files simultaneously with sync controls.' },
       { id: 'image-converter', label: 'Image to SVGA', icon: <Image className="w-8 h-8" />, actionKey: 'imageConverter', descAr: 'تحويل الصور الثابتة إلى ملفات SVGA متحركة مع تأثيرات دخول وحركة سريعة.', descEn: 'Convert static images into animated SVGA files with entry and motion effects.' },
     ]
