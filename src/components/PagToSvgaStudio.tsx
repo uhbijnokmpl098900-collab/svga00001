@@ -50,6 +50,10 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
   } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Replaced SVGA Images State
+  const [replacedImages, setReplacedImages] = useState<Record<string, string>>({});
+  const [replacedColors, setReplacedColors] = useState<Record<string, string>>({});
 
   // Auto load initial file
   useEffect(() => {
@@ -63,6 +67,8 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
     try {
       setIsLoadingFile(true);
       setFile(f);
+      setReplacedImages({});
+      setReplacedColors({});
       const buf = await f.arrayBuffer();
       setBuffer(buf);
 
@@ -202,6 +208,8 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
         const res = await compressSvgaFile(file, {
           targetFps,
           compressionQuality,
+          replacedImages,
+          replacedColors,
           onProgress: (pct, msg) => {
             setProgress(pct);
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString('ar-EG')}] ${msg}`]);
@@ -242,6 +250,23 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
     } finally {
       setIsConverting(false);
     }
+  };
+
+  const handleImageReplace = (key: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      if (base64) {
+        setReplacedImages(prev => ({
+          ...prev,
+          [key]: base64
+        }));
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -526,6 +551,63 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
                     </div>
                   </div>
                 </div>
+
+                {/* SVGA Image Layers Edit */}
+                {metadata.fileType === 'SVGA' && metadata.images && Object.keys(metadata.images).length > 0 && (
+                  <div className="bg-white/5 rounded-2xl p-4 border border-white/5 space-y-4">
+                    <h3 className="text-xs font-black uppercase text-amber-400 tracking-wider flex items-center gap-2">
+                      <Layers className="w-4 h-4" />
+                      تغيير الطبقات والصور
+                    </h3>
+                    <div className="space-y-3 max-h-48 overflow-y-auto custom-scrollbar pr-2">
+                      {Object.entries(metadata.images).map(([key, base64]) => (
+                        <div key={key} className="bg-black/30 p-2 rounded-xl border border-white/5 flex items-center justify-between gap-3">
+                          <div className="w-10 h-10 rounded-lg overflow-hidden bg-white/5 border border-white/10 flex-shrink-0">
+                            <img src={replacedImages[key] || base64} alt={key} className="w-full h-full object-cover" />
+                          </div>
+                          <div className="flex-1 truncate text-[10px] text-slate-300 font-mono" title={key}>
+                            {key}
+                          </div>
+                          <div className="flex-shrink-0 relative">
+                            <input
+                              type="file"
+                              accept="image/png, image/jpeg, image/webp"
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                              onChange={(e) => handleImageReplace(key, e)}
+                            />
+                            <button className="bg-sky-500/20 text-sky-400 text-[10px] font-bold px-3 py-1.5 rounded-lg border border-sky-500/30 hover:bg-sky-500/30 transition-colors pointer-events-none">
+                              تغيير
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* SVGA Color Palette Edit */}
+                {metadata.fileType === 'SVGA' && metadata.colors && metadata.colors.length > 0 && (
+                  <div className="bg-white/5 rounded-2xl p-4 border border-white/5 space-y-4">
+                    <h3 className="text-xs font-black uppercase text-pink-400 tracking-wider flex items-center gap-2">
+                      <Sparkles className="w-4 h-4" />
+                      تغيير الألوان (Vectors)
+                    </h3>
+                    <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
+                      {metadata.colors.map(hex => (
+                        <div key={hex} className="relative w-full aspect-square rounded-xl overflow-hidden border border-white/10 shadow-lg group">
+                          <div className="absolute inset-0 z-0" style={{ backgroundColor: replacedColors[hex] || hex }}></div>
+                          <input
+                            type="color"
+                            value={replacedColors[hex] || hex}
+                            onChange={(e) => setReplacedColors(prev => ({ ...prev, [hex]: e.target.value }))}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                            title="انقر لتغيير اللون"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
               </div>
 

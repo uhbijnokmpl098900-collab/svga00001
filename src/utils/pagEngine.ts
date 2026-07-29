@@ -33,6 +33,8 @@ export interface PagMetadata {
   numLayers: number;
   fileType: 'PAG' | 'SVGA';
   originalSize: number;
+  images?: Record<string, string>; // base64 representation for UI
+  colors?: string[]; // Unique hex colors used in SVGA vectors
 }
 
 /**
@@ -178,6 +180,51 @@ export async function parseAnimationFile(file: File): Promise<{ metadata: PagMet
     const totalFrames = svgaMovie.params?.frames || 30;
     const durationSeconds = parseFloat((totalFrames / fps).toFixed(2));
 
+    const images: Record<string, string> = {};
+    if (svgaMovie.images) {
+      for (const [key, uint8Arr] of Object.entries(svgaMovie.images)) {
+        if (uint8Arr instanceof Uint8Array) {
+          // Convert Uint8Array to base64 string
+          const binary = Array.from(uint8Arr).map(b => String.fromCharCode(b)).join('');
+          images[key] = `data:image/png;base64,${btoa(binary)}`;
+        }
+      }
+    }
+
+    const rgbaToHex = (r: number, g: number, b: number, a: number) => {
+      const toHex = (n: number) => {
+        const hex = Math.round(n * 255).toString(16);
+        return hex.length === 1 ? '0' + hex : hex;
+      };
+      // For simplicity, we just extract rgb as hex (ignore alpha for color replacement mapping to keep it simple, or include it)
+      // Let's just use 6-character hex for RGB
+      return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    };
+
+    const uniqueColors = new Set<string>();
+    if (svgaMovie.sprites) {
+      for (const sprite of svgaMovie.sprites) {
+        if (sprite.frames) {
+          for (const frame of sprite.frames) {
+            if (frame.shapes) {
+              for (const shape of frame.shapes) {
+                if (shape.styles) {
+                  if (shape.styles.fill && typeof shape.styles.fill.r === 'number') {
+                    const c = shape.styles.fill;
+                    uniqueColors.add(rgbaToHex(c.r, c.g, c.b, c.a));
+                  }
+                  if (shape.styles.stroke && typeof shape.styles.stroke.r === 'number') {
+                    const c = shape.styles.stroke;
+                    uniqueColors.add(rgbaToHex(c.r, c.g, c.b, c.a));
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     const metadata: PagMetadata = {
       width,
       height,
@@ -190,7 +237,9 @@ export async function parseAnimationFile(file: File): Promise<{ metadata: PagMet
       numTexts: 0,
       numLayers: (svgaMovie.sprites || []).length,
       fileType: 'SVGA',
-      originalSize: file.size
+      originalSize: file.size,
+      images,
+      colors: Array.from(uniqueColors)
     };
 
     return { metadata, svgaMovie };
@@ -206,6 +255,8 @@ export interface ConvertPagOptions {
   startTime?: number; // seconds
   endTime?: number; // seconds
   imageFormat?: 'webp' | 'png' | 'jpeg';
+  replacedImages?: Record<string, string>; // mapping imageKey to base64 string
+  replacedColors?: Record<string, string>; // mapping original hex to new hex
   onProgress?: (progress: number, logMessage: string) => void;
 }
 
@@ -430,9 +481,18 @@ export async function compressSvgaFile(
 
   for (let i = 0; i < imageKeys.length; i++) {
     const key = imageKeys[i];
-    const rawData = sourceImages[key];
-
-    if (!rawData || rawData.length === 0) continue;
+    
+    // Check if the image was replaced by the user
+    let rawData = sourceImages[key];
+    let isReplaced = false;
+    let replacedBase64 = '';
+    
+    if (options.replacedImages && options.replacedImages[key]) {
+      isReplaced = true;
+      replacedBase64 = options.replacedImages[key];
+    } else if (!rawData || rawData.length === 0) {
+      continue;
+    }
 
     onProgress?.(
       25 + Math.floor((i / Math.max(1, imageKeys.length)) * 60),
@@ -442,7 +502,9 @@ export async function compressSvgaFile(
     try {
       // Load raw image bytes into HTML Image element
       let base64 = '';
-      if (typeof rawData === 'string') {
+      if (isReplaced) {
+        base64 = replacedBase64;
+      } else if (typeof rawData === 'string') {
         base64 = rawData.startsWith('data:') ? rawData : `data:image/png;base64,${rawData}`;
       } else {
         let binary = '';
@@ -498,6 +560,51 @@ export async function compressSvgaFile(
       }
     } catch (e) {
       compressedImages[key] = rawData;
+    }
+  }
+
+  const hexToRgba = (hex: string, originalA: number) => {
+    const r = parseInt(hex.slice(1, 3), 16) / 255;
+    const g = parseInt(hex.slice(3, 5), 16) / 255;
+    const b = parseInt(hex.slice(5, 7), 16) / 255;
+    return { r, g, b, a: originalA };
+  };
+
+  const rgbaToHex = (r: number, g: number, b: number, a: number) => {
+    const toHex = (n: number) => {
+      const hex = Math.round(n * 255).toString(16);
+      return hex.length === 1 ? '0' + hex : hex;
+    };
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  };
+
+  // Replace colors in vector shapes
+  if (options.replacedColors && Object.keys(options.replacedColors).length > 0 && svgaMovie.sprites) {
+    for (const sprite of svgaMovie.sprites) {
+      if (sprite.frames) {
+        for (const frame of sprite.frames) {
+          if (frame.shapes) {
+            for (const shape of frame.shapes) {
+              if (shape.styles) {
+                if (shape.styles.fill && typeof shape.styles.fill.r === 'number') {
+                  const c = shape.styles.fill;
+                  const hex = rgbaToHex(c.r, c.g, c.b, c.a);
+                  if (options.replacedColors[hex]) {
+                    shape.styles.fill = hexToRgba(options.replacedColors[hex], c.a);
+                  }
+                }
+                if (shape.styles.stroke && typeof shape.styles.stroke.r === 'number') {
+                  const c = shape.styles.stroke;
+                  const hex = rgbaToHex(c.r, c.g, c.b, c.a);
+                  if (options.replacedColors[hex]) {
+                    shape.styles.stroke = hexToRgba(options.replacedColors[hex], c.a);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 
