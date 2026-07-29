@@ -53,6 +53,7 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
   
   // Replaced SVGA Images State
   const [replacedImages, setReplacedImages] = useState<Record<string, string>>({});
+  const [uploadedImages, setUploadedImages] = useState<Record<string, string>>({});
   const [replacedColors, setReplacedColors] = useState<Record<string, string>>({});
 
   // Auto load initial file
@@ -68,6 +69,7 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
       setIsLoadingFile(true);
       setFile(f);
       setReplacedImages({});
+      setUploadedImages({});
       setReplacedColors({});
       const buf = await f.arrayBuffer();
       setBuffer(buf);
@@ -130,6 +132,29 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
         const pagFile = await PAG.PAGFile.load(blob);
         if (isCancelled || !pagFile) return;
 
+        // Apply replaced images to the preview pagFile!
+        if (replacedImages && Object.keys(replacedImages).length > 0) {
+          for (const [key, base64] of Object.entries(replacedImages)) {
+            if (key.startsWith('PAG_Image_')) {
+              const index = parseInt(key.replace('PAG_Image_', ''), 10);
+              if (!isNaN(index)) {
+                try {
+                  const img = new Image();
+                  img.src = base64;
+                  await new Promise((resolve, reject) => {
+                    img.onload = resolve;
+                    img.onerror = reject;
+                  });
+                  const pagImage = PAG.PAGImage.fromSource(img);
+                  pagFile.replaceImage(index, pagImage);
+                } catch (e) {
+                  console.warn('Failed to apply preview image replacement', key, e);
+                }
+              }
+            }
+          }
+        }
+
         player = await PAG.PAGPlayer.create();
         if (isCancelled) return;
 
@@ -186,7 +211,7 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
       }
       pagPlayerRef.current = null;
     };
-  }, [buffer, metadata, file]);
+  }, [buffer, metadata, file, replacedImages]);
 
   const metaWidth = (meta: PagMetadata) => meta.width || 600;
   const metaHeight = (meta: PagMetadata) => meta.height || 200;
@@ -224,6 +249,8 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
           compressionQuality,
           startTime: trimStart,
           endTime: trimEnd,
+          replacedImages,
+          replacedColors,
           onProgress: (pct, msg) => {
             setProgress(pct);
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString('ar-EG')}] ${msg}`]);
@@ -260,6 +287,7 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
     reader.onload = (event) => {
       const base64 = event.target?.result as string;
       if (base64) {
+        setUploadedImages(prev => ({ ...prev, [key]: base64 }));
         setReplacedImages(prev => ({
           ...prev,
           [key]: base64
@@ -267,6 +295,58 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleImageDelete = (key: string) => {
+    // 1x1 transparent PNG base64
+    const transparentBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+    setUploadedImages(prev => ({ ...prev, [key]: transparentBase64 }));
+    setReplacedImages(prev => ({
+      ...prev,
+      [key]: transparentBase64
+    }));
+  };
+
+  const handleImageDownload = (key: string, base64: string) => {
+    const a = document.createElement('a');
+    a.href = base64;
+    a.download = `${key}.png`;
+    a.click();
+  };
+
+  const applyTint = async (originalBase64: string, colorHex: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(originalBase64);
+          return;
+        }
+        
+        ctx.drawImage(img, 0, 0);
+        
+        if (colorHex && colorHex !== '#00000000') {
+          ctx.globalCompositeOperation = 'source-atop';
+          ctx.fillStyle = colorHex + '80'; // 50% opacity overlay
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.onerror = () => resolve(originalBase64);
+      img.src = originalBase64;
+    });
+  };
+
+  const handleImageTint = async (key: string, colorHex: string) => {
+    const base = uploadedImages[key] || metadata?.images?.[key];
+    if (!base) return;
+    const tinted = await applyTint(base, colorHex);
+    setReplacedImages(prev => ({ ...prev, [key]: tinted }));
   };
 
   return (
@@ -372,7 +452,12 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
                         <span className="text-sm font-bold text-slate-300">جاري تحميل وتحليل الملف...</span>
                       </div>
                     ) : metadata?.fileType === 'SVGA' && buffer ? (
-                      <SVGAPlayer data={URL.createObjectURL(new Blob([buffer]))} className="max-w-full max-h-full object-contain drop-shadow-2xl" />
+                      <SVGAPlayer 
+                        data={URL.createObjectURL(new Blob([buffer]))} 
+                        replacedImages={replacedImages}
+                        replacedColors={replacedColors}
+                        className="max-w-full max-h-full object-contain drop-shadow-2xl" 
+                      />
                     ) : (
                       <canvas id="pag-studio-preview-canvas" ref={canvasRef} className="max-w-full max-h-full object-contain drop-shadow-2xl" />
                     )}
@@ -552,13 +637,25 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
                   </div>
                 </div>
 
-                {/* SVGA Image Layers Edit */}
-                {metadata.fileType === 'SVGA' && metadata.images && Object.keys(metadata.images).length > 0 && (
+                {/* Image Layers Edit */}
+                {metadata.images && Object.keys(metadata.images).length > 0 && (
                   <div className="bg-white/5 rounded-2xl p-4 border border-white/5 space-y-4">
-                    <h3 className="text-xs font-black uppercase text-amber-400 tracking-wider flex items-center gap-2">
-                      <Layers className="w-4 h-4" />
-                      تغيير الطبقات والصور
-                    </h3>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-black uppercase text-amber-400 tracking-wider flex items-center gap-2">
+                        <Layers className="w-4 h-4" />
+                        تغيير الطبقات والصور
+                      </h3>
+                      <button
+                        onClick={() => {
+                          Object.entries(metadata.images!).forEach(([key, base64]) => {
+                            handleImageDownload(key, replacedImages[key] || base64);
+                          });
+                        }}
+                        className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-3 py-1.5 rounded-lg border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors flex items-center gap-1"
+                      >
+                        <Download className="w-3 h-3" /> تنزيل الكل
+                      </button>
+                    </div>
                     <div className="space-y-3 max-h-48 overflow-y-auto custom-scrollbar pr-2">
                       {Object.entries(metadata.images).map(([key, base64]) => (
                         <div key={key} className="bg-black/30 p-2 rounded-xl border border-white/5 flex items-center justify-between gap-3">
@@ -568,15 +665,40 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
                           <div className="flex-1 truncate text-[10px] text-slate-300 font-mono" title={key}>
                             {key}
                           </div>
-                          <div className="flex-shrink-0 relative">
-                            <input
-                              type="file"
-                              accept="image/png, image/jpeg, image/webp"
-                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                              onChange={(e) => handleImageReplace(key, e)}
-                            />
-                            <button className="bg-sky-500/20 text-sky-400 text-[10px] font-bold px-3 py-1.5 rounded-lg border border-sky-500/30 hover:bg-sky-500/30 transition-colors pointer-events-none">
-                              تغيير
+                          <div className="flex-shrink-0 relative flex gap-1">
+                            <div className="relative">
+                              <input
+                                type="color"
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                onChange={(e) => handleImageTint(key, e.target.value)}
+                                title="تلوين الطبقة (شفاف)"
+                              />
+                              <button className="bg-fuchsia-500/20 text-fuchsia-400 text-[10px] font-bold px-3 py-1.5 rounded-lg border border-fuchsia-500/30 hover:bg-fuchsia-500/30 transition-colors pointer-events-none">
+                                تلوين
+                              </button>
+                            </div>
+                            <div className="relative">
+                              <input
+                                type="file"
+                                accept="image/png, image/jpeg, image/webp"
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                onChange={(e) => handleImageReplace(key, e)}
+                              />
+                              <button className="bg-sky-500/20 text-sky-400 text-[10px] font-bold px-3 py-1.5 rounded-lg border border-sky-500/30 hover:bg-sky-500/30 transition-colors pointer-events-none">
+                                تغيير
+                              </button>
+                            </div>
+                            <button 
+                              onClick={() => handleImageDownload(key, replacedImages[key] || base64)}
+                              className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-3 py-1.5 rounded-lg border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors"
+                            >
+                              تنزيل
+                            </button>
+                            <button 
+                              onClick={() => handleImageDelete(key)}
+                              className="bg-red-500/20 text-red-400 text-[10px] font-bold px-3 py-1.5 rounded-lg border border-red-500/30 hover:bg-red-500/30 transition-colors"
+                            >
+                              حذف
                             </button>
                           </div>
                         </div>

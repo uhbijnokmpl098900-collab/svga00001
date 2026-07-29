@@ -151,6 +151,30 @@ export async function parsePagFile(fileOrBuffer: File | Blob | ArrayBuffer): Pro
   const fps = pagFile.frameRate() || 30;
   const totalFrames = Math.max(1, Math.floor(durationSeconds * fps));
 
+  const numImages = pagFile.numImages ? pagFile.numImages() : 0;
+
+  const images: Record<string, string> = {};
+  if (numImages > 0) {
+    try {
+      for (let i = 0; i < numImages; i++) {
+        const layers = pagFile.getLayersByEditableIndex(i, 5); // LayerType.Image is 5
+        if (layers && layers.size() > 0) {
+          const layer = layers.get(0);
+          if (layer.imageBytes) {
+            const bytes = layer.imageBytes();
+            if (bytes && bytes.length > 0) {
+              // Usually it's webp or png, we can just use a generic data url
+              const binary = Array.from(bytes).map(b => String.fromCharCode(b)).join('');
+              images[`PAG_Image_${i}`] = `data:image/png;base64,${btoa(binary)}`;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to extract images from PAG", e);
+    }
+  }
+
   const metadata: PagMetadata = {
     width: pagFile.width(),
     height: pagFile.height(),
@@ -159,11 +183,12 @@ export async function parsePagFile(fileOrBuffer: File | Blob | ArrayBuffer): Pro
     fps: parseFloat(fps.toFixed(2)),
     totalFrames,
     tagLevel: pagFile.tagLevel ? pagFile.tagLevel() : 4,
-    numImages: pagFile.numImages ? pagFile.numImages() : 0,
+    numImages,
     numTexts: pagFile.numTexts ? pagFile.numTexts() : 0,
     numLayers: pagFile.numLayers ? pagFile.numLayers() : 0,
     fileType: 'PAG',
-    originalSize: blob.size
+    originalSize: blob.size,
+    images
   };
 
   return { pagFile, metadata };
@@ -290,6 +315,29 @@ export async function convertPagToSvga(
 
   const quality = Math.max(0, Math.min(100, options.compressionQuality ?? 80));
   
+  if (options.replacedImages && Object.keys(options.replacedImages).length > 0) {
+    onProgress?.(20, 'تطبيق تعديلات الصور والطبقات...');
+    for (const [key, base64] of Object.entries(options.replacedImages)) {
+      if (key.startsWith('PAG_Image_')) {
+        const index = parseInt(key.replace('PAG_Image_', ''), 10);
+        if (!isNaN(index)) {
+          try {
+            const img = new Image();
+            img.src = base64;
+            await new Promise((resolve, reject) => {
+              img.onload = resolve;
+              img.onerror = reject;
+            });
+            const pagImage = PAG.PAGImage.fromSource(img);
+            pagFile.replaceImage(index, pagImage);
+          } catch (e) {
+            console.warn('Failed to replace image', key, e);
+          }
+        }
+      }
+    }
+  }
+
   // Render canvas at 100% EXACT original width & height!
   const renderWidth = origWidth;
   const renderHeight = origHeight;
