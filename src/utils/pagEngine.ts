@@ -163,9 +163,12 @@ export async function parsePagFile(fileOrBuffer: File | Blob | ArrayBuffer): Pro
           if (layer.imageBytes) {
             const bytes = layer.imageBytes();
             if (bytes && bytes.length > 0) {
-              // Usually it's webp or png, we can just use a generic data url
-              const binary = Array.from(bytes).map(b => String.fromCharCode(b)).join('');
-              images[`PAG_Image_${i}`] = `data:image/png;base64,${btoa(binary)}`;
+              let mime = 'image/png';
+              if (bytes[0] === 0x52 && bytes[1] === 0x49) mime = 'image/webp'; // RIFF
+              else if (bytes[0] === 0xFF && bytes[1] === 0xD8) mime = 'image/jpeg';
+              
+              const blob = new Blob([bytes], { type: mime });
+              images[`PAG_Image_${i}`] = URL.createObjectURL(blob);
             }
           }
         }
@@ -209,9 +212,12 @@ export async function parseAnimationFile(file: File): Promise<{ metadata: PagMet
     if (svgaMovie.images) {
       for (const [key, uint8Arr] of Object.entries(svgaMovie.images)) {
         if (uint8Arr instanceof Uint8Array) {
-          // Convert Uint8Array to base64 string
-          const binary = Array.from(uint8Arr).map(b => String.fromCharCode(b)).join('');
-          images[key] = `data:image/png;base64,${btoa(binary)}`;
+          let mime = 'image/png';
+          if (uint8Arr[0] === 0x52 && uint8Arr[1] === 0x49) mime = 'image/webp';
+          else if (uint8Arr[0] === 0xFF && uint8Arr[1] === 0xD8) mime = 'image/jpeg';
+          
+          const blob = new Blob([uint8Arr], { type: mime });
+          images[key] = URL.createObjectURL(blob);
         }
       }
     }
@@ -555,9 +561,11 @@ export async function compressSvgaFile(
       } else if (typeof rawData === 'string') {
         base64 = rawData.startsWith('data:') ? rawData : `data:image/png;base64,${rawData}`;
       } else {
-        let binary = '';
-        for (let k = 0; k < rawData.byteLength; k++) binary += String.fromCharCode(rawData[k]);
-        base64 = `data:image/png;base64,${btoa(binary)}`;
+        let mime = 'image/png';
+        if (rawData[0] === 0x52 && rawData[1] === 0x49) mime = 'image/webp';
+        else if (rawData[0] === 0xFF && rawData[1] === 0xD8) mime = 'image/jpeg';
+        const blob = new Blob([rawData], { type: mime });
+        base64 = URL.createObjectURL(blob);
       }
 
       const img = new Image();
