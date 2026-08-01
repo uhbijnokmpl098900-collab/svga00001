@@ -33,8 +33,8 @@ const SVGAPlayer: React.FC<SVGAPlayerProps> = ({ data, className, replacedImages
           for (const [key, base64] of Object.entries(replacedImages)) {
             if (base64 && svgaData.images[key]) {
               // Convert base64 to Uint8Array
-              const base64Data = base64.split(',')[1] || base64;
-              const binaryString = atob(base64Data);
+              const base64Data = (base64 as string).split(',')[1] || base64;
+              const binaryString = atob(base64Data as string);
               const bytes = new Uint8Array(binaryString.length);
               for (let i = 0; i < binaryString.length; i++) {
                 bytes[i] = binaryString.charCodeAt(i);

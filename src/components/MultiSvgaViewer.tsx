@@ -7,6 +7,7 @@ import { PresetBackground, UserRecord } from '../types';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import JSZip from 'jszip';
 import { calculateSafeDimensions } from '../utils/dimensions';
+import { getPAG, convertPagToSvga } from '../utils/pagEngine';
 
 declare var SVGA: any;
 
@@ -20,6 +21,8 @@ interface MultiSvgaItem {
   fps?: number;
   frames?: number;
   videoItem?: any;
+  pagFile?: any;
+  type: "svga" | "pag";
   presetId: string;
 }
 
@@ -136,7 +139,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   }, []);
 
   const handleFiles = useCallback(async (files: FileList | File[]) => {
-    const fileArray = Array.from(files).filter(f => (f?.name || '').toLowerCase().endsWith('.svga'));
+    const fileArray = Array.from(files).filter(f => {
+      const name = (f?.name || '').toLowerCase();
+      return name.endsWith('.svga') || name.endsWith('.pag');
+    });
     if (fileArray.length === 0) return;
     
     setLoadProgress({ current: 0, total: fileArray.length });
@@ -152,6 +158,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         url: URL.createObjectURL(file),
         name: file.name,
         size: file.size,
+        type: file.name.toLowerCase().endsWith('.pag') ? 'pag' : 'svga',
         presetId: 'auto'
       }));
       
@@ -186,7 +193,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const handleExportGrid = async () => {
     if (items.length === 0) return;
 
-    const { allowed } = await checkAccess('Multi SVGA Export');
+    const { allowed } = await checkAccess("Multi SVGA Export");
     if (!allowed) {
       if (onSubscriptionRequired) onSubscriptionRequired();
       return;
@@ -196,19 +203,18 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     setExportProgress(0);
 
     if (currentUser) {
-      logActivity(currentUser, 'export', `Multi SVGA Grid Export: ${items.length} files`);
+      logActivity(currentUser, "export", `Multi SVGA Grid Export: ${items.length} files`);
     }
 
-    // Create a hidden container for offscreen rendering
-    const renderContainer = document.createElement('div');
-    renderContainer.style.position = 'fixed';
-    renderContainer.style.left = '-10000px';
-    renderContainer.style.top = '0';
-    renderContainer.style.width = '2000px';
-    renderContainer.style.height = '2000px';
-    renderContainer.style.overflow = 'hidden';
-    renderContainer.style.zIndex = '-1000';
-    renderContainer.style.pointerEvents = 'none';
+    const renderContainer = document.createElement("div");
+    renderContainer.style.position = "fixed";
+    renderContainer.style.left = "-10000px";
+    renderContainer.style.top = "0";
+    renderContainer.style.width = "1920px";
+    renderContainer.style.height = "1080px";
+    renderContainer.style.overflow = "hidden";
+    renderContainer.style.zIndex = "-1000";
+    renderContainer.style.pointerEvents = "none";
     document.body.appendChild(renderContainer);
 
     try {
@@ -217,96 +223,71 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       let canvasHeight: number;
       let cols: number;
       let rows: number;
-      let cardW: number;
-      let cardH: number;
-      const padding = items.length > 1 ? 40 : 0;
 
       if (items.length === 1) {
+        const item = items[0];
+        canvasWidth = DEVICE_PRESETS.find(p => p.id === item.presetId)?.width || item.dimensions?.width || 500;
+        canvasHeight = DEVICE_PRESETS.find(p => p.id === item.presetId)?.height || item.dimensions?.height || 500;
         cols = 1;
         rows = 1;
-        const rawW = selectedPreset ? selectedPreset.width : items[0].dimensions.width;
-        const rawH = selectedPreset ? selectedPreset.height : items[0].dimensions.height;
-        const safe = calculateSafeDimensions(rawW, rawH, 16777216);
-        cardW = safe.width;
-        cardH = safe.height;
-        canvasWidth = cardW;
-        canvasHeight = cardH;
       } else {
-        cols = gridCols;
+        canvasWidth = exportResolution === "1080p" ? 1920 : (exportResolution === "720p" ? 1280 : 1080);
+        canvasHeight = exportResolution === "1080p" ? 1080 : (exportResolution === "720p" ? 720 : 1080);
+        if (forceMobileSize) {
+          canvasWidth = exportResolution === "1080p" ? 1080 : 720;
+          canvasHeight = exportResolution === "1080p" ? 1920 : 1280;
+        }
+        cols = Math.ceil(Math.sqrt(items.length));
         rows = Math.ceil(items.length / cols);
-        cardW = selectedPreset ? selectedPreset.width : items[0].dimensions.width;
-        cardH = selectedPreset ? selectedPreset.height : items[0].dimensions.height;
-        canvasWidth = cols * cardW + (cols + 1) * padding;
-        canvasHeight = rows * cardH + (rows + 1) * padding;
       }
 
-      if (forceMobileSize) {
-        // Force 750x1334 resolution for mobile compatibility
-        canvasWidth = 750;
-        canvasHeight = 1334;
-        
-        // Force 3 columns for consistent layout
-        cols = 3;
-        rows = Math.ceil(items.length / cols);
-        
-        // Re-calculate card dimensions to fit the fixed canvas
-        cardW = (canvasWidth - (cols + 1) * padding) / cols;
-        cardH = (canvasHeight - (rows + 1) * padding) / rows;
-      }
-      
-      const safe = calculateSafeDimensions(canvasWidth, canvasHeight, 16777216);
-      let finalWidth = safe.width;
-      let finalHeight = safe.height;
+      const padding = items.length === 1 ? 0 : 20;
+      const availableWidth = canvasWidth - (padding * (cols + 1));
+      const availableHeight = canvasHeight - (padding * (rows + 1));
+      const cardW = availableWidth / cols;
+      const cardH = availableHeight / rows;
 
-      if (exportResolution === '720p') {
-        const ratio = Math.min(1280 / finalWidth, 720 / finalHeight);
-        finalWidth = Math.round(finalWidth * ratio);
-        finalHeight = Math.round(finalHeight * ratio);
-      } else if (exportResolution === '1080p') {
-        const ratio = Math.min(1920 / finalWidth, 1080 / finalHeight);
-        finalWidth = Math.round(finalWidth * ratio);
-        finalHeight = Math.round(finalHeight * ratio);
-      }
-      
-      // Ensure even dimensions for H264
-      finalWidth = Math.floor(finalWidth / 2) * 2;
-      finalHeight = Math.floor(finalHeight / 2) * 2;
-      
-      const canvas = document.createElement('canvas');
+      const finalWidth = Math.round(canvasWidth / 2) * 2;
+      const finalHeight = Math.round(canvasHeight / 2) * 2;
+
+      const canvas = document.createElement("canvas");
       canvas.width = finalWidth;
       canvas.height = finalHeight;
-      const ctx = canvas.getContext('2d', { alpha: false })!;
-      
+      const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: true })!;
+
+      let maxFrames = 0;
+      items.forEach(item => {
+        const frames = item.frames || 1;
+        const fps = item.fps || 30;
+        const duration = frames / fps;
+        maxFrames = Math.max(maxFrames, duration * targetFps);
+      });
+      const totalFrames = exportDuration ? exportDuration * targetFps : Math.min(maxFrames, 15 * targetFps);
+
       let bgImg: HTMLImageElement | null = null;
       if (previewBg) {
         bgImg = await new Promise((resolve) => {
           const img = new Image();
-          img.crossOrigin = 'anonymous';
+          img.crossOrigin = "anonymous";
           img.onload = () => resolve(img);
-          img.onerror = () => resolve(null);
           img.src = previewBg;
         });
       }
 
-      const wmImg = await new Promise<HTMLImageElement | null>((resolve) => {
-        if (!watermark) return resolve(null);
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => resolve(img);
-        img.onerror = () => resolve(null);
-        img.src = watermark;
-      });
-
-      const totalFrames = exportDuration * targetFps;
+      let wmImg: HTMLImageElement | null = null;
+      if (watermark) {
+        wmImg = await new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.src = watermark;
+        });
+      }
 
       const muxer = new Muxer({
         target: new ArrayBufferTarget(),
-        video: {
-          codec: 'avc',
-          width: finalWidth,
-          height: finalHeight
-        },
-        fastStart: 'in-memory'
+        video: { codec: "avc", width: finalWidth, height: finalHeight },
+        fastStart: "in-memory"
       });
 
       let hasEncoderError = false;
@@ -315,48 +296,77 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         error: (e) => {
           console.error("Encoder Error:", e);
           hasEncoderError = true;
-          // Only alert if the encoder is not already closed
-          if (videoEncoder.state !== 'closed') {
-            alert("خطأ في ترميز الفيديو: " + e.message);
-          }
+          if (videoEncoder.state !== "closed") alert("خطأ في ترميز الفيديو: " + e.message);
         }
       });
 
       const offscreenPlayers = [];
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
+        const w = items.length === 1 ? (DEVICE_PRESETS.find(p => p.id === item.presetId)?.width || item.dimensions?.width || 500) : cardW;
+        const h = items.length === 1 ? (DEVICE_PRESETS.find(p => p.id === item.presetId)?.height || item.dimensions?.height || 500) : cardH;
         
-        // Ensure videoItem is loaded
-        const videoItem = await parseSvgaIfNeeded(item);
-        
-        const w = items.length === 1 ? (selectedPreset ? selectedPreset.width : (item.dimensions?.width || 500)) : cardW;
-        const h = items.length === 1 ? (selectedPreset ? selectedPreset.height : (item.dimensions?.height || 500)) : cardH;
-        
-        const div = document.createElement('div');
-        div.style.width = w + 'px';
-        div.style.height = h + 'px';
-        div.style.position = 'absolute';
-        div.style.left = '0';
-        div.style.top = '0';
+        const div = document.createElement("div");
+        div.style.width = w + "px";
+        div.style.height = h + "px";
+        div.style.position = "absolute";
+        div.style.left = "0";
+        div.style.top = "0";
         renderContainer.appendChild(div);
+
+        let player, internalCanvas;
+        if (item.type === "pag") {
+          const PAG = await getPAG();
+          let pagFile = item.pagFile;
+          if (!pagFile) {
+            pagFile = await PAG.PAGFile.load(await item.file.arrayBuffer());
+            item.pagFile = pagFile;
+          }
+          internalCanvas = document.createElement("canvas");
+          const canvasId = "pag_export_" + Math.random().toString(36).substring(2, 9);
+          internalCanvas.id = canvasId;
+          internalCanvas.width = item.dimensions?.width || 500;
+          internalCanvas.height = item.dimensions?.height || 500;
+          internalCanvas.style.width = "100%";
+          internalCanvas.style.height = "100%";
+          internalCanvas.style.objectFit = "contain";
+          div.appendChild(internalCanvas);
+          
+          player = await PAG.PAGPlayer.create();
+          player.setComposition(pagFile);
+          const pagSurface = PAG.PAGSurface.fromCanvas('#' + canvasId);
+          if (pagSurface) {
+            pagSurface.updateSize();
+            player.setSurface(pagSurface);
+          }
+          player.setVideoEnabled(true);
+          player.setProgress(0);
+          await player.flush();
+        } else {
+          const videoItem = await parseSvgaIfNeeded(item);
+          player = new SVGA.Player(div);
+          player.setVideoItem(videoItem);
+          player.setContentMode(DEVICE_PRESETS.find(p => p.id === item.presetId) ? 'AspectFill' : 'AspectFit');
+          internalCanvas = div.querySelector("canvas");
+        }
         
-        const player = new SVGA.Player(div);
-        player.setVideoItem(videoItem);
-        player.setContentMode(selectedPreset ? 'AspectFill' : 'AspectFit');
-        
-        // Cache the canvas reference
-        const internalCanvas = div.querySelector('canvas');
-        offscreenPlayers.push({ player, div, item, cardW, cardH, internalCanvas, videoItem });
+        offscreenPlayers.push({ player, div, item, cardW, cardH, internalCanvas });
       }
 
-      // Wait for initialization and warmup
       await new Promise(resolve => setTimeout(resolve, 1500));
-      offscreenPlayers.forEach(({ player }) => player.stepToFrame(0, false));
+      for (let i = 0; i < offscreenPlayers.length; i++) {
+        const { player, item } = offscreenPlayers[i];
+        if (item.type === "pag") {
+          player.setProgress(0);
+          await player.flush();
+        } else {
+          player.stepToFrame(0, false);
+        }
+      }
 
-      // Configure encoder right before starting the loop to avoid inactivity reclamation
       try {
         videoEncoder.configure({
-          codec: 'avc1.4D4034', // Main Profile, Level 5.2
+          codec: "avc1.4D4034",
           width: finalWidth,
           height: finalHeight,
           bitrate: 4_000_000,
@@ -375,52 +385,53 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         if (bgImg) {
           ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
         } else {
-          ctx.fillStyle = '#0f172a';
+          ctx.fillStyle = "#0f172a";
           ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
 
-        offscreenPlayers.forEach(({ player, item, cardW, cardH, internalCanvas }, index) => {
+        for (let index = 0; index < offscreenPlayers.length; index++) {
+          const { player, item, cardW, cardH, internalCanvas } = offscreenPlayers[index];
           let x, y;
-          
           if (items.length === 1) {
             x = 0;
             y = 0;
           } else {
             const col = index % cols;
             const row = Math.floor(index / cols);
-            // Scale x, y, cardW, cardH
             const scaleX = canvas.width / canvasWidth;
             const scaleY = canvas.height / canvasHeight;
             x = (padding + col * (cardW + padding)) * scaleX;
             y = (padding + row * (cardH + padding)) * scaleY;
             const scaledCardW = cardW * scaleX;
             const scaledCardH = cardH * scaleY;
-
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+            
+            ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
             ctx.beginPath();
             ctx.roundRect(x, y, scaledCardW, scaledCardH, 40 * Math.min(scaleX, scaleY));
             ctx.fill();
           }
 
           const elapsedSeconds = frame / targetFps;
-          const itemFrame = Math.floor(elapsedSeconds * item.fps) % item.frames;
-          player.stepToFrame(itemFrame, false);
+          if (item.type === "pag") {
+            const durationSec = (item.pagFile?.duration() / 1000000) || 1;
+            player.setProgress((elapsedSeconds % durationSec) / durationSec);
+            await player.flush();
+          } else {
+            const itemFrame = Math.floor(elapsedSeconds * (item.fps || 30)) % (item.frames || 1);
+            player.stepToFrame(itemFrame, false);
+          }
 
           if (internalCanvas) {
             const sw = item.dimensions?.width || 500;
             const sh = item.dimensions?.height || 500;
-            
-            // Always use AspectFit to match the preview behavior
             const scale = Math.min(cardW / sw, cardH / sh);
             const finalW = sw * scale;
             const finalH = sh * scale;
-            
-            // Scale to canvas
             const scaleX = canvas.width / canvasWidth;
             const scaleY = canvas.height / canvasHeight;
             const dx = (x + (cardW * scaleX - finalW * scaleX) / 2);
             const dy = (y + (cardH * scaleY - finalH * scaleY) / 2);
-
+            
             ctx.save();
             ctx.beginPath();
             if (items.length > 1) {
@@ -432,17 +443,17 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             ctx.drawImage(internalCanvas, dx, dy, finalW * scaleX, finalH * scaleY);
             ctx.restore();
           }
-        });
+        }
 
         if (wmImg) {
           const wmSize = Math.min(canvas.width, canvas.height) * (wmSettings.size / 100);
           let wx = 0, wy = 0;
           switch(wmSettings.position) {
-            case 'top-left': wx = 40; wy = 40; break;
-            case 'top-right': wx = canvas.width - wmSize - 40; wy = 40; break;
-            case 'bottom-left': wx = 40; wy = canvas.height - wmSize - 40; break;
-            case 'bottom-right': wx = canvas.width - wmSize - 40; wy = canvas.height - wmSize - 40; break;
-            case 'center': wx = (canvas.width - wmSize) / 2; wy = (canvas.height - wmSize) / 2; break;
+            case "top-left": wx = 40; wy = 40; break;
+            case "top-right": wx = canvas.width - wmSize - 40; wy = 40; break;
+            case "bottom-left": wx = 40; wy = canvas.height - wmSize - 40; break;
+            case "bottom-right": wx = canvas.width - wmSize - 40; wy = canvas.height - wmSize - 40; break;
+            case "center": wx = (canvas.width - wmSize) / 2; wy = (canvas.height - wmSize) / 2; break;
           }
           ctx.globalAlpha = wmSettings.opacity;
           ctx.drawImage(wmImg, wx, wy, wmSize, wmSize);
@@ -451,32 +462,31 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
         const timestamp = (frame / targetFps) * 1_000_000;
         const videoFrame = new VideoFrame(canvas, { timestamp });
-        
-        // Wait if the encoder queue is too full
+
         while (videoEncoder.encodeQueueSize > 10) {
           await new Promise(r => requestAnimationFrame(r));
         }
-        
+
         if (hasEncoderError) break;
         videoEncoder.encode(videoFrame, { keyFrame: frame % 30 === 0 });
         videoFrame.close();
-        
-        // Yield to the browser to prevent blocking the main thread and allow the encoder to work
+
         if (frame % 5 === 0) {
           await new Promise(r => requestAnimationFrame(r));
           setExportProgress(Math.round((frame / totalFrames) * 100));
         }
       }
 
-      if (videoEncoder.state !== 'closed') {
+      if (videoEncoder.state !== "closed") {
         await videoEncoder.flush();
         videoEncoder.close();
       }
+
       muxer.finalize();
       const { buffer } = muxer.target as ArrayBufferTarget;
-      const blob = new Blob([buffer], { type: 'video/mp4' });
+      const blob = new Blob([buffer], { type: "video/mp4" });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
       a.download = `SVGA_Record_${Date.now()}.mp4`;
       a.click();
@@ -490,7 +500,6 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       setExportProgress(0);
     }
   };
-
   const parseSvgaIfNeeded = async (item: MultiSvgaItem): Promise<any> => {
     // ensure videoItem is valid and has images before returning early
     if (item.videoItem && item.videoItem.images) return item.videoItem;
@@ -679,9 +688,15 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      folder?.file(item.name, item.file);
-      setExportProgress(Math.round(((i + 1) / items.length) * 100));
+      if (item.type === "pag") {
+        const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / items.length) * 100)) });
+        folder?.file(item.name.replace(/\.[^/.]+$/, "") + ".svga", result.svgaBlob);
+      } else {
+        folder?.file(item.name, item.file);
+        setExportProgress(Math.round(((i + 1) / items.length) * 100));
+      }
     }
+
 
     const content = await zip.generateAsync({ type: "blob" });
     const url = URL.createObjectURL(content);
@@ -703,11 +718,6 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     }
 
     setIsZipping(true);
-    setExportProgress(0);
-    
-    if (currentUser) {
-      logActivity(currentUser, 'export', `Multi SVGA Combined Export: ${items.length} items`);
-    }
     
     const zip = new JSZip();
     const svgaFolder = zip.folder("SVGA_Files");
@@ -715,13 +725,14 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      // Add SVGA file
-      svgaFolder?.file(item.name, item.file);
-      
-      // Add Image
+      if (item.type === "pag") {
+        const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / items.length) * 100)) });
+        svgaFolder?.file(item.name.replace(/\.[^/.]+$/, "") + ".svga", result.svgaBlob);
+      } else {
+        svgaFolder?.file(item.name, item.file);
+      }
       const blob = await captureFrame(item, Math.floor(item.frames / 2));
-      imageFolder?.file(`${item.name.replace('.svga', '')}.png`, blob);
-      
+      imageFolder?.file(`${item.name.replace(/\.[^/.]+$/, "")}.png`, blob);
       setExportProgress(Math.round(((i + 1) / items.length) * 100));
     }
 
@@ -748,17 +759,35 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     URL.revokeObjectURL(url);
   };
 
-  const handleDownloadSvga = (item: MultiSvgaItem) => {
+  const handleDownloadSvga = async (item: MultiSvgaItem) => {
     if (currentUser) {
-      logActivity(currentUser, 'export', `Single SVGA File Download: ${item.name}`);
+      logActivity(currentUser, "export", `Single SVGA/PAG File Download: ${item.name}`);
     }
-    const url = URL.createObjectURL(item.file);
-    const a = document.createElement('a');
+    let url = "";
+    let downloadName = item.name;
+    if (item.type === "pag") {
+      setIsExporting(true);
+      try {
+        const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(p) });
+        url = URL.createObjectURL(result.svgaBlob);
+        downloadName = item.name.replace(/\.[^/.]+$/, "") + ".svga";
+      } catch (e) {
+        console.error(e);
+        alert("Failed to convert");
+        setIsExporting(false);
+        return;
+      }
+      setIsExporting(false);
+    } else {
+      url = URL.createObjectURL(item.file);
+    }
+    const a = document.createElement("a");
     a.href = url;
-    a.download = item.name;
+    a.download = downloadName;
     a.click();
     URL.revokeObjectURL(url);
   };
+
 
   const selectedItem = useMemo(() => items.find(i => i.id === selectedItemId), [items, selectedItemId]);
 
@@ -1243,18 +1272,89 @@ const SvgaPlayer: React.FC<{ item: any }> = ({ item }) => {
   const [isLoaded, setIsLoaded] = useState(false);
   const selectedPreset = useMemo(() => DEVICE_PRESETS.find(p => p.id === item.presetId), [item.presetId]);
 
+  const pagSurfaceRef = useRef<any>(null);
+
   useEffect(() => {
     let isCanceled = false;
 
     const loadAndPlay = async () => {
       if (!containerRef.current || !wrapperRef.current) return;
       
+      if (item.type === "pag") {
+        let pagFile = item.pagFile;
+        if (!pagFile) {
+          try {
+            const PAG = await getPAG();
+            pagFile = await PAG.PAGFile.load(await item.file.arrayBuffer());
+            item.pagFile = pagFile;
+            if (!item.dimensions) {
+              item.dimensions = { width: pagFile.width(), height: pagFile.height() };
+              item.fps = pagFile.frameRate() || 30;
+              item.frames = Math.floor((pagFile.duration() / 1000000) * item.fps);
+            }
+            if (!isCanceled) setIsLoaded(true);
+          } catch(e) {
+            console.error(e);
+            return;
+          }
+        }
+        if (isCanceled || !containerRef.current) return;
+        
+        if (!playerRef.current) {
+          containerRef.current.innerHTML = "";
+          const canvas = document.createElement("canvas");
+          const canvasId = "pag_player_" + Math.random().toString(36).substring(2, 9);
+          canvas.id = canvasId;
+          canvas.width = item.dimensions?.width || 500;
+          canvas.height = item.dimensions?.height || 500;
+          canvas.style.width = "100%";
+          canvas.style.height = "100%";
+          canvas.style.objectFit = "contain";
+          containerRef.current.appendChild(canvas);
+          
+          const PAG = await getPAG();
+          const pagPlayer = await PAG.PAGPlayer.create();
+          pagPlayer.setComposition(pagFile);
+          const pagSurface = PAG.PAGSurface.fromCanvas('#' + canvasId);
+          if (pagSurface) {
+            pagSurface.updateSize();
+            pagSurfaceRef.current = pagSurface;
+            pagPlayer.setSurface(pagSurface);
+          }
+          pagPlayer.setVideoEnabled(true);
+          pagPlayer.setProgress(0);
+          await pagPlayer.flush();
+          playerRef.current = pagPlayer;
+          
+          const durationMs = (pagFile.duration() / 1000) || 3000;
+          let accumulatedTime = 0;
+          let lastTime = Date.now();
+          
+          const renderLoop = async () => {
+            if (isCanceled) return;
+            const now = Date.now();
+            const delta = now - lastTime;
+            lastTime = now;
+            
+            if (playerRef.current) {
+              accumulatedTime += delta;
+              const progress = (accumulatedTime % durationMs) / durationMs;
+              playerRef.current.setProgress(progress);
+              await playerRef.current.flush();
+            }
+            requestAnimationFrame(renderLoop);
+          };
+          renderLoop();
+        }
+        return;
+      }
+
       let videoItem = item.videoItem;
       if (!videoItem) {
         try {
           videoItem = await new Promise((resolve, reject) => {
             const parser = new SVGA.Parser();
-            const bypassUrl = item.url + '#' + Math.random().toString(36).substr(2, 9);
+            const bypassUrl = item.url + "#" + Math.random().toString(36).substr(2, 9);
             parser.load(bypassUrl, (vi: any) => {
               if (!vi || !vi.images) return reject(new Error("Invalid SVGA"));
               resolve(vi);
@@ -1270,25 +1370,31 @@ const SvgaPlayer: React.FC<{ item: any }> = ({ item }) => {
 
       if (isCanceled || !containerRef.current) return;
       
-      // Clear container first
-      containerRef.current.innerHTML = '';
-      
-      const player = new SVGA.Player(containerRef.current);
-      playerRef.current = player;
-      
-      // We manually scale and center the container, so use Fill
-      player.setContentMode('Fill');
-      player.setVideoItem(videoItem);
-      player.startAnimation();
+      if (!playerRef.current) {
+        containerRef.current.innerHTML = "";
+        const player = new SVGA.Player(containerRef.current);
+        playerRef.current = player;
+        player.setContentMode("Fill");
+        player.setVideoItem(videoItem);
+        player.startAnimation();
+      }
     };
 
     loadAndPlay();
-    return () => { isCanceled = true; playerRef.current?.stopAnimation(); };
-  }, [item.url, isLoaded]);
-
+    return () => { 
+      isCanceled = true; 
+      if (playerRef.current) {
+        if (item.type === "pag") {
+          try { playerRef.current.destroy?.(); } catch (e) {}
+          try { pagSurfaceRef.current?.destroy?.(); } catch (e) {}
+        }
+        else playerRef.current.stopAnimation();
+        playerRef.current = null;
+        pagSurfaceRef.current = null;
+      }
+    };
+  }, [item.url, item.type]); // Removed isLoaded
   useEffect(() => {
-    if (!containerRef.current || !wrapperRef.current || !item.videoItem) return;
-
     const updateCanvasStyles = () => {
       if (!wrapperRef.current || !containerRef.current) return;
       
@@ -1390,83 +1496,170 @@ const SvgaCard: React.FC<{
 
     const [isVisible, setIsVisible] = useState(false);
 
-    useEffect(() => {
-      if (!wrapperRef.current) return;
-      const observer = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
-          setIsVisible(entry.isIntersecting);
-        });
-      }, { threshold: 0, rootMargin: '300px' });
-      observer.observe(wrapperRef.current);
-      return () => observer.disconnect();
-    }, []);
+  const isPlayingRef = useRef(isPlaying);
+  const pagSurfaceRef = useRef<any>(null);
 
-    useEffect(() => {
-      let isCanceled = false;
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
 
-      const loadAndPlay = async () => {
-         if (!isVisible) {
-           if (playerRef.current) {
-             playerRef.current.stopAnimation();
-             playerRef.current = null;
-           }
-           if (containerRef.current) containerRef.current.innerHTML = '';
-           // Free memory! Essential for large collections
-           item.videoItem = undefined;
-           return;
-         }
+  useEffect(() => {
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        setIsVisible(entry.isIntersecting);
+      });
+    }, { threshold: 0, rootMargin: '300px' });
+    if (wrapperRef.current) observer.observe(wrapperRef.current);
+    return () => observer.disconnect();
+  }, []);
 
-         let videoItem = item.videoItem;
-         if (!videoItem || !videoItem.images) {
-           try {
-             videoItem = await new Promise((resolve, reject) => {
-               const parser = new SVGA.Parser();
-               const bypassUrl = item.url + '#' + Math.random().toString(36).substr(2, 9);
-               parser.load(bypassUrl, (vi: any) => {
-                 if (!vi || !vi.images) return reject(new Error("Invalid SVGA"));
-                 resolve(vi);
-               }, reject);
-             });
-             // Set it statically so we don't re-parse if unmounted and remounted
-             item.videoItem = videoItem;
-             if (!item.dimensions) {
-               item.dimensions = { width: videoItem.videoSize?.width || 500, height: videoItem.videoSize?.height || 500 };
-               item.fps = videoItem.FPS || videoItem.fps || 30;
-               item.frames = videoItem.frames || 1;
-             }
-             if (!isCanceled) setIsLoaded(true); // force re-render for new dimensions
-           } catch(e) {
-             console.error("SVGA load error", e);
-             return;
-           }
-         }
+  useEffect(() => {
+    let isCanceled = false;
 
-         if (isCanceled || !containerRef.current) return;
-         containerRef.current.innerHTML = '';
-         const player = new SVGA.Player(containerRef.current);
-         playerRef.current = player;
-         
-         player.loops = 0;
-         player.clearsAfterStop = false;
-         player.setContentMode('AspectFit');
-         player.setVideoItem(videoItem);
-         
-         if (isPlaying) player.startAnimation();
-      };
-      
-      loadAndPlay();
-
-      return () => {
-        isCanceled = true;
+    const loadAndPlay = async () => {
+      if (!isVisible) {
         if (playerRef.current) {
-          playerRef.current.stopAnimation();
+          if (item.type === "pag") {
+            try { playerRef.current.destroy?.(); } catch (e) {}
+            try { pagSurfaceRef.current?.destroy?.(); } catch (e) {}
+          }
+          else playerRef.current.stopAnimation();
+          playerRef.current = null;
+          pagSurfaceRef.current = null;
         }
-      };
-    }, [isPlaying, isVisible, item.url, isLoaded]);
+        if (containerRef.current) containerRef.current.innerHTML = "";
+        return;
+      }
+
+      if (item.type === "pag") {
+        let pagFile = item.pagFile;
+        if (!pagFile) {
+          try {
+            const PAG = await getPAG();
+            pagFile = await PAG.PAGFile.load(await item.file.arrayBuffer());
+            item.pagFile = pagFile;
+            if (!item.dimensions) {
+              item.dimensions = { width: pagFile.width(), height: pagFile.height() };
+              item.fps = pagFile.frameRate() || 30;
+              item.frames = Math.floor((pagFile.duration() / 1000000) * item.fps);
+            }
+            if (!isCanceled) setIsLoaded(true);
+          } catch (e) {
+            console.error("PAG load error", e);
+            return;
+          }
+        }
+        
+        if (isCanceled || !containerRef.current) return;
+        
+        if (!playerRef.current) {
+          containerRef.current.innerHTML = "";
+          const canvas = document.createElement("canvas");
+          const canvasId = "pag_card_" + Math.random().toString(36).substring(2, 9);
+          canvas.id = canvasId;
+          canvas.width = item.dimensions?.width || 500;
+          canvas.height = item.dimensions?.height || 500;
+          canvas.style.width = "100%";
+          canvas.style.height = "100%";
+          canvas.style.objectFit = "contain";
+          containerRef.current.appendChild(canvas);
+          
+          const PAG = await getPAG();
+          const pagPlayer = await PAG.PAGPlayer.create();
+          pagPlayer.setComposition(pagFile);
+          const pagSurface = PAG.PAGSurface.fromCanvas('#' + canvasId);
+          if (pagSurface) {
+            pagSurface.updateSize();
+            pagSurfaceRef.current = pagSurface;
+            pagPlayer.setSurface(pagSurface);
+          }
+          pagPlayer.setVideoEnabled(true);
+          pagPlayer.setProgress(0);
+          await pagPlayer.flush();
+          playerRef.current = pagPlayer;
+          
+          const durationMs = (pagFile.duration() / 1000) || 3000;
+          let accumulatedTime = 0;
+          let lastTime = Date.now();
+          
+          const renderLoop = async () => {
+            if (isCanceled) return;
+            const now = Date.now();
+            const delta = now - lastTime;
+            lastTime = now;
+            
+            if (isPlayingRef.current && playerRef.current) {
+              accumulatedTime += delta;
+              const progress = (accumulatedTime % durationMs) / durationMs;
+              playerRef.current.setProgress(progress);
+              await playerRef.current.flush();
+            }
+            requestAnimationFrame(renderLoop);
+          };
+          renderLoop();
+        }
+        return;
+      }
+
+      let videoItem = item.videoItem;
+      if (!videoItem || !videoItem.images) {
+        try {
+          videoItem = await new Promise((resolve, reject) => {
+            const parser = new SVGA.Parser();
+            const bypassUrl = item.url + "#" + Math.random().toString(36).substr(2, 9);
+            parser.load(bypassUrl, (vi: any) => {
+              if (!vi || !vi.images) return reject(new Error("Invalid SVGA"));
+              resolve(vi);
+            }, reject);
+          });
+          item.videoItem = videoItem;
+          if (!item.dimensions) {
+            item.dimensions = { width: videoItem.videoSize?.width || 500, height: videoItem.videoSize?.height || 500 };
+            item.fps = videoItem.FPS || videoItem.fps || 30;
+            item.frames = videoItem.frames || 1;
+          }
+          if (!isCanceled) setIsLoaded(true);
+        } catch(e) {
+          console.error("SVGA load error", e);
+          return;
+        }
+      }
+
+      if (isCanceled || !containerRef.current) return;
+      
+      if (!playerRef.current) {
+        containerRef.current.innerHTML = "";
+        const player = new SVGA.Player(containerRef.current);
+        playerRef.current = player;
+        player.loops = 0;
+        player.clearsAfterStop = false;
+        player.setContentMode("AspectFit");
+        player.setVideoItem(videoItem);
+      }
+      
+      if (isPlayingRef.current) playerRef.current.startAnimation();
+      else playerRef.current.pauseAnimation();
+    };
+
+    loadAndPlay();
+    return () => {
+      isCanceled = true;
+      if (playerRef.current) {
+        if (item.type === "pag") {
+          try { playerRef.current.destroy?.(); } catch (e) {}
+          try { pagSurfaceRef.current?.destroy?.(); } catch (e) {}
+        }
+        else playerRef.current.stopAnimation();
+      }
+      playerRef.current = null;
+      pagSurfaceRef.current = null;
+    };
+  }, [item.url, item.type, isVisible]); // Removed isLoaded and isPlaying from dependencies
+
 
     // Separate effect for Zoom and Preset style updates - much faster and smoother
     useEffect(() => {
-      const updateCanvasStyles = () => {
+    const updateCanvasStyles = () => {
         if (!wrapperRef.current || !containerRef.current) return;
         
         const wrapperWidth = wrapperRef.current.clientWidth;
@@ -1539,18 +1732,30 @@ const SvgaCard: React.FC<{
     }, [selectedPreset, zoom, item.dimensions]);
 
   const togglePlay = () => {
-    if (isPlaying) {
-      playerRef.current?.pauseAnimation();
+    if (item.type === 'pag') {
+      setIsPlaying(!isPlaying);
     } else {
-      playerRef.current?.startAnimation();
+      if (isPlaying) {
+        playerRef.current?.pauseAnimation();
+      } else {
+        playerRef.current?.startAnimation();
+      }
+      setIsPlaying(!isPlaying);
     }
-    setIsPlaying(!isPlaying);
   };
 
   const replay = () => {
-    playerRef.current?.stopAnimation();
-    playerRef.current?.startAnimation();
-    setIsPlaying(true);
+    if (item.type === 'pag') {
+      if (playerRef.current) {
+        playerRef.current.setProgress(0);
+        playerRef.current.flush();
+      }
+      setIsPlaying(true);
+    } else {
+      playerRef.current?.stopAnimation();
+      playerRef.current?.startAnimation();
+      setIsPlaying(true);
+    }
   };
 
   return (
@@ -1729,3 +1934,5 @@ const SvgaCard: React.FC<{
     </motion.div>
   );
 };
+
+export default MultiSvgaViewer;

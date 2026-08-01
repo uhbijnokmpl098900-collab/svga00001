@@ -129,7 +129,7 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
         if (isCancelled) return;
 
         const blob = file ? file : new Blob([buffer]);
-        const pagFile = await PAG.PAGFile.load(blob);
+        const pagFile = await PAG.PAGFile.load(await blob.arrayBuffer());
         if (isCancelled || !pagFile) return;
 
         // Apply replaced images to the preview pagFile!
@@ -140,7 +140,7 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
               if (!isNaN(index)) {
                 try {
                   const img = new Image();
-                  img.src = base64;
+                  img.src = base64 as string;
                   await new Promise((resolve, reject) => {
                     img.onload = resolve;
                     img.onerror = reject;
@@ -170,7 +170,13 @@ export const PagToSvgaStudio: React.FC<PagToSvgaStudioProps> = ({ onClose, initi
 
         player.setComposition(pagFile);
         surface = PAG.PAGSurface.fromCanvas('#' + canvas.id);
+        if (surface) {
+          surface.updateSize();
+        }
         player.setSurface(surface);
+        player.setVideoEnabled(true);
+        player.setProgress(0);
+        await player.flush();
         pagPlayerRef.current = player;
 
         let startTime = performance.now();

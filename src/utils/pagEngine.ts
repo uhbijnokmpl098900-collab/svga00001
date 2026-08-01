@@ -140,7 +140,7 @@ export function calculateQualityForTarget(params: {
 export async function parsePagFile(fileOrBuffer: File | Blob | ArrayBuffer): Promise<{ pagFile: any; metadata: PagMetadata }> {
   const PAG = await getPAG();
   const blob = fileOrBuffer instanceof Blob ? fileOrBuffer : new Blob([fileOrBuffer]);
-  const pagFile = await PAG.PAGFile.load(blob);
+  const pagFile = await PAG.PAGFile.load(await blob.arrayBuffer());
   
   if (!pagFile) {
     throw new Error('فشل في تحليل ملف PAG. تأكد من أن الملف سليم.');
@@ -302,7 +302,7 @@ export async function convertPagToSvga(
 
   onProgress?.(15, 'تحليل طبقات وملف PAG الأصلي...');
   const blob = fileOrBuffer instanceof Blob ? fileOrBuffer : new Blob([fileOrBuffer]);
-  const pagFile = await PAG.PAGFile.load(blob);
+  const pagFile = await PAG.PAGFile.load(await blob.arrayBuffer());
   if (!pagFile) {
     throw new Error('ملف PAG غير صالح');
   }
