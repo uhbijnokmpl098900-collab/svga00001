@@ -947,12 +947,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 />
               </div>
               <button 
-                onClick={handleDownloadAllImages}
+                onClick={handleDownloadAllCombined}
                 disabled={isZipping || isExporting}
                 className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-600/20 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
               >
                 {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل كل الصور (ZIP)'}
+                {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل الكل (SVGA + صور + PDF)'}
               </button>
               <button 
                 onClick={handleDownloadAllSvga}

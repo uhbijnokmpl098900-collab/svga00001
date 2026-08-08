@@ -6,6 +6,8 @@ import { collection, getDocs } from 'firebase/firestore';
 import { PresetBackground, UserRecord } from '../types';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import JSZip from 'jszip';
+import { jsPDF } from 'jspdf';
+import { createStreamingZip } from '../utils/streamZip';
 import { calculateSafeDimensions } from '../utils/dimensions';
 import { getPAG, convertPagToSvga } from '../utils/pagEngine';
 
@@ -24,6 +26,8 @@ interface MultiSvgaItem {
   pagFile?: any;
   type: "svga" | "pag";
   presetId: string;
+  folderName?: string;
+  folderPath?: string;
 }
 
 interface MultiSvgaViewerProps {
@@ -138,9 +142,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     return () => { isCanceled.current = true; };
   }, []);
 
-  const handleFiles = useCallback(async (files: FileList | File[]) => {
-    const fileArray = Array.from(files).filter(f => {
-      const name = (f?.name || '').toLowerCase();
+  const handleFiles = useCallback(async (fileObjects: {file: File, folderName?: string, folderPath?: string}[]) => {
+    const fileArray = fileObjects.filter(f => {
+      const name = (f.file.name || '').toLowerCase();
       return name.endsWith('.svga') || name.endsWith('.pag');
     });
     if (fileArray.length === 0) return;
@@ -152,14 +156,16 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     for (let i = 0; i < fileArray.length; i += BATCH_SIZE) {
       if (isCanceled.current) break;
       const batch = fileArray.slice(i, i + BATCH_SIZE);
-      const newItems: MultiSvgaItem[] = batch.map((file) => ({
+      const newItems: MultiSvgaItem[] = batch.map((item) => ({
         id: Math.random().toString(36).substr(2, 9),
-        file,
-        url: URL.createObjectURL(file),
-        name: file.name,
-        size: file.size,
-        type: file.name.toLowerCase().endsWith('.pag') ? 'pag' : 'svga',
-        presetId: 'auto'
+        file: item.file,
+        url: URL.createObjectURL(item.file),
+        name: item.file.name,
+        size: item.file.size,
+        type: item.file.name.toLowerCase().endsWith('.pag') ? 'pag' : 'svga',
+        presetId: 'auto',
+        folderName: item.folderName,
+        folderPath: item.folderPath
       }));
       
       setItems(prev => [...prev, ...newItems]);
@@ -169,11 +175,46 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     setLoadProgress(null);
   }, []);
 
-  const onDrop = useCallback((e: React.DragEvent) => {
+  const traverseFileTree = async (item: any, path: string = '', folderName: string = ''): Promise<{file: File, folderName?: string, folderPath?: string}[]> => {
+    return new Promise((resolve) => {
+      if (item.isFile) {
+        item.file((file: File) => {
+          resolve([{ file, folderName, folderPath: path }]);
+        });
+      } else if (item.isDirectory) {
+        const dirReader = item.createReader();
+        dirReader.readEntries(async (entries: any[]) => {
+          const promises = entries.map(entry => traverseFileTree(entry, path + item.name + '/', folderName || item.name));
+          const results = await Promise.all(promises);
+          resolve(results.flat());
+        });
+      } else {
+        resolve([]);
+      }
+    });
+  };
+
+  const onDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files) {
-      handleFiles(e.dataTransfer.files);
+    
+    if (e.dataTransfer.items) {
+      const items = Array.from(e.dataTransfer.items);
+      const promises = items.map(item => {
+        const entry = item.webkitGetAsEntry();
+        if (entry) {
+          return traverseFileTree(entry);
+        }
+        return Promise.resolve([]);
+      });
+      const results = await Promise.all(promises);
+      const allFiles = results.flat();
+      if (allFiles.length > 0) {
+        handleFiles(allFiles);
+      }
+    } else if (e.dataTransfer.files) {
+      const fileObjects = Array.from(e.dataTransfer.files).map(file => ({ file }));
+      handleFiles(fileObjects);
     }
   }, [handleFiles]);
 
@@ -525,79 +566,160 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   };
 
   const captureFrame = async (item: MultiSvgaItem, frameIndex: number = 0): Promise<Blob> => {
-    const videoItem = await parseSvgaIfNeeded(item);
-    if (!item.dimensions) item.dimensions = { width: 500, height: 500 };
-    
+    let dw = selectedPreset ? selectedPreset.width : (item.dimensions?.width || 500);
+    let dh = selectedPreset ? selectedPreset.height : (item.dimensions?.height || 500);
+
     const canvas = document.createElement('canvas');
-    const dw = selectedPreset ? selectedPreset.width : item.dimensions.width;
-    const dh = selectedPreset ? selectedPreset.height : item.dimensions.height;
     canvas.width = dw;
     canvas.height = dh;
     
     // Create context ONCE with alpha: true
     const ctx = canvas.getContext('2d', { alpha: true })!;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Background is intentionally omitted here to ensure the exported PNG is transparent
 
-    const div = document.createElement('div');
-    div.style.width = `${item.dimensions.width}px`;
-    div.style.height = `${item.dimensions.height}px`;
-    div.style.position = 'fixed';
-    div.style.left = '0px';
-    div.style.top = '0px';
-    div.style.opacity = '0.001';
-    div.style.pointerEvents = 'none';
-    div.style.backgroundColor = 'transparent';
-    document.body.appendChild(div);
+    if (item.type === 'pag') {
+      const PAG = await getPAG();
+      let pagFile = item.pagFile;
+      if (!pagFile) {
+        pagFile = await PAG.PAGFile.load(await item.file.arrayBuffer());
+      }
+      
+      if (!item.dimensions) {
+        item.dimensions = { width: pagFile.width(), height: pagFile.height() };
+        if (!selectedPreset) {
+          dw = item.dimensions.width;
+          dh = item.dimensions.height;
+          canvas.width = dw;
+          canvas.height = dh;
+        }
+      }
 
-    try {
-      const player = new SVGA.Player(div);
-      player.clearsAfterStop = false;
-      await new Promise<void>((resolve) => {
-        player.setVideoItem(videoItem);
-        player.setContentMode('AspectFit'); // Use Fit internally
-        
-        // Wait for rendering
-        player.onFrame = (frame) => {
-            if (frame === framesToJump) {
-                 setTimeout(resolve, 50); // Small wait to ensure drawing buffer is presented
-                 player.pauseAnimation();
-            }
-        };
-        
-        let framesToJump = frameIndex;
-        if (frameIndex === 0 && item.frames) {
-          framesToJump = Math.floor(item.frames / 2); // Default to middle frame if not specified precisely
+      const tmpCanvas = document.createElement("canvas");
+      tmpCanvas.id = "pag_capture_" + Math.random().toString(36).substring(2, 9);
+      tmpCanvas.width = item.dimensions?.width || pagFile.width();
+      tmpCanvas.height = item.dimensions?.height || pagFile.height();
+      tmpCanvas.style.position = 'fixed';
+      tmpCanvas.style.left = '0px';
+      tmpCanvas.style.top = '0px';
+      tmpCanvas.style.opacity = '0.001';
+      tmpCanvas.style.pointerEvents = 'none';
+      document.body.appendChild(tmpCanvas);
+
+      try {
+        const pagPlayer = await PAG.PAGPlayer.create();
+        pagPlayer.setComposition(pagFile);
+        const pagSurface = PAG.PAGSurface.fromCanvas('#' + tmpCanvas.id);
+        if (pagSurface) {
+           pagPlayer.setSurface(pagSurface);
         }
         
-        player.stepToFrame(framesToJump, true); // Use true so it actively plays to that frame to trigger onFrame
+        let targetProgress = 0.5;
+        if (item.frames) {
+           let framesToJump = frameIndex;
+           if (frameIndex === 0) framesToJump = Math.floor(item.frames / 2);
+           targetProgress = framesToJump / item.frames;
+        }
         
-        // Fallback resolve
-        setTimeout(resolve, 500);
-      });
-      
-      const svgaCanvas = div.querySelector('canvas');
-      if (svgaCanvas) {
-        const sw = item.dimensions.width;
-        const sh = item.dimensions.height;
+        pagPlayer.setProgress(targetProgress);
+        await pagPlayer.flush();
 
-        // Manual AspectFit calculation
+        const sw = tmpCanvas.width;
+        const sh = tmpCanvas.height;
         const scale = Math.min(dw / sw, dh / sh);
         const finalW = sw * scale;
         const finalH = sh * scale;
         const x = (dw - finalW) / 2;
         const y = (dh - finalH) / 2;
+        ctx.drawImage(tmpCanvas, x, y, finalW, finalH);
 
-        ctx.drawImage(svgaCanvas, x, y, finalW, finalH);
+        try { pagPlayer.destroy?.(); } catch (e) {}
+        try { pagSurface?.destroy?.(); } catch (e) {}
+      } finally {
+        document.body.removeChild(tmpCanvas);
       }
+    } else {
+      const videoItem = await parseSvgaIfNeeded(item);
+      if (!item.dimensions) item.dimensions = { width: 500, height: 500 };
       
-      // Drop videoItem reference specifically for large exports to save memory!
-      if (items.length > 50) {
-         item.videoItem = undefined;
+      const div = document.createElement('div');
+      div.style.width = `${item.dimensions.width}px`;
+      div.style.height = `${item.dimensions.height}px`;
+      div.style.position = 'fixed';
+      div.style.left = '0px';
+      div.style.top = '0px';
+      div.style.opacity = '0.001';
+      div.style.pointerEvents = 'none';
+      div.style.backgroundColor = 'transparent';
+      document.body.appendChild(div);
+
+      let player: any;
+      try {
+        player = new SVGA.Player(div);
+        player.clearsAfterStop = false;
+        
+        const attemptRender = async (targetFrame: number) => {
+            return new Promise<void>((resolve, reject) => {
+              try {
+                  player.setVideoItem(videoItem);
+                  player.setContentMode('AspectFit'); 
+                  
+                  let resolved = false;
+                  const doResolve = () => {
+                    if (!resolved) { resolved = true; resolve(); }
+                  };
+        
+                  player.onFrame = (frame: number) => {
+                      if (frame === targetFrame) {
+                           setTimeout(doResolve, 50);
+                           player.pauseAnimation();
+                      }
+                  };
+                  
+                  player.stepToFrame(targetFrame, true); 
+                  setTimeout(doResolve, 500);
+              } catch(err) {
+                  reject(err);
+              }
+            });
+        };
+
+        let framesToJump = 0;
+        if (frameIndex > 0) {
+          framesToJump = Math.min(frameIndex, (item.frames || 1) - 1);
+        }
+
+        try {
+            await attemptRender(framesToJump);
+        } catch (e) {
+            console.warn("Failed to render frame", framesToJump, "falling back to frame 0", e);
+            if (framesToJump !== 0) {
+                await attemptRender(0);
+            }
+        }
+        
+        const svgaCanvas = div.querySelector('canvas');
+        if (svgaCanvas) {
+          const sw = item.dimensions.width;
+          const sh = item.dimensions.height;
+          // Manual AspectFit calculation
+          const scale = Math.min(dw / sw, dh / sh);
+          const finalW = sw * scale;
+          const finalH = sh * scale;
+          const x = (dw - finalW) / 2;
+          const y = (dh - finalH) / 2;
+          ctx.drawImage(svgaCanvas, x, y, finalW, finalH);
+        }
+        
+        // Drop videoItem reference specifically for large exports to save memory!
+        if (items.length > 50) { 
+           item.videoItem = undefined;
+        }
+      } finally {
+        if (player) {
+          try { player.clear(); } catch(e) {}
+        }
+        document.body.removeChild(div);
       }
-    } finally {
-      document.body.removeChild(div);
     }
 
     // Draw Watermark
@@ -610,7 +732,6 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           img.onerror = reject;
           img.src = watermark;
         });
-
         ctx.globalAlpha = wmSettings.opacity;
         const wmSize = Math.min(canvas.width, canvas.height) * (wmSettings.size / 100);
         let wx = 0, wy = 0;
@@ -633,9 +754,19 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
   const handleDownloadAllImages = async () => {
     if (items.length === 0) return;
+    
+    let zipStream;
+    try {
+        zipStream = await createStreamingZip(`SVGA_Images_${Date.now()}.zip`);
+    } catch (e: any) {
+        if (e.message === "USER_ABORT") return;
+        console.error(e);
+        return;
+    }
 
     const { allowed } = await checkAccess('Multi SVGA ZIP Export');
     if (!allowed) {
+      if (zipStream.abort) await zipStream.abort();
       if (onSubscriptionRequired) onSubscriptionRequired();
       return;
     }
@@ -646,32 +777,48 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     if (currentUser) {
       logActivity(currentUser, 'export', `Multi SVGA ZIP Export: ${items.length} files`);
     }
+
+    try {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          let folderPrefix = "";
+          if (item.folderPath) {
+            folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
+          }
     
-    const zip = new JSZip();
-    const folder = zip.folder("SVGA_Screenshots");
-
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const blob = await captureFrame(item, Math.floor(item.frames / 2)); // Capture middle frame
-      folder?.file(`${item.name.replace('.svga', '')}.png`, blob);
-      setExportProgress(Math.round(((i + 1) / items.length) * 100));
+          const blob = await captureFrame(item, Math.floor(item.frames / 2));
+          const arrayBuffer = await blob.arrayBuffer();
+          const baseName = item.name.replace(/\.[^/.]+$/, "");
+          
+          zipStream.addFile(`${folderPrefix}${baseName}.png`, new Uint8Array(arrayBuffer));
+          setExportProgress(Math.round(((i + 1) / items.length) * 100));
+          
+          // Allow GC
+          await new Promise(resolve => setTimeout(resolve, 5));
+        }
+        await zipStream.close();
+    } catch (e) {
+        console.error("Export failed", e);
+    } finally {
+        setIsZipping(false);
     }
-
-    const content = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(content);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `SVGA_Images_${Date.now()}.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setIsZipping(false);
   };
 
   const handleDownloadAllSvga = async () => {
     if (items.length === 0) return;
 
+    let zipStream;
+    try {
+        zipStream = await createStreamingZip(`SVGA_Files_${Date.now()}.zip`);
+    } catch (e: any) {
+        if (e.message === "USER_ABORT") return;
+        console.error(e);
+        return;
+    }
+
     const { allowed } = await checkAccess('Multi SVGA Files Export');
     if (!allowed) {
+      if (zipStream.abort) await zipStream.abort();
       if (onSubscriptionRequired) onSubscriptionRequired();
       return;
     }
@@ -682,68 +829,130 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     if (currentUser) {
       logActivity(currentUser, 'export', `Multi SVGA Files Export: ${items.length} files`);
     }
+
+    try {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          let folderPrefix = "";
+          if (item.folderPath) {
+            folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
+          }
     
-    const zip = new JSZip();
-    const folder = zip.folder("SVGA_Files");
+          const baseName = item.name.replace(/\.[^/.]+$/, "");
+    
+          if (item.type === "pag") {
+            const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / items.length) * 100)) });
+            const arrayBuffer = await result.svgaBlob.arrayBuffer();
+            zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
+          } else {
+            const arrayBuffer = await item.file.arrayBuffer();
+            zipStream.addFile(`${folderPrefix}${item.name}`, new Uint8Array(arrayBuffer));
+          }
 
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.type === "pag") {
-        const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / items.length) * 100)) });
-        folder?.file(item.name.replace(/\.[^/.]+$/, "") + ".svga", result.svgaBlob);
-      } else {
-        folder?.file(item.name, item.file);
-        setExportProgress(Math.round(((i + 1) / items.length) * 100));
-      }
+          // ADD IMAGES AS REQUESTED
+          try {
+             const blob = await captureFrame(item, 0);
+             const pngArrayBuffer = await blob.arrayBuffer();
+             zipStream.addFile(`${folderPrefix}${baseName}.png`, new Uint8Array(pngArrayBuffer));
+          } catch(err) {
+             console.error("Failed to capture PNG for", item.name, err);
+          }
+
+          setExportProgress(Math.round(((i + 1) / items.length) * 100));
+          await new Promise(resolve => setTimeout(resolve, 5));
+        }
+        await zipStream.close();
+    } catch (e) {
+        console.error("Export failed", e);
+    } finally {
+        setIsZipping(false);
     }
-
-
-    const content = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(content);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `SVGA_Files_${Date.now()}.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setIsZipping(false);
   };
 
   const handleDownloadAllCombined = async () => {
     if (items.length === 0) return;
+    
+    let zipStream;
+    try {
+        zipStream = await createStreamingZip(`SVGA_Full_Package_${Date.now()}.zip`);
+    } catch (e: any) {
+        if (e.message === "USER_ABORT") return;
+        console.error(e);
+        return;
+    }
 
     const { allowed } = await checkAccess('Multi SVGA Combined Export', { subscriptionOnly: true });
     if (!allowed) {
+      if (zipStream.abort) await zipStream.abort();
       if (onSubscriptionRequired) onSubscriptionRequired();
       return;
     }
 
     setIsZipping(true);
+    setExportProgress(0);
+
+    try {
+        const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' });
+        let isFirstPage = true;
+
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          let folderPrefix = "";
+          if (item.folderPath) {
+            folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
+          }
     
-    const zip = new JSZip();
-    const svgaFolder = zip.folder("SVGA_Files");
-    const imageFolder = zip.folder("SVGA_Images");
+          const baseName = item.name.replace(/\.[^/.]+$/, "");
+    
+          // 1. Add SVGA file
+          if (item.type === "pag") {
+            const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / items.length) * 100)) });
+            const arrayBuffer = await result.svgaBlob.arrayBuffer();
+            zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
+          } else {
+            const arrayBuffer = await item.file.arrayBuffer();
+            zipStream.addFile(`${folderPrefix}${item.name}`, new Uint8Array(arrayBuffer));
+          }
+    
+          // 2. Add PNG capture
+          const blob = await captureFrame(item, Math.floor(item.frames / 2));
+          const pngArrayBuffer = await blob.arrayBuffer();
+          const pngUint8 = new Uint8Array(pngArrayBuffer);
+          zipStream.addFile(`${folderPrefix}${baseName}.png`, pngUint8);
 
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      if (item.type === "pag") {
-        const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / items.length) * 100)) });
-        svgaFolder?.file(item.name.replace(/\.[^/.]+$/, "") + ".svga", result.svgaBlob);
-      } else {
-        svgaFolder?.file(item.name, item.file);
-      }
-      const blob = await captureFrame(item, Math.floor(item.frames / 2));
-      imageFolder?.file(`${item.name.replace(/\.[^/.]+$/, "")}.png`, blob);
-      setExportProgress(Math.round(((i + 1) / items.length) * 100));
+          // 3. Add to PDF
+          let dw = selectedPreset ? selectedPreset.width : (item.dimensions?.width || 500);
+          let dh = selectedPreset ? selectedPreset.height : (item.dimensions?.height || 500);
+          const pdfWidth = pdf.internal.pageSize.getWidth();
+          const pdfHeight = pdf.internal.pageSize.getHeight();
+          const ratio = Math.min(pdfWidth / dw, pdfHeight / dh);
+          
+          const finalWidth = dw * ratio;
+          const finalHeight = dh * ratio;
+          const x = (pdfWidth - finalWidth) / 2;
+          const y = (pdfHeight - finalHeight) / 2;
+
+          if (!isFirstPage) {
+              pdf.addPage();
+          }
+          
+          pdf.addImage(pngUint8, 'PNG', x, y, finalWidth, finalHeight);
+          isFirstPage = false;
+    
+          setExportProgress(Math.round(((i + 1) / items.length) * 100));
+          await new Promise(resolve => setTimeout(resolve, 5));
+        }
+
+        // Add PDF to Zip
+        const pdfArrayBuffer = pdf.output('arraybuffer');
+        zipStream.addFile(`All_Images.pdf`, new Uint8Array(pdfArrayBuffer as ArrayBuffer));
+
+        await zipStream.close();
+    } catch (e) {
+        console.error("Export failed", e);
+    } finally {
+        setIsZipping(false);
     }
-
-    const content = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(content);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `SVGA_Full_Package_${Date.now()}.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setIsZipping(false);
   };
 
   const handleDownloadSingleImage = async (item: MultiSvgaItem) => {
@@ -972,12 +1181,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 />
               </div>
               <button 
-                onClick={handleDownloadAllImages}
+                onClick={handleDownloadAllCombined}
                 disabled={isZipping || isExporting}
                 className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-600/20 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
               >
                 {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل كل الصور (ZIP)'}
+                {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل الكل (SVGA + صور + PDF)'}
               </button>
               <button 
                 onClick={handleDownloadAllSvga}
@@ -987,14 +1196,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل كل ملفات SVGA (ZIP)'}
               </button>
-              <button 
-                onClick={handleDownloadAllCombined}
-                disabled={isZipping || isExporting}
-                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl shadow-lg shadow-indigo-600/20 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
-              >
-                {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل الكل (SVGA + صور)'}
-              </button>
+
               <button 
                 onClick={handleExportGrid}
                 disabled={isExporting}
@@ -1024,17 +1226,41 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl shadow-lg shadow-indigo-600/20 font-black text-sm transition-all flex items-center gap-2"
           >
             <Upload className="w-4 h-4" />
-            رفع ملفات جديدة
+            رفع ملفات
+          </button>
+          <button 
+            onClick={() => {
+              const input = document.createElement('input');
+              input.type = 'file';
+              input.multiple = true;
+              input.webkitdirectory = true;
+              input.onchange = (e: any) => {
+                if (e.target.files) {
+                  const fileObjects = Array.from(e.target.files as FileList).map(file => ({
+                    file,
+                    folderPath: file.webkitRelativePath.split('/').slice(0, -1).join('/'),
+                    folderName: file.webkitRelativePath.split('/').slice(-2, -1)[0]
+                  }));
+                  handleFiles(fileObjects);
+                }
+              };
+              input.click();
+            }}
+            className="px-6 py-3 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-2xl shadow-lg shadow-fuchsia-600/20 font-black text-sm transition-all flex items-center gap-2"
+          >
+            <Upload className="w-4 h-4" />
+            رفع مجلدات
           </button>
           <input 
             ref={fileInputRef}
             type="file" 
             multiple 
-            accept=".svga" 
+            accept=".svga,.pag" 
             className="hidden" 
             onChange={(e) => {
               if (e.target.files) {
-                handleFiles(e.target.files);
+                const fileObjects = Array.from(e.target.files).map(file => ({ file }));
+                handleFiles(fileObjects);
                 e.target.value = '';
               }
             }}
@@ -1157,14 +1383,35 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             <p className="text-slate-500 text-sm font-bold uppercase tracking-widest">يدعم جميع المقاسات بما فيها 750×1334 الطولية</p>
           </div>
         ) : (
-          <div 
-            className="p-8 grid gap-12 overflow-y-auto max-h-[calc(100vh-320px)] custom-scrollbar"
-            style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}
-          >
-            <AnimatePresence mode="popLayout">
-              {items.map((item) => (
-                <SvgaCard 
-                  key={`${item.id}-${item.presetId}`} 
+          <div className="p-8 overflow-y-auto max-h-[calc(100vh-320px)] custom-scrollbar flex flex-col gap-12">
+            {Object.entries(
+              items.reduce((acc, item) => {
+                const folder = item.folderPath || 'الملفات العامة';
+                if (!acc[folder]) acc[folder] = [];
+                acc[folder].push(item);
+                return acc;
+              }, {} as Record<string, MultiSvgaItem[]>)
+            ).map(([folderPath, folderItems]) => (
+              <div key={folderPath} className="flex flex-col gap-4">
+                {folderPath !== 'الملفات العامة' && (
+                  <div className="flex items-center gap-3 border-b border-white/5 pb-2">
+                    <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-lg">
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-xl font-bold text-white">{folderPath.split('/').pop()}</h3>
+                    <span className="text-xs text-slate-400 font-bold bg-white/5 px-2 py-1 rounded-md">{folderItems.length} ملفات</span>
+                  </div>
+                )}
+                <div 
+                  className="grid gap-8"
+                  style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}
+                >
+                  <AnimatePresence mode="popLayout">
+                    {folderItems.map((item) => (
+                      <SvgaCard 
+                        key={`${item.id}-${item.presetId}`} 
                   item={item} 
                   onRemove={() => removeItem(item.id)} 
                   onMaximize={() => setSelectedItemId(item.id)}
@@ -1173,9 +1420,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   previewBg={previewBg}
                   watermark={watermark}
                   onUpdatePreset={(presetId) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, presetId } : i))}
-                />
-              ))}
-            </AnimatePresence>
+                      />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
