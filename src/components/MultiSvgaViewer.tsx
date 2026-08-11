@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera } from 'lucide-react';
+import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { PresetBackground, UserRecord } from '../types';
@@ -504,17 +504,13 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         const timestamp = (frame / targetFps) * 1_000_000;
         const videoFrame = new VideoFrame(canvas, { timestamp });
 
-        while (videoEncoder.encodeQueueSize > 10) {
-          await new Promise(r => requestAnimationFrame(r));
-        }
+        while (videoEncoder.encodeQueueSize > 10) { await new Promise(r => setTimeout(r, 5)); }
 
         if (hasEncoderError) break;
         videoEncoder.encode(videoFrame, { keyFrame: frame % 30 === 0 });
         videoFrame.close();
 
-        if (frame % 5 === 0) {
-          await new Promise(r => requestAnimationFrame(r));
-          setExportProgress(Math.round((frame / totalFrames) * 100));
+        if (frame % 15 === 0) { await new Promise(r => setTimeout(r, 0)); setExportProgress(Math.round((frame / totalFrames) * 100));
         }
       }
 
@@ -537,6 +533,296 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       alert("حدث خطأ أثناء التصدير.");
     } finally {
       document.body.removeChild(renderContainer);
+      setIsExporting(false);
+      setExportProgress(0);
+    }
+  };
+
+  const handleExportIndividualVideos = async (itemsToExport?: MultiSvgaItem[]) => {
+    const list = itemsToExport || items;
+    if (list.length === 0) return;
+
+    const { allowed } = await checkAccess("Multi SVGA Individual Export");
+    if (!allowed) {
+      if (onSubscriptionRequired) onSubscriptionRequired();
+      return;
+    }
+
+    setIsExporting(true);
+    setExportProgress(0);
+
+    if (currentUser) {
+      logActivity(currentUser, "export", `Individual Video Export: ${list.length} files`);
+    }
+
+    const targetFps = 30;
+
+    let bgImg: HTMLImageElement | null = null;
+    if (previewBg) {
+      bgImg = await new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = previewBg;
+      });
+    }
+
+    let wmImg: HTMLImageElement | null = null;
+    if (watermark) {
+      wmImg = await new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = watermark;
+      });
+    }
+
+    let streamZip: any = null;
+    if (list.length > 1) {
+      try {
+        streamZip = await createStreamingZip(`Individual_Videos_${Date.now()}.zip`);
+      } catch (err: any) {
+        if (err?.message === "USER_ABORT") {
+          setIsExporting(false);
+          setExportProgress(0);
+          return;
+        }
+      }
+    }
+
+    const renderContainer = document.createElement("div");
+    renderContainer.style.position = "fixed";
+    renderContainer.style.left = "-10000px";
+    renderContainer.style.top = "0";
+    renderContainer.style.width = "1920px";
+    renderContainer.style.height = "1920px";
+    renderContainer.style.overflow = "hidden";
+    renderContainer.style.zIndex = "-1000";
+    renderContainer.style.pointerEvents = "none";
+    document.body.appendChild(renderContainer);
+
+    try {
+      
+      let completedCount = 0;
+      const CONCURRENCY = 6;
+      for (let batchStart = 0; batchStart < list.length; batchStart += CONCURRENCY) {
+        const batch = list.slice(batchStart, batchStart + CONCURRENCY);
+        await Promise.all(batch.map(async (item, batchIdx) => {
+          const i = batchStart + batchIdx;
+          
+        
+        setExportProgress(Math.round((completedCount / list.length) * 100));
+
+        const preset = DEVICE_PRESETS.find(p => p.id === item.presetId);
+        let itemW = preset?.width || item.dimensions?.width || 500;
+        let itemH = preset?.height || item.dimensions?.height || 500;
+
+        if (forceMobileSize) {
+          itemW = exportResolution === "1080p" ? 1080 : 720;
+          itemH = exportResolution === "1080p" ? 1920 : 1280;
+        } else if (exportResolution === "1080p") {
+          if (itemH > itemW) { itemW = 1080; itemH = 1920; }
+          else { itemW = 1920; itemH = 1080; }
+        } else if (exportResolution === "720p") {
+          if (itemH > itemW) { itemW = 720; itemH = 1280; }
+          else { itemW = 1280; itemH = 720; }
+        }
+
+        const finalWidth = Math.round(itemW / 2) * 2;
+        const finalHeight = Math.round(itemH / 2) * 2;
+
+        const canvas = document.createElement("canvas");
+        canvas.width = finalWidth;
+        canvas.height = finalHeight;
+        const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: true })!;
+
+        const itemFrames = item.frames || 1;
+        const itemFps = item.fps || 30;
+        const durationSec = itemFrames / itemFps;
+        const totalFrames = exportDuration ? exportDuration * targetFps : Math.min(Math.ceil(durationSec * targetFps), 15 * targetFps);
+
+        const muxer = new Muxer({
+          target: new ArrayBufferTarget(),
+          video: { codec: "avc", width: finalWidth, height: finalHeight },
+          fastStart: "in-memory"
+        });
+
+        let hasEncoderError = false;
+        const videoEncoder = new VideoEncoder({
+          output: (chunk, metadata) => muxer.addVideoChunk(chunk, metadata),
+          error: (e) => {
+            console.error("Encoder Error:", e);
+            hasEncoderError = true;
+          }
+        });
+
+        videoEncoder.configure({
+          codec: "avc1.4D4034",
+          width: finalWidth,
+          height: finalHeight,
+          bitrate: 4_000_000,
+          framerate: targetFps
+        });
+
+        const div = document.createElement("div");
+        div.style.width = finalWidth + "px";
+        div.style.height = finalHeight + "px";
+        div.style.position = "absolute";
+        div.style.left = "0";
+        div.style.top = "0";
+        renderContainer.appendChild(div);
+
+        let player: any = null;
+        let internalCanvas: HTMLCanvasElement | null = null;
+
+        if (item.type === "pag") {
+          const PAG = await getPAG();
+          let pagFile = item.pagFile;
+          if (!pagFile) {
+            pagFile = await PAG.PAGFile.load(await item.file.arrayBuffer());
+            item.pagFile = pagFile;
+          }
+          internalCanvas = document.createElement("canvas");
+          const canvasId = "pag_indiv_" + Math.random().toString(36).substring(2, 9);
+          internalCanvas.id = canvasId;
+          internalCanvas.width = item.dimensions?.width || 500;
+          internalCanvas.height = item.dimensions?.height || 500;
+          internalCanvas.style.width = "100%";
+          internalCanvas.style.height = "100%";
+          internalCanvas.style.objectFit = "contain";
+          div.appendChild(internalCanvas);
+
+          player = await PAG.PAGPlayer.create();
+          player.setComposition(pagFile);
+          const pagSurface = PAG.PAGSurface.fromCanvas('#' + canvasId);
+          if (pagSurface) {
+            pagSurface.updateSize();
+            player.setSurface(pagSurface);
+          }
+          player.setVideoEnabled(true);
+          player.setProgress(0);
+          await player.flush();
+        } else {
+          const videoItem = await parseSvgaIfNeeded(item);
+          player = new SVGA.Player(div);
+          player.setVideoItem(videoItem);
+          player.setContentMode(preset ? 'AspectFill' : 'AspectFit');
+          player.stepToFrame(0, false);
+          internalCanvas = div.querySelector("canvas");
+        }
+
+        await new Promise(r => setTimeout(r, 200));
+
+        for (let frame = 0; frame < totalFrames; frame++) {
+          if (bgImg) {
+            ctx.drawImage(bgImg, 0, 0, finalWidth, finalHeight);
+          } else {
+            ctx.fillStyle = "#0f172a";
+            ctx.fillRect(0, 0, finalWidth, finalHeight);
+          }
+
+          const elapsedSeconds = frame / targetFps;
+          if (item.type === "pag") {
+            const pagDur = (item.pagFile?.duration() / 1000000) || 1;
+            player.setProgress((elapsedSeconds % pagDur) / pagDur);
+            await player.flush();
+          } else {
+            const itemFrame = Math.floor(elapsedSeconds * (item.fps || 30)) % (item.frames || 1);
+            player.stepToFrame(itemFrame, false);
+          }
+
+          if (internalCanvas) {
+            const sw = internalCanvas.width || item.dimensions?.width || 500;
+            const sh = internalCanvas.height || item.dimensions?.height || 500;
+            const scale = Math.min(finalWidth / sw, finalHeight / sh);
+            const drawW = sw * scale;
+            const drawH = sh * scale;
+            const dx = (finalWidth - drawW) / 2;
+            const dy = (finalHeight - drawH) / 2;
+
+            ctx.drawImage(internalCanvas, dx, dy, drawW, drawH);
+          }
+
+          if (wmImg) {
+            const wmSize = Math.min(finalWidth, finalHeight) * (wmSettings.size / 100);
+            let wx = 0, wy = 0;
+            switch (wmSettings.position) {
+              case "top-left": wx = 20; wy = 20; break;
+              case "top-right": wx = finalWidth - wmSize - 20; wy = 20; break;
+              case "bottom-left": wx = 20; wy = finalHeight - wmSize - 20; break;
+              case "bottom-right": wx = finalWidth - wmSize - 20; wy = finalHeight - wmSize - 20; break;
+              case "center": wx = (finalWidth - wmSize) / 2; wy = (finalHeight - wmSize) / 2; break;
+            }
+            ctx.globalAlpha = wmSettings.opacity;
+            ctx.drawImage(wmImg, wx, wy, wmSize, wmSize);
+            ctx.globalAlpha = 1.0;
+          }
+
+          const timestamp = (frame / targetFps) * 1_000_000;
+          const videoFrame = new VideoFrame(canvas, { timestamp });
+
+          while (videoEncoder.encodeQueueSize > 10) { await new Promise(r => setTimeout(r, 5)); }
+
+          if (hasEncoderError) break;
+          videoEncoder.encode(videoFrame, { keyFrame: frame % 30 === 0 });
+          videoFrame.close();
+
+          if (frame % 15 === 0) { await new Promise(r => setTimeout(r, 0)); }
+        }
+
+        if (videoEncoder.state !== "closed") {
+          await videoEncoder.flush();
+          videoEncoder.close();
+        }
+
+        muxer.finalize();
+        const { buffer } = muxer.target as ArrayBufferTarget;
+
+        renderContainer.removeChild(div);
+        if (item.type === "pag" && player) {
+          try { player.destroy?.(); } catch (e) {}
+        }
+
+        const cleanName = item.name.replace(/\.(svga|pag)$/i, '');
+        const folderPrefix = item.folderPath ? `${item.folderPath}/` : '';
+        const mp4Filename = `${folderPrefix}${cleanName}.mp4`;
+
+        if (list.length === 1) {
+          const blob = new Blob([buffer], { type: "video/mp4" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `${cleanName}.mp4`;
+          a.click();
+          URL.revokeObjectURL(url);
+        } else if (streamZip) {
+          streamZip.addFile(mp4Filename, new Uint8Array(buffer));
+        }
+
+        if (list.length > 5) {
+          item.videoItem = null;
+        }
+          completedCount++;
+          setExportProgress(Math.round((completedCount / list.length) * 100));
+        }));
+      }
+
+
+      if (streamZip) {
+        await streamZip.close();
+      }
+    } catch (error) {
+      console.error("Individual video export error:", error);
+      alert("حدث خطأ أثناء تصدير الفيديوهات المستقلة.");
+      if (streamZip) {
+        try { await streamZip.abort(); } catch(e) {}
+      }
+    } finally {
+      if (document.body.contains(renderContainer)) {
+        document.body.removeChild(renderContainer);
+      }
       setIsExporting(false);
       setExportProgress(0);
     }
@@ -1198,12 +1484,21 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               </button>
 
               <button 
+                onClick={() => handleExportIndividualVideos()}
+                disabled={isExporting || isZipping}
+                className="relative overflow-hidden group px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-2xl shadow-lg shadow-purple-600/20 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
+              >
+                {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Film className="w-4 h-4" />}
+                {isExporting ? `جاري التصدير ${exportProgress}%` : 'تصدير كل ملف فيديو منفصل (ZIP)'}
+              </button>
+
+              <button 
                 onClick={handleExportGrid}
-                disabled={isExporting}
-                className="relative overflow-hidden group px-8 py-3 bg-red-600/20 border border-red-500/30 rounded-full text-red-400 font-black text-xs uppercase tracking-[0.2em] hover:bg-red-600/30 transition-all flex items-center gap-3"
+                disabled={isExporting || isZipping}
+                className="relative overflow-hidden group px-8 py-3 bg-red-600/20 border border-red-500/30 rounded-full text-red-400 font-black text-xs uppercase tracking-[0.2em] hover:bg-red-600/30 transition-all flex items-center gap-3 disabled:opacity-50"
               >
                 <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
-                {isExporting ? `جاري التسجيل ${exportProgress}%` : '(SCREEN RECORD) تسجيل فيديو'}
+                {isExporting ? `جاري التسجيل ${exportProgress}%` : 'تسجيل فيديو مجمع (كل الملفات فيديو واحد)'}
                 {isExporting && (
                   <motion.div 
                     className="absolute bottom-0 left-0 h-1 bg-red-500"
@@ -1412,14 +1707,15 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                     {folderItems.map((item) => (
                       <SvgaCard 
                         key={`${item.id}-${item.presetId}`} 
-                  item={item} 
-                  onRemove={() => removeItem(item.id)} 
-                  onMaximize={() => setSelectedItemId(item.id)}
-                  onDownload={() => handleDownloadSingleImage(item)}
-                  onDownloadSvga={() => handleDownloadSvga(item)}
-                  previewBg={previewBg}
-                  watermark={watermark}
-                  onUpdatePreset={(presetId) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, presetId } : i))}
+                        item={item} 
+                        onRemove={() => removeItem(item.id)} 
+                        onMaximize={() => setSelectedItemId(item.id)}
+                        onDownload={() => handleDownloadSingleImage(item)}
+                        onDownloadSvga={() => handleDownloadSvga(item)}
+                        onExportVideo={() => handleExportIndividualVideos([item])}
+                        previewBg={previewBg}
+                        watermark={watermark}
+                        onUpdatePreset={(presetId) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, presetId } : i))}
                       />
                     ))}
                   </AnimatePresence>
@@ -1724,10 +2020,11 @@ const SvgaCard: React.FC<{
   onMaximize: () => void;
   onDownload: () => void;
   onDownloadSvga: () => void;
+  onExportVideo?: () => void;
   previewBg: string | null;
   watermark: string | null;
   onUpdatePreset: (presetId: string) => void;
-}> = ({ item, onRemove, onMaximize, onDownload, onDownloadSvga, previewBg, watermark, onUpdatePreset }) => {
+}> = ({ item, onRemove, onMaximize, onDownload, onDownloadSvga, onExportVideo, previewBg, watermark, onUpdatePreset }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -2119,6 +2416,15 @@ const SvgaCard: React.FC<{
           >
             <Download className="w-5 h-5" />
           </button>
+          {onExportVideo && (
+            <button 
+              onClick={onExportVideo}
+              className="w-10 h-10 bg-purple-500/20 backdrop-blur-md text-purple-400 rounded-xl flex items-center justify-center hover:bg-purple-500 hover:text-white transition-all"
+              title="تصدير كفيديو MP4"
+            >
+              <Video className="w-5 h-5" />
+            </button>
+          )}
           <button 
             onClick={() => setShowInfo(!showInfo)}
             className={`w-10 h-10 backdrop-blur-md rounded-xl flex items-center justify-center transition-all ${showInfo ? 'bg-indigo-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
