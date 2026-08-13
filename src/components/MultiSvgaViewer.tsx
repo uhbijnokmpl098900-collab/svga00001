@@ -542,6 +542,25 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     const list = itemsToExport || items;
     if (list.length === 0) return;
 
+    const nameCounts: Record<string, number> = {};
+    const uniqueNames: Record<string, string> = {};
+    list.forEach(item => {
+      let folderPrefix = "";
+      if (item.folderPath) {
+        folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
+      }
+      const rawName = item.name.replace(/\.[^/.]+$/, "");
+      const fullPath = folderPrefix + rawName;
+      if (nameCounts[fullPath]) {
+        nameCounts[fullPath]++;
+        uniqueNames[item.id] = `${rawName}_${nameCounts[fullPath]}`;
+      } else {
+        nameCounts[fullPath] = 1;
+        uniqueNames[item.id] = rawName;
+      }
+    });
+
+
     const { allowed } = await checkAccess("Multi SVGA Individual Export");
     if (!allowed) {
       if (onSubscriptionRequired) onSubscriptionRequired();
@@ -785,7 +804,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           try { player.destroy?.(); } catch (e) {}
         }
 
-        const cleanName = item.name.replace(/\.(svga|pag)$/i, '');
+        const cleanName = uniqueNames[item.id];
         const folderPrefix = item.folderPath ? `${item.folderPath}/` : '';
         const mp4Filename = `${folderPrefix}${cleanName}.mp4`;
 
@@ -1040,6 +1059,25 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
   const handleDownloadAllImages = async () => {
     if (items.length === 0) return;
+
+    const nameCounts: Record<string, number> = {};
+    const uniqueNames: Record<string, string> = {};
+    items.forEach(item => {
+      let folderPrefix = "";
+      if (item.folderPath) {
+        folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
+      }
+      const rawName = item.name.replace(/\.[^/.]+$/, "");
+      const fullPath = folderPrefix + rawName;
+      if (nameCounts[fullPath]) {
+        nameCounts[fullPath]++;
+        uniqueNames[item.id] = `${rawName}_${nameCounts[fullPath]}`;
+      } else {
+        nameCounts[fullPath] = 1;
+        uniqueNames[item.id] = rawName;
+      }
+    });
+
     
     let zipStream;
     try {
@@ -1074,7 +1112,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     
           const blob = await captureFrame(item, Math.floor(item.frames / 2));
           const arrayBuffer = await blob.arrayBuffer();
-          const baseName = item.name.replace(/\.[^/.]+$/, "");
+          const baseName = uniqueNames[item.id];
           
           zipStream.addFile(`${folderPrefix}${baseName}.png`, new Uint8Array(arrayBuffer));
           setExportProgress(Math.round(((i + 1) / items.length) * 100));
@@ -1092,6 +1130,25 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
   const handleDownloadAllSvga = async () => {
     if (items.length === 0) return;
+
+    const nameCounts: Record<string, number> = {};
+    const uniqueNames: Record<string, string> = {};
+    items.forEach(item => {
+      let folderPrefix = "";
+      if (item.folderPath) {
+        folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
+      }
+      const rawName = item.name.replace(/\.[^/.]+$/, "");
+      const fullPath = folderPrefix + rawName;
+      if (nameCounts[fullPath]) {
+        nameCounts[fullPath]++;
+        uniqueNames[item.id] = `${rawName}_${nameCounts[fullPath]}`;
+      } else {
+        nameCounts[fullPath] = 1;
+        uniqueNames[item.id] = rawName;
+      }
+    });
+
 
     let zipStream;
     try {
@@ -1124,7 +1181,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
           }
     
-          const baseName = item.name.replace(/\.[^/.]+$/, "");
+          const baseName = uniqueNames[item.id];
     
           if (item.type === "pag") {
             const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / items.length) * 100)) });
@@ -1132,7 +1189,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
           } else {
             const arrayBuffer = await item.file.arrayBuffer();
-            zipStream.addFile(`${folderPrefix}${item.name}`, new Uint8Array(arrayBuffer));
+            zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
           }
 
           // ADD IMAGES AS REQUESTED
@@ -1157,6 +1214,25 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
   const handleDownloadAllCombined = async () => {
     if (items.length === 0) return;
+
+    const nameCounts: Record<string, number> = {};
+    const uniqueNames: Record<string, string> = {};
+    items.forEach(item => {
+      let folderPrefix = "";
+      if (item.folderPath) {
+        folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
+      }
+      const rawName = item.name.replace(/\.[^/.]+$/, "");
+      const fullPath = folderPrefix + rawName;
+      if (nameCounts[fullPath]) {
+        nameCounts[fullPath]++;
+        uniqueNames[item.id] = `${rawName}_${nameCounts[fullPath]}`;
+      } else {
+        nameCounts[fullPath] = 1;
+        uniqueNames[item.id] = rawName;
+      }
+    });
+
     
     let zipStream;
     try {
@@ -1188,7 +1264,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
           }
     
-          const baseName = item.name.replace(/\.[^/.]+$/, "");
+          const baseName = uniqueNames[item.id];
     
           // 1. Add SVGA file
           if (item.type === "pag") {
@@ -1197,7 +1273,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
           } else {
             const arrayBuffer = await item.file.arrayBuffer();
-            zipStream.addFile(`${folderPrefix}${item.name}`, new Uint8Array(arrayBuffer));
+            zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
           }
     
           // 2. Add PNG capture
