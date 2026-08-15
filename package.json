@@ -20,7 +20,7 @@
     "clsx": "^2.1.1",
     "express": "^5.2.1",
     "fflate": "^0.8.3",
-    "firebase": "^12.10.0",
+    "firebase": "12.16.0",
     "html-to-image": "^1.11.13",
     "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
