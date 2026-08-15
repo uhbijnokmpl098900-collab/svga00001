@@ -17,6 +17,7 @@ import { BatchImageConverter } from './components/BatchImageConverter';
 import { PagConverter } from './components/PagConverter';
 import { PagToSvgaStudio } from './components/PagToSvgaStudio';
 import { ImageEditor } from './components/ImageEditor';
+import Name3DEditor from "./components/Name3DEditor/Name3DEditor";
 import { ImageMatcher } from './components/ImageMatcher';
 import { Store } from './components/Store';
 import { AdminPanel } from './components/AdminPanel';
@@ -482,6 +483,7 @@ const App: React.FC = () => {
         onBatchImageProcessorOpen={() => handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor')}
         onUniversalConverterOpen={() => handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools')}
         onPagConverterOpen={() => setShowPagConverter(true)}
+        onName3DEditorOpen={() => handleFeatureAccess(AppState.NAME_3D_EDITOR, '3D Name Editor')}
         onBatchImageOpen={() => setShowBatchImage(true)}
         onLoginClick={() => {}}
         onProfileClick={() => {}}
@@ -498,6 +500,7 @@ const App: React.FC = () => {
           state === AppState.BATCH_CROPPER ? 'cropper' :
           state === AppState.SVGA_EDITOR_EX ? 'svga-ex' :
           state === AppState.MULTI_SVGA_VIEWER ? 'multi-svga' :
+          state === AppState.NAME_3D_EDITOR ? 'name-3d' :
           'svga'
         }
       />
@@ -550,6 +553,7 @@ const App: React.FC = () => {
                         case 'imageEditor': handleFeatureAccess(AppState.IMAGE_EDITOR, 'Image Editor'); break;
                         case 'imageEnhancer': handleFeatureAccess(AppState.IMAGE_ENHANCER, 'AI Image Enhancer'); break;
                         case 'batchImageOpen': setShowBatchImage(true); break;
+                        case 'name3DEditor': handleFeatureAccess(AppState.NAME_3D_EDITOR, '3D Name Editor'); break;
                         case 'pagConverterOpen': setShowPagConverter(true); break;
                      }
                   }}
@@ -650,6 +654,13 @@ const App: React.FC = () => {
                 currentUser={currentUser} 
                 onCancel={handleReset} 
                 onLoginRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.NAME_3D_EDITOR && (
+              <Name3DEditor 
+                onCancel={handleReset} 
+                currentUser={currentUser}
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}
               />
             )}

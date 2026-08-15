@@ -200,8 +200,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     
     if (e.dataTransfer.items) {
       const items = Array.from(e.dataTransfer.items);
-      const promises = items.map(item => {
-        const entry = item.webkitGetAsEntry();
+      const promises = (items as any[]).map(item => {
+        const entry = (item as any).webkitGetAsEntry();
         if (entry) {
           return traverseFileTree(entry);
         }
@@ -232,7 +232,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   };
 
   const handleExportGrid = async () => {
-    if (items.length === 0) return;
+    if ((items as any[]).length === 0) return;
 
     const { allowed } = await checkAccess("Multi SVGA Export");
     if (!allowed) {
@@ -244,7 +244,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     setExportProgress(0);
 
     if (currentUser) {
-      logActivity(currentUser, "export", `Multi SVGA Grid Export: ${items.length} files`);
+      logActivity(currentUser, "export", `Multi SVGA Grid Export: ${(items as any[]).length} files`);
     }
 
     const renderContainer = document.createElement("div");
@@ -265,7 +265,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       let cols: number;
       let rows: number;
 
-      if (items.length === 1) {
+      if ((items as any[]).length === 1) {
         const item = items[0];
         canvasWidth = DEVICE_PRESETS.find(p => p.id === item.presetId)?.width || item.dimensions?.width || 500;
         canvasHeight = DEVICE_PRESETS.find(p => p.id === item.presetId)?.height || item.dimensions?.height || 500;
@@ -278,11 +278,11 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           canvasWidth = exportResolution === "1080p" ? 1080 : 720;
           canvasHeight = exportResolution === "1080p" ? 1920 : 1280;
         }
-        cols = Math.ceil(Math.sqrt(items.length));
-        rows = Math.ceil(items.length / cols);
+        cols = Math.ceil(Math.sqrt((items as any[]).length));
+        rows = Math.ceil((items as any[]).length / cols);
       }
 
-      const padding = items.length === 1 ? 0 : 20;
+      const padding = (items as any[]).length === 1 ? 0 : 20;
       const availableWidth = canvasWidth - (padding * (cols + 1));
       const availableHeight = canvasHeight - (padding * (rows + 1));
       const cardW = availableWidth / cols;
@@ -342,10 +342,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       });
 
       const offscreenPlayers = [];
-      for (let i = 0; i < items.length; i++) {
+      for (let i = 0; i < (items as any[]).length; i++) {
         const item = items[i];
-        const w = items.length === 1 ? (DEVICE_PRESETS.find(p => p.id === item.presetId)?.width || item.dimensions?.width || 500) : cardW;
-        const h = items.length === 1 ? (DEVICE_PRESETS.find(p => p.id === item.presetId)?.height || item.dimensions?.height || 500) : cardH;
+        const w = (items as any[]).length === 1 ? (DEVICE_PRESETS.find(p => p.id === item.presetId)?.width || item.dimensions?.width || 500) : cardW;
+        const h = (items as any[]).length === 1 ? (DEVICE_PRESETS.find(p => p.id === item.presetId)?.height || item.dimensions?.height || 500) : cardH;
         
         const div = document.createElement("div");
         div.style.width = w + "px";
@@ -433,7 +433,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         for (let index = 0; index < offscreenPlayers.length; index++) {
           const { player, item, cardW, cardH, internalCanvas } = offscreenPlayers[index];
           let x, y;
-          if (items.length === 1) {
+          if ((items as any[]).length === 1) {
             x = 0;
             y = 0;
           } else {
@@ -475,7 +475,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             
             ctx.save();
             ctx.beginPath();
-            if (items.length > 1) {
+            if ((items as any[]).length > 1) {
               ctx.roundRect(x, y, cardW * scaleX, cardH * scaleY, 40 * Math.min(scaleX, scaleY));
             } else {
               ctx.rect(x, y, canvas.width, canvas.height);
@@ -1016,7 +1016,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         }
         
         // Drop videoItem reference specifically for large exports to save memory!
-        if (items.length > 50) { 
+        if ((items as any[]).length > 50) { 
            item.videoItem = undefined;
         }
       } finally {
@@ -1058,7 +1058,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   };
 
   const handleDownloadAllImages = async () => {
-    if (items.length === 0) return;
+    if ((items as any[]).length === 0) return;
 
     const nameCounts: Record<string, number> = {};
     const uniqueNames: Record<string, string> = {};
@@ -1099,11 +1099,11 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     setExportProgress(0);
     
     if (currentUser) {
-      logActivity(currentUser, 'export', `Multi SVGA ZIP Export: ${items.length} files`);
+      logActivity(currentUser, 'export', `Multi SVGA ZIP Export: ${(items as any[]).length} files`);
     }
 
     try {
-        for (let i = 0; i < items.length; i++) {
+        for (let i = 0; i < (items as any[]).length; i++) {
           const item = items[i];
           let folderPrefix = "";
           if (item.folderPath) {
@@ -1115,7 +1115,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           const baseName = uniqueNames[item.id];
           
           zipStream.addFile(`${folderPrefix}${baseName}.png`, new Uint8Array(arrayBuffer));
-          setExportProgress(Math.round(((i + 1) / items.length) * 100));
+          setExportProgress(Math.round(((i + 1) / (items as any[]).length) * 100));
           
           // Allow GC
           await new Promise(resolve => setTimeout(resolve, 5));
@@ -1129,7 +1129,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   };
 
   const handleDownloadAllSvga = async () => {
-    if (items.length === 0) return;
+    if ((items as any[]).length === 0) return;
 
     const nameCounts: Record<string, number> = {};
     const uniqueNames: Record<string, string> = {};
@@ -1170,11 +1170,11 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     setExportProgress(0);
     
     if (currentUser) {
-      logActivity(currentUser, 'export', `Multi SVGA Files Export: ${items.length} files`);
+      logActivity(currentUser, 'export', `Multi SVGA Files Export: ${(items as any[]).length} files`);
     }
 
     try {
-        for (let i = 0; i < items.length; i++) {
+        for (let i = 0; i < (items as any[]).length; i++) {
           const item = items[i];
           let folderPrefix = "";
           if (item.folderPath) {
@@ -1184,7 +1184,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           const baseName = uniqueNames[item.id];
     
           if (item.type === "pag") {
-            const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / items.length) * 100)) });
+            const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / (items as any[]).length) * 100)) });
             const arrayBuffer = await result.svgaBlob.arrayBuffer();
             zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
           } else {
@@ -1201,7 +1201,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
              console.error("Failed to capture PNG for", item.name, err);
           }
 
-          setExportProgress(Math.round(((i + 1) / items.length) * 100));
+          setExportProgress(Math.round(((i + 1) / (items as any[]).length) * 100));
           await new Promise(resolve => setTimeout(resolve, 5));
         }
         await zipStream.close();
@@ -1213,7 +1213,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   };
 
   const handleDownloadAllCombined = async () => {
-    if (items.length === 0) return;
+    if ((items as any[]).length === 0) return;
 
     const nameCounts: Record<string, number> = {};
     const uniqueNames: Record<string, string> = {};
@@ -1257,7 +1257,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' });
         let isFirstPage = true;
 
-        for (let i = 0; i < items.length; i++) {
+        for (let i = 0; i < (items as any[]).length; i++) {
           const item = items[i];
           let folderPrefix = "";
           if (item.folderPath) {
@@ -1268,7 +1268,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     
           // 1. Add SVGA file
           if (item.type === "pag") {
-            const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / items.length) * 100)) });
+            const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / (items as any[]).length) * 100)) });
             const arrayBuffer = await result.svgaBlob.arrayBuffer();
             zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
           } else {
@@ -1301,7 +1301,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           pdf.addImage(pngUint8, 'PNG', x, y, finalWidth, finalHeight);
           isFirstPage = false;
     
-          setExportProgress(Math.round(((i + 1) / items.length) * 100));
+          setExportProgress(Math.round(((i + 1) / (items as any[]).length) * 100));
           await new Promise(resolve => setTimeout(resolve, 5));
         }
 
@@ -1370,7 +1370,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           <h2 className="text-3xl font-black text-white flex items-center gap-3">
             <Layers className="w-8 h-8 text-indigo-500" />
             نظام العرض الذكي لملفات SVGA
-            {items.length > 0 && (
+            {(items as any[]).length > 0 && (
               <motion.div 
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -1378,7 +1378,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               >
                 <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse" />
                 <span className="text-xs font-black text-indigo-400 uppercase tracking-widest">
-                  {items.length} {items.length === 1 ? 'ملف مرفوع' : 'ملفات مرفوعة'}
+                  {(items as any[]).length} {(items as any[]).length === 1 ? 'ملف مرفوع' : 'ملفات مرفوعة'}
                 </span>
               </motion.div>
             )}
@@ -1389,7 +1389,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         </div>
         
         <div className="flex flex-wrap items-center gap-3">
-          {items.length > 0 && (
+          {(items as any[]).length > 0 && (
             <>
               {/* Standard Sizes */}
               <div className="flex items-center gap-2 bg-white/5 p-1.5 rounded-2xl border border-white/10">
@@ -1739,13 +1739,13 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       <div 
         className={`flex-1 min-h-[400px] rounded-[3rem] border-2 border-dashed transition-all duration-500 relative overflow-hidden
           ${isDragging ? 'border-indigo-500 bg-indigo-500/5' : 'border-white/5 bg-white/2'}
-          ${items.length === 0 ? 'flex items-center justify-center' : ''}
+          ${(items as any[]).length === 0 ? 'flex items-center justify-center' : ''}
         `}
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={onDrop}
       >
-        {items.length === 0 ? (
+        {(items as any[]).length === 0 ? (
           <div className="text-center p-12">
             <div className="w-24 h-24 bg-white/5 rounded-[2rem] flex items-center justify-center mx-auto mb-6 border border-white/10">
               <Upload className="w-10 h-10 text-slate-500" />
@@ -1772,7 +1772,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                       </svg>
                     </div>
                     <h3 className="text-xl font-bold text-white">{folderPath.split('/').pop()}</h3>
-                    <span className="text-xs text-slate-400 font-bold bg-white/5 px-2 py-1 rounded-md">{folderItems.length} ملفات</span>
+                    <span className="text-xs text-slate-400 font-bold bg-white/5 px-2 py-1 rounded-md">{(folderItems as any[]).length} ملفات</span>
                   </div>
                 )}
                 <div 
@@ -1780,7 +1780,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}
                 >
                   <AnimatePresence mode="popLayout">
-                    {folderItems.map((item) => (
+                    {(folderItems as any[]).map((item) => (
                       <SvgaCard 
                         key={`${item.id}-${item.presetId}`} 
                         item={item} 
