@@ -8,8 +8,10 @@ export async function createStreamingZip(filename: string): Promise<{
     let writable: any = null;
     let fallbackChunks: Uint8Array[] = [];
     let zip = new Zip();
+    let opfsHandle: FileSystemFileHandle | null = null;
+    let isOpfs = false;
     
-    // Try File System Access API first (Chrome/Edge)
+    // Try File System Access API first (Chrome/Edge desktop)
     if ('showSaveFilePicker' in window) {
         try {
             const handle = await (window as any).showSaveFilePicker({
@@ -21,7 +23,21 @@ export async function createStreamingZip(filename: string): Promise<{
             if (e.name === 'AbortError') {
                 throw new Error("USER_ABORT"); // Stop export if user cancels
             }
-            console.warn("File System API failed, falling back to Blob memory", e);
+            console.warn("showSaveFilePicker blocked, falling back to OPFS or Blob", e);
+        }
+    }
+
+    // Fallback to OPFS to save RAM
+    if (!writable && navigator.storage && navigator.storage.getDirectory) {
+        try {
+            const root = await navigator.storage.getDirectory();
+            // remove old file if exists
+            try { await root.removeEntry(filename); } catch(e) {}
+            opfsHandle = await root.getFileHandle(filename, { create: true });
+            writable = await opfsHandle.createWritable();
+            isOpfs = true;
+        } catch (e) {
+            console.warn("OPFS failed, falling back to RAM Blob memory", e);
         }
     }
 
@@ -34,7 +50,7 @@ export async function createStreamingZip(filename: string): Promise<{
             if (writable) {
                 await writable.write(dat);
             } else {
-                fallbackChunks.push(new Uint8Array(dat)); // CLONE the array because fflate reuses the buffer!
+                fallbackChunks.push(new Uint8Array(dat)); // CLONE the array because fflate reuses the buffer
             }
         });
     };
@@ -51,7 +67,26 @@ export async function createStreamingZip(filename: string): Promise<{
             
             if (writable) {
                 await writable.close();
-            } else {
+            }
+            
+            if (isOpfs && opfsHandle) {
+                // OPFS download
+                const file = await opfsHandle.getFile();
+                const url = URL.createObjectURL(file);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.click();
+                setTimeout(async () => {
+                    URL.revokeObjectURL(url);
+                    // cleanup OPFS
+                    try {
+                        const root = await navigator.storage.getDirectory();
+                        await root.removeEntry(filename);
+                    } catch(e) {}
+                }, 5000);
+            } else if (!isOpfs && !writable) {
+                // Blob memory download
                 const blob = new Blob(fallbackChunks, { type: 'application/zip' });
                 fallbackChunks = []; // free memory
                 const url = URL.createObjectURL(blob);
@@ -67,6 +102,12 @@ export async function createStreamingZip(filename: string): Promise<{
                 try { await writable.abort(); } catch(e) {}
             }
             fallbackChunks = [];
+            if (isOpfs) {
+                try {
+                    const root = await navigator.storage.getDirectory();
+                    await root.removeEntry(filename);
+                } catch(e) {}
+            }
         }
     };
 }

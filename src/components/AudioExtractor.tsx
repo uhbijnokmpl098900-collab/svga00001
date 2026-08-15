@@ -108,6 +108,16 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
     }
   };
 
+  // Automatically start extraction for pending files when FFmpeg is ready
+  useEffect(() => {
+    if (!isFfmpegLoaded) return;
+    
+    const pendingFiles = files.filter(f => f.status === 'pending');
+    pendingFiles.forEach(f => {
+      handleExtractPreview(f.id);
+    });
+  }, [files, isFfmpegLoaded]);
+
   const handleExtractPreview = async (id: string) => {
     if (!ffmpegRef.current || !isFfmpegLoaded) return;
     const ffmpeg = ffmpegRef.current;
@@ -118,17 +128,20 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
     if (!fileItem) return;
 
     try {
-      const inputName = `input_${id}_${fileItem.videoFile.name.replace(/[^a-zA-Z0-9.]/g, '')}`;
+      const ext = fileItem.videoFile.name.split('.').pop() || 'mp4';
+      const inputName = `input_${id}.${ext}`;
       const outputName = `preview_${id}.wav`;
       
       await ffmpeg.writeFile(inputName, await fetchFile(fileItem.videoFile));
       
-      ffmpeg.on('progress', (ev: any) => {
+      const progressHandler = (ev: any) => {
         setFiles(prev => prev.map(f => f.id === id ? { ...f, progress: Math.round(ev.progress * 100) } : f));
-      });
+      };
+      
+      ffmpeg.on('progress', progressHandler);
 
       // Extract to wav for accurate preview
-      await ffmpeg.exec([
+      const code = await ffmpeg.exec([
         '-i', inputName,
         '-vn', // no video
         '-acodec', 'pcm_s16le',
@@ -136,6 +149,12 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
         '-ac', '2',
         outputName
       ]);
+      
+      ffmpeg.off('progress', progressHandler);
+      
+      if (code !== 0) {
+        throw new Error('FFmpeg exited with code ' + code);
+      }
       
       const data = await ffmpeg.readFile(outputName);
       const blob = new Blob([data], { type: 'audio/wav' });
@@ -173,15 +192,18 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
 
     try {
       // We process from original video to keep max quality
-      const inputName = `input_export_${id}_${fileItem.videoFile.name.replace(/[^a-zA-Z0-9.]/g, '')}`;
+      const extIn = fileItem.videoFile.name.split('.').pop() || 'mp4';
+      const inputName = `input_export_${id}.${extIn}`;
       const ext = fileItem.settings.format;
       const outputName = `final_${id}.${ext}`;
       
       await ffmpeg.writeFile(inputName, await fetchFile(fileItem.videoFile));
       
-      ffmpeg.on('progress', (ev: any) => {
+      const progressHandler = (ev: any) => {
         setFiles(prev => prev.map(f => f.id === id ? { ...f, progress: Math.round(ev.progress * 100) } : f));
-      });
+      };
+      
+      ffmpeg.on('progress', progressHandler);
 
       const args = ['-i', inputName, '-vn'];
       
@@ -218,7 +240,13 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
 
       args.push(outputName);
       
-      await ffmpeg.exec(args);
+      const code = await ffmpeg.exec(args);
+      
+      ffmpeg.off('progress', progressHandler);
+      
+      if (code !== 0) {
+        throw new Error('FFmpeg exited with code ' + code);
+      }
       
       const data = await ffmpeg.readFile(outputName);
       const mime = ext === 'mp3' ? 'audio/mpeg' : ext === 'wav' ? 'audio/wav' : `audio/${ext}`;
@@ -529,9 +557,14 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                     {activeFile.status === 'pending' && (
                       <button 
                         onClick={() => handleExtractPreview(activeFile.id)}
-                        className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg transition-all hover:scale-105"
+                        disabled={!isFfmpegLoaded}
+                        className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:opacity-50 text-white font-bold rounded-xl flex items-center gap-2 shadow-lg transition-all hover:scale-105"
                       >
-                        <Scissors className="w-5 h-5" /> استخراج ومعاينة
+                        {isFfmpegLoaded ? (
+                          <><Scissors className="w-5 h-5" /> استخراج ومعاينة</>
+                        ) : (
+                          <><Loader2 className="w-5 h-5 animate-spin" /> جاري تحميل المحرك...</>
+                        )}
                       </button>
                     )}
                   </div>
