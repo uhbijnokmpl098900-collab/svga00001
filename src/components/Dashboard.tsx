@@ -43,6 +43,18 @@ const categories = [
     ]
   },
   {
+    id: 'audio',
+    label: 'أدوات الصوت والميديا',
+    icon: <Video className="w-7 h-7" />,
+    color: 'from-blue-500/10 to-indigo-600/10',
+    hoverColor: 'group-hover:from-blue-500/20 group-hover:to-indigo-600/20',
+    borderColor: 'border-blue-500/30',
+    textColor: 'text-blue-400',
+    tools: [
+      { id: 'audio-extractor', label: 'Audio Extractor', icon: <Video className="w-8 h-8" />, actionKey: 'audioExtractor', descAr: 'استخراج الصوت من الفيديو وتصديره بصيغ متعددة باحترافية وسرعة عالية.', descEn: 'Extract audio from video and export in multiple formats professionally and quickly.', highlight: true },
+    ]
+  },
+  {
     id: 'batch',
     label: 'المعالجة الجماعية (Batch)',
     icon: <Zap className="w-7 h-7" />,

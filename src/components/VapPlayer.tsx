@@ -238,7 +238,7 @@ export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, classN
                 ref={canvasRef} 
                 width={width} 
                 height={height} 
-                className="w-full h-full object-contain cursor-pointer"
+                className="w-full h-full object-contain cursor-pointer vap-player-canvas"
                 onClick={() => {
                     if (videoRef.current) {
                         if (videoRef.current.paused) {

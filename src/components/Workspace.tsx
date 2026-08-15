@@ -48,6 +48,13 @@ import { useLanguage } from "../contexts/LanguageContext";
 import { useAccessControl } from "../hooks/useAccessControl";
 import { svgaSchema } from "../svga-proto";
 import { handleSvgaExExport } from "../utils/svgaExExport";
+import { validateMp3File } from "../utils/validateMp3";
+import {
+  ensureMp3WithId3,
+  isAudioKey,
+  extractAudioFromSvga,
+  mergeSvgaAudios,
+} from "../utils/svgaAudio";
 import {
   convertSvgaToLottie,
   convertFramesToLottieSequence,
@@ -106,6 +113,9 @@ interface SVGAComposition {
   selectedKeys?: Set<string>;
   playbackSpeed?: number;
   customDimensions?: { width: number; height: number } | null;
+  audioUrl?: string | null;
+  originalAudioUrl?: string | null;
+  audioFile?: File | null;
 }
 
 const TRANSPARENT_PIXEL =
@@ -376,6 +386,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             svgaOpacity,
             selectedKeys,
             customDimensions,
+            audioUrl,
+            originalAudioUrl,
+            audioFile,
           };
         }
         return c;
@@ -403,6 +416,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       );
       setSelectedKeys(targetComp.selectedKeys || new Set());
       setCustomDimensions(targetComp.customDimensions || null);
+      setAudioUrl(targetComp.audioUrl || null);
+      setOriginalAudioUrl(targetComp.originalAudioUrl || null);
+      setAudioFile(targetComp.audioFile || null);
     }, 0);
   };
 
@@ -437,7 +453,19 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           const sourceImages = videoItem.images || {};
           const extractedImages: Record<string, string> = {};
 
+          // Extract audio if present in the imported composition
+          const extractedAudio = await extractAudioFromSvga(videoItem);
+
           for (const key of Object.keys(sourceImages)) {
+            if (isAudioKey(key, videoItem.audios)) {
+              const rawAudio = sourceImages[key];
+              if (rawAudio instanceof Uint8Array) {
+                newImages[key] = ensureMp3WithId3(rawAudio);
+              } else if (typeof rawAudio === "string") {
+                newImages[key] = rawAudio;
+              }
+              continue;
+            }
             const data = await extractImageData(sourceImages[key]);
             if (data) {
               const newKey = `${prefix}${key}`;
@@ -458,6 +486,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           Object.assign(videoItem, {
             images: newImages,
             sprites: newSprites,
+            audios: extractedAudio.audios || [],
           });
           const newVideoItem = videoItem;
 
@@ -496,6 +525,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             svgaScale: 1,
             selectedKeys: new Set(),
             playbackSpeed: 1.0,
+            audioUrl: extractedAudio.audioUrl || null,
+            originalAudioUrl: extractedAudio.audioUrl || null,
+            audioFile: null,
           };
 
           setCompositions((prev) => {
@@ -517,6 +549,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                   svgaPos,
                   svgaScale,
                   selectedKeys,
+                  audioUrl,
+                  originalAudioUrl,
+                  audioFile,
                 };
               }
               return c;
@@ -541,6 +576,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             setSvgaScale(1);
             setSelectedKeys(new Set());
             setCustomDimensions(null);
+            setAudioUrl(extractedAudio.audioUrl || null);
+            setOriginalAudioUrl(extractedAudio.audioUrl || null);
+            setAudioFile(null);
           }, 0);
 
           setIsExporting(false);
@@ -585,6 +623,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           svgaRotation,
           svgaOpacity,
           selectedKeys,
+          audioUrl,
+          originalAudioUrl,
+          audioFile,
         };
       }
       return c;
@@ -4421,46 +4462,42 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
 
     if (audioUrl && audioUrl !== originalAudioUrl) {
-      const extension =
-        audioFile && audioFile.name.includes(".")
-          ? audioFile.name.substring(audioFile.name.lastIndexOf("."))
-          : ".mp3";
-      const audioKey = "quantum_audio_track_" + Date.now() + extension;
-      let bytes: Uint8Array | null = null;
-
-      try {
-        if (audioFile) {
-          const arrayBuffer = await audioFile.arrayBuffer();
-          bytes = new Uint8Array(arrayBuffer);
-        } else {
-          const response = await fetch(audioUrl);
-          if (!response.ok) throw new Error("Fetch failed");
-          const arrayBuffer = await response.arrayBuffer();
-          bytes = new Uint8Array(arrayBuffer);
-        }
-      } catch (e) {
-        console.error("Failed to fetch audio", e);
-        alert(
-          "فشل تضمين الصوت داخل ملف SVGA. يرجى التحقق من الملف وإعادة المحاولة.",
-        );
-      }
-
-      if (bytes) {
-        message.images[audioKey] = bytes;
-        message.audios = [
-          {
-            audioKey: audioKey,
-            startFrame: 0,
-            endFrame: message.params.frames || 0,
-            startTime: 0,
-            totalTime: Math.floor(
-              ((message.params.frames || 0) / (message.params.fps || 30)) *
-                1000,
-            ),
-          },
-        ];
-      }
-    } else if (!audioUrl) {
+            const audioKey = "quantum_audio_track_" + Date.now() + ".mp3"; // Force .mp3 for compatibility
+            let bytes: Uint8Array | null = null;
+            try {
+              if (audioFile) {
+                const arrayBuffer = await audioFile.arrayBuffer();
+                bytes = new Uint8Array(arrayBuffer);
+              } else {
+                const response = await fetch(audioUrl);
+                if (!response.ok) throw new Error("Fetch failed");
+                const arrayBuffer = await response.arrayBuffer();
+                bytes = new Uint8Array(arrayBuffer);
+              }
+            } catch (e) {
+              console.error("Failed to fetch audio", e);
+              alert(
+                "فشل تضمين الصوت داخل ملف SVGA. يرجى التحقق من الملف وإعادة المحاولة.",
+              );
+            }
+            if (bytes) {
+              const taggedBytes = ensureMp3WithId3(bytes);
+              message.images[audioKey] = taggedBytes;
+              message.audios = [
+                {
+                  audioKey: audioKey,
+                  startFrame: 0,
+                  endFrame: message.params.frames || 0,
+                  startTime: 0,
+                  totalTime: Math.floor(
+                    ((message.params.frames || 0) /
+                      (message.params.fps || 30)) *
+                      1000,
+                  ),
+                },
+              ];
+            }
+          } else if (!audioUrl) {
       message.audios = [];
     } else if (audioUrl === originalAudioUrl && metadata.videoItem?.audios) {
       // Preserve original audio metadata, no need to touch images map as it's already inherited
@@ -5837,47 +5874,26 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       return;
     }
 
-    const validExtensions = [
-      "audio/mpeg",
-      "audio/wav",
-      "audio/ogg",
-      "audio/mp3",
-    ];
-    const validExtensionsFallback = /\.(mp3|wav|ogg)$/i;
-    const isSupported =
-      validExtensions.includes(file.type) ||
-      validExtensionsFallback.test(file.name);
-
-    if (!isSupported) {
-      alert("تنسيق الملف الصوتي غير مدعوم. استخدم MP3 أو WAV أو OGG.");
+    const validation = await validateMp3File(file);
+    
+    if (!validation.isValid) {
+      alert(validation.message);
       e.target.value = "";
       return;
     }
 
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const audioContext = new (
-        window.AudioContext || (window as any).webkitAudioContext
-      )();
-      const decodedData = await audioContext.decodeAudioData(arrayBuffer);
+    const audioDuration = (validation as any).duration || 0;
+    const animationDuration = metadata.frames / (metadata.fps || 30);
 
-      const audioDuration = decodedData.duration;
-      const animationDuration = metadata.frames / (metadata.fps || 30);
-
-      if (audioDuration > animationDuration + 0.5) {
-        alert(
-          `مدة الملف الصوتي أطول من مدة الأنيميشن. يرجى تقصير الصوت أو تمديد مدة المشروع.`,
-        );
-      }
-
-      setAudioFile(file);
-      const url = URL.createObjectURL(file);
-      setAudioUrl(url);
-    } catch (err) {
-      console.error("Audio validation failed:", err);
-      alert("الملف الصوتي يحتوي على بيانات غير صالحة أو تالف.");
+    if (audioDuration > animationDuration + 0.5) {
+      alert(
+        `تنبيه: مدة الملف الصوتي (${audioDuration.toFixed(1)} ثانية) أطول من مدة الأنيميشن (${animationDuration.toFixed(1)} ثانية). قد يؤدي ذلك إلى قطع الصوت في المنصات الرسمية.`
+      );
     }
 
+    setAudioFile(file);
+    const url = URL.createObjectURL(file);
+    setAudioUrl(url);
     e.target.value = "";
   };
 
@@ -8286,13 +8302,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           }
 
           if (audioUrl && audioUrl !== originalAudioUrl) {
-            const extension =
-              audioFile && audioFile.name.includes(".")
-                ? audioFile.name.substring(audioFile.name.lastIndexOf("."))
-                : ".mp3";
-            const audioKey = "quantum_audio_track_" + Date.now() + extension;
+            const audioKey = "quantum_audio_track_" + Date.now() + ".mp3"; // Force .mp3 for compatibility
             let bytes: Uint8Array | null = null;
-
             try {
               if (audioFile) {
                 const arrayBuffer = await audioFile.arrayBuffer();
@@ -8309,9 +8320,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 "فشل تضمين الصوت داخل ملف SVGA. يرجى التحقق من الملف وإعادة المحاولة.",
               );
             }
-
             if (bytes) {
-              message.images[audioKey] = bytes;
+              const taggedBytes = ensureMp3WithId3(bytes);
+              message.images[audioKey] = taggedBytes;
               message.audios = [
                 {
                   audioKey: audioKey,
@@ -8671,13 +8682,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           }
 
           if (audioUrl && audioUrl !== originalAudioUrl) {
-            const extension =
-              audioFile && audioFile.name.includes(".")
-                ? audioFile.name.substring(audioFile.name.lastIndexOf("."))
-                : ".mp3";
-            const audioKey = "quantum_audio_track_" + Date.now() + extension;
+            const audioKey = "quantum_audio_track_" + Date.now() + ".mp3"; // Force .mp3 for compatibility
             let bytes: Uint8Array | null = null;
-
             try {
               if (audioFile) {
                 const arrayBuffer = await audioFile.arrayBuffer();
@@ -8694,18 +8700,20 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 "فشل تضمين الصوت داخل ملف SVGA. يرجى التحقق من الملف وإعادة المحاولة.",
               );
             }
-
             if (bytes) {
-              imagesData[audioKey] = bytes;
-              audioList.length = 0;
+              const taggedBytes = ensureMp3WithId3(bytes);
+              imagesData[audioKey] = taggedBytes;
+              audioList.length = 0; // Clear existing audio if any
               audioList.push({
-                audioKey: audioKey,
-                startFrame: 0,
-                endFrame: metadata.frames || 0,
-                startTime: 0,
-                totalTime: Math.floor(
-                  ((metadata.frames || 0) / (metadata.fps || 30)) * 1000,
-                ),
+                  audioKey: audioKey,
+                  startFrame: 0,
+                  endFrame: metadata.frames || 0,
+                  startTime: 0,
+                  totalTime: Math.floor(
+                    ((metadata.frames || 0) /
+                      (metadata.fps || 30)) *
+                      1000,
+                  ),
               });
             }
           } else if (!audioUrl) {

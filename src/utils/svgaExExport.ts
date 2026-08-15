@@ -1,5 +1,6 @@
 import pako from "pako";
 import { svgaSchema } from "../svga-proto";
+import { ensureMp3WithId3, isAudioKey } from "./svgaAudio";
 
 /**
  * SVGA 2.0 EX Export Logic
@@ -204,14 +205,16 @@ export const handleSvgaExExport = async (params: {
       const key = keys[i];
       if (deletedKeys.has(key)) continue;
 
-      if (originalAudioKeys.has(key)) {
-        if (audioUrl !== originalAudioUrl) {
-          continue; // Skip because audio was replaced/removed
+      if (originalAudioKeys.has(key) || isAudioKey(key, metadata.videoItem?.audios)) {
+        if (audioUrl !== originalAudioUrl && audioUrl !== null) {
+          continue; // Replaced by new audio
+        } else if (!audioUrl) {
+          continue; // Audio removed
         } else {
           // Copy audio bytes directly, do not process as image
           const imgData = sourceImages[key];
           if (imgData instanceof Uint8Array) {
-            imagesData[key] = imgData;
+            imagesData[key] = ensureMp3WithId3(imgData);
           } else if (typeof imgData === "string") {
             const binaryString = atob(
               imgData.startsWith("data:") ? imgData.split(",")[1] : imgData,
@@ -219,7 +222,7 @@ export const handleSvgaExExport = async (params: {
             const bytes = new Uint8Array(binaryString.length);
             for (let j = 0; j < binaryString.length; j++)
               bytes[j] = binaryString.charCodeAt(j);
-            imagesData[key] = bytes;
+            imagesData[key] = ensureMp3WithId3(bytes);
           }
           continue;
         }
@@ -484,19 +487,24 @@ export const handleSvgaExExport = async (params: {
 
     // Audio
     if (audioUrl) {
-      const extension =
-        audioFile && audioFile.name.includes(".")
-          ? audioFile.name.substring(audioFile.name.lastIndexOf("."))
-          : ".mp3";
-      const audioKey = "quantum_audio_ex" + extension;
+      const audioKey = "quantum_audio_ex.mp3"; // Force .mp3 extension for official platform compatibility
       let bytes: Uint8Array | null = null;
-      if (audioFile) bytes = new Uint8Array(await audioFile.arrayBuffer());
-      else if (audioUrl !== originalAudioUrl) {
-        const res = await fetch(audioUrl);
-        bytes = new Uint8Array(await res.arrayBuffer());
+      if (audioFile) {
+        bytes = new Uint8Array(await audioFile.arrayBuffer());
+      } else if (audioUrl) {
+        try {
+          const res = await fetch(audioUrl);
+          if (res.ok) {
+            bytes = new Uint8Array(await res.arrayBuffer());
+          }
+        } catch (fetchErr) {
+          console.warn("Could not fetch audioUrl in EX export:", fetchErr);
+        }
       }
-      if (bytes) {
-        message.images[audioKey] = bytes;
+
+      if (bytes && bytes.length > 0) {
+        const taggedBytes = ensureMp3WithId3(bytes);
+        message.images[audioKey] = taggedBytes;
         message.audios = [
           {
             audioKey,
@@ -509,7 +517,11 @@ export const handleSvgaExExport = async (params: {
             ),
           },
         ];
+      } else if (metadata.videoItem?.audios && metadata.videoItem.audios.length > 0) {
+        message.audios = [...metadata.videoItem.audios];
       }
+    } else {
+      message.audios = [];
     }
 
     message.version = "2.0";

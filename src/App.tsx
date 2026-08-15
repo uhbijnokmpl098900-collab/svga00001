@@ -20,6 +20,7 @@ import { ImageEditor } from './components/ImageEditor';
 import Name3DEditor from "./components/Name3DEditor/Name3DEditor";
 import { ImageMatcher } from './components/ImageMatcher';
 import { Store } from './components/Store';
+import { AudioExtractor } from './components/AudioExtractor';
 import { AdminPanel } from './components/AdminPanel';
 import { Login } from './components/Auth/Login';
 import { Signup } from './components/Auth/Signup';
@@ -484,6 +485,7 @@ const App: React.FC = () => {
         onUniversalConverterOpen={() => handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools')}
         onPagConverterOpen={() => setShowPagConverter(true)}
         onName3DEditorOpen={() => handleFeatureAccess(AppState.NAME_3D_EDITOR, '3D Name Editor')}
+        onAudioExtractorOpen={() => handleFeatureAccess(AppState.AUDIO_EXTRACTOR, 'Audio Extractor')}
         onBatchImageOpen={() => setShowBatchImage(true)}
         onLoginClick={() => {}}
         onProfileClick={() => {}}
@@ -501,6 +503,7 @@ const App: React.FC = () => {
           state === AppState.SVGA_EDITOR_EX ? 'svga-ex' :
           state === AppState.MULTI_SVGA_VIEWER ? 'multi-svga' :
           state === AppState.NAME_3D_EDITOR ? 'name-3d' :
+          state === AppState.AUDIO_EXTRACTOR ? 'audio-extractor' :
           'svga'
         }
       />
@@ -554,6 +557,7 @@ const App: React.FC = () => {
                         case 'imageEnhancer': handleFeatureAccess(AppState.IMAGE_ENHANCER, 'AI Image Enhancer'); break;
                         case 'batchImageOpen': setShowBatchImage(true); break;
                         case 'name3DEditor': handleFeatureAccess(AppState.NAME_3D_EDITOR, '3D Name Editor'); break;
+                        case 'audioExtractor': handleFeatureAccess(AppState.AUDIO_EXTRACTOR, 'Audio Extractor'); break;
                         case 'pagConverterOpen': setShowPagConverter(true); break;
                      }
                   }}
@@ -668,6 +672,13 @@ const App: React.FC = () => {
               <MultiSvgaViewer 
                 onCancel={handleReset} 
                 currentUser={currentUser}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.AUDIO_EXTRACTOR && (
+              <AudioExtractor 
+                currentUser={currentUser}
+                onCancel={handleReset}
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}
               />
             )}

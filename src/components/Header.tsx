@@ -31,6 +31,7 @@ interface HeaderProps {
   onUniversalConverterOpen: () => void;
   onPagConverterOpen: () => void;
   onName3DEditorOpen: () => void;
+  onAudioExtractorOpen: () => void;
   onBatchImageOpen: () => void;
   onLoginClick: () => void;
   onProfileClick: () => void;
@@ -81,6 +82,15 @@ const categories: CategoryDefinition[] = [
       { id: 'image-processor', label: 'Image Processor', icon: <Wand2 className="w-4 h-4" />, actionKey: 'onImageProcessorOpen', descAr: 'معالجة وتعديل ألوان وإضاءة الصور بدقة عالية مع أدوات تنقية حساسة', descEn: 'Process and adjust colors/lighting of images accurately with fine-tuning tools.' },
       { id: 'image-editor', label: 'Image Editor', icon: <User className="w-4 h-4" />, actionKey: 'onImageEditorOpen', descAr: 'محرر صور متكامل يوفر أدوات تعديل احترافية للطبقات والأشكال', descEn: 'Comprehensive image editor offering professional tools for layers and shapes.' },
       { id: 'image-matcher', label: 'Image Matcher', icon: <Maximize className="w-4 h-4" />, actionKey: 'onImageMatcherOpen', descAr: 'مطابقة الألوان والستايلات بين صورة وأخرى للحصول على طابع موحد ومتناسق', descEn: 'Match colors and styles between two images for a consistent and unified look.' },
+    ]
+  },
+  {
+    id: 'audio',
+    label: 'أدوات الصوت',
+    icon: <Video className="w-5 h-5" />,
+    color: 'blue',
+    tools: [
+      { id: 'audio-extractor', label: 'Audio Extractor', icon: <Video className="w-4 h-4" />, actionKey: 'onAudioExtractorOpen', descAr: 'استخراج الصوت من الفيديو وتصديره بصيغ متعددة', descEn: 'Extract audio from video and export in multiple formats.', highlight: true },
     ]
   },
   {

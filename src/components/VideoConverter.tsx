@@ -43,6 +43,7 @@ interface VideoConverterProps {
   onLoginRequired: () => void;
   onSubscriptionRequired: () => void;
   globalQuality?: "low" | "medium" | "high";
+  initialFiles?: File[];
 }
 
 export const VideoConverter: React.FC<VideoConverterProps> = ({
@@ -51,9 +52,10 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
   onLoginRequired,
   onSubscriptionRequired,
   globalQuality: initialGlobalQuality = "high",
+  initialFiles = [],
 }) => {
   const { checkAccess } = useAccessControl();
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<File[]>(initialFiles);
   const [videoUrls, setVideoUrls] = useState<string[]>([]);
   const [currentFileIndex, setCurrentFileIndex] = useState(0);
   const [isMerging, setIsMerging] = useState(false);

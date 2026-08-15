@@ -72,9 +72,9 @@ const svgaProtoJson = {
                   fields: {
                     version: { type: "string", id: 1 },
                     params: { type: "MovieParams", id: 2 },
-                    sprites: { rule: "repeated", type: "SpriteEntity", id: 3 },
-                    audios: { rule: "repeated", type: "AudioEntity", id: 4 },
-                    images: { keyType: "string", type: "bytes", id: 5 }
+                    images: { keyType: "string", type: "bytes", id: 3 },
+                    sprites: { rule: "repeated", type: "SpriteEntity", id: 4 },
+                    audios: { rule: "repeated", type: "AudioEntity", id: 5 }
                   }
                 }
               }

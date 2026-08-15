@@ -13,7 +13,7 @@ import { getPAG, convertPagToSvga } from '../utils/pagEngine';
 
 declare var SVGA: any;
 
-interface MultiSvgaItem {
+export interface MultiSvgaItem {
   id: string;
   file: File;
   url: string;
