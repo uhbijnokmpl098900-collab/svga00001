@@ -4,18 +4,37 @@ import { useAuth } from '../contexts/AuthContext';
 import { VapPlayer } from './VapPlayer';
 import { parseVapMetadata } from '../utils/vapParser';
 import { extractAudioFromVap } from '../utils/vapFFmpeg';
+import { convertVapToSvga } from '../utils/svgaExporter';
 
 export const VapHub: React.FC = () => {
     const [files, setFiles] = useState<{file: File, url: string, metadata: any, status: string}[]>([]);
     const [activeIndex, setActiveIndex] = useState<number>(0);
     const [selectedFormat, setSelectedFormat] = useState<string>('VAP (Original)');
     const [isExporting, setIsExporting] = useState<boolean>(false);
+    const [exportPhase, setExportPhase] = useState<string>('');
     const [isExtractingAudio, setIsExtractingAudio] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    const handleExtractAudio = async () => {
+        if (!activeFile) return;
+        setIsExtractingAudio(true);
+        try {
+            const audioBlob = await extractAudioFromVap(activeFile.file);
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(audioBlob);
+            a.download = activeFile.file.name.replace(/\.[^/.]+$/, "") + '.mp3';
+            a.click();
+        } catch (err: any) {
+            console.error("Audio extraction failed:", err);
+            alert("فشل استخراج الصوت: " + err.message);
+        } finally {
+            setIsExtractingAudio(false);
+        }
+    };
+
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || e.target.files.length === 0) return;
-        const newFiles = Array.from(e.target.files);
+        const newFiles = Array.from(e.target.files) as File[];
         e.target.value = '';
 
         for (const file of newFiles) {

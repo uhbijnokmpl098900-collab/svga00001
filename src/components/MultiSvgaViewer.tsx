@@ -12,34 +12,77 @@ import { jsPDF } from 'jspdf';
 import { createStreamingZip } from '../utils/streamZip';
 import { calculateSafeDimensions } from '../utils/dimensions';
 import { getPAG, convertPagToSvga } from '../utils/pagEngine';
+import { ensureMp3WithId3 } from '../utils/svgaAudio';
+
+const decodeDataToBytes = (data: any): Uint8Array | null => {
+  if (!data) return null;
+  if (data instanceof Uint8Array) return ensureMp3WithId3(data);
+  if (data instanceof ArrayBuffer) return ensureMp3WithId3(new Uint8Array(data));
+  if (ArrayBuffer.isView(data)) return ensureMp3WithId3(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+  if (typeof data === 'string') {
+    let binaryStr = '';
+    if (data.startsWith('data:')) {
+      const parts = data.split(',');
+      binaryStr = atob(parts[1] || '');
+    } else {
+      try {
+        binaryStr = atob(data.trim());
+      } catch {
+        binaryStr = data;
+      }
+    }
+    try {
+      const len = binaryStr.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      return ensureMp3WithId3(bytes);
+    } catch (e) {
+      console.warn("Failed to decode audio binary string", e);
+      return null;
+    }
+  }
+  return null;
+};
 
 const extractAudioData = (item: any): Uint8Array | null => {
+  if (!item) return null;
   if (item.type !== 'svga') return null;
   const vi = item.videoItem;
-  if (!vi || !vi.audios || vi.audios.length === 0) return null;
-  const audioKey = vi.audios[0].audioKey;
-  if (!audioKey) return null;
-  const data = vi.images[audioKey];
-  if (!data) return null;
-  
-  if (data instanceof Uint8Array) return data;
-  if (data instanceof ArrayBuffer) return new Uint8Array(data);
-  
-  if (typeof data === 'string') {
-     const base64Part = data.includes(',') ? data.split(',')[1] : data;
-     try {
-       const binaryString = window.atob(base64Part);
-       const len = binaryString.length;
-       const bytes = new Uint8Array(len);
-       for (let i = 0; i < len; i++) {
-           bytes[i] = binaryString.charCodeAt(i);
-       }
-       return bytes;
-     } catch (e) {
-       console.error("Failed to decode base64 audio", e);
-       return null;
-     }
+  if (!vi) return null;
+
+  // 1. Check audios array
+  if (vi.audios && Array.isArray(vi.audios) && vi.audios.length > 0) {
+    for (const a of vi.audios) {
+      if (a && a.audioKey && vi.images && vi.images[a.audioKey]) {
+        const bytes = decodeDataToBytes(vi.images[a.audioKey]);
+        if (bytes && bytes.length > 0) return bytes;
+      }
+    }
   }
+
+  // 2. Check images dictionary for audio keys
+  if (vi.images && typeof vi.images === 'object') {
+    for (const key of Object.keys(vi.images)) {
+      const lower = key.toLowerCase();
+      if (
+        lower.endsWith('.mp3') ||
+        lower.endsWith('.wav') ||
+        lower.endsWith('.ogg') ||
+        lower.endsWith('.m4a') ||
+        lower.endsWith('.aac') ||
+        lower.includes('audio') ||
+        lower.includes('sound') ||
+        lower.includes('bgm') ||
+        lower.includes('music')
+      ) {
+        const bytes = decodeDataToBytes(vi.images[key]);
+        if (bytes && bytes.length > 0) return bytes;
+      }
+    }
+  }
+
   return null;
 };
 
@@ -223,6 +266,22 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
   const ffmpegRef = useRef<FFmpeg | null>(null);
   const [isFfmpegLoaded, setIsFfmpegLoaded] = useState(false);
+
+  const ensureFFmpeg = async (): Promise<FFmpeg | null> => {
+    if (ffmpegRef.current && ffmpegRef.current.loaded) {
+      return ffmpegRef.current;
+    }
+    const ffmpeg = ffmpegRef.current || new FFmpeg();
+    ffmpegRef.current = ffmpeg;
+    try {
+      await loadFFmpegWithFallbacks(ffmpeg);
+      setIsFfmpegLoaded(true);
+      return ffmpeg;
+    } catch (err) {
+      console.error("Failed to load FFmpeg on demand:", err);
+      return null;
+    }
+  };
 
   useEffect(() => {
     const initFfmpeg = async () => {
@@ -650,7 +709,51 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       }
 
       muxer.finalize();
-      const { buffer } = muxer.target as ArrayBufferTarget;
+      let { buffer } = muxer.target as ArrayBufferTarget;
+
+      // Handle audio for grid export if present
+      const itemWithAudio = items.find(i => extractAudioData(i) !== null);
+      if (itemWithAudio) {
+        const audioData = extractAudioData(itemWithAudio);
+        if (audioData) {
+          try {
+            const ffmpeg = await ensureFFmpeg();
+            if (ffmpeg) {
+              const randId = Math.random().toString(36).substring(2, 9);
+              const vidName = `grid_vid_${randId}.mp4`;
+              const audName = `grid_aud_${randId}.mp3`;
+              const outName = `grid_out_${randId}.mp4`;
+
+              await ffmpeg.writeFile(vidName, new Uint8Array(buffer));
+              await ffmpeg.writeFile(audName, audioData);
+
+              await ffmpeg.exec([
+                '-y',
+                '-i', vidName,
+                '-stream_loop', '-1',
+                '-i', audName,
+                '-c:v', 'copy',
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                '-shortest',
+                outName
+              ]);
+
+              const muxedData = await ffmpeg.readFile(outName);
+              buffer = (muxedData as Uint8Array).buffer;
+
+              try {
+                await ffmpeg.deleteFile(vidName);
+                await ffmpeg.deleteFile(audName);
+                await ffmpeg.deleteFile(outName);
+              } catch (e) {}
+            }
+          } catch (e) {
+            console.error("Failed to mux audio in grid export", e);
+          }
+        }
+      }
+
       const blob = new Blob([buffer], { type: "video/mp4" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -729,13 +832,15 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     }
 
     let streamZip: any = null;
-    try {
-      streamZip = await createStreamingZip(`Individual_Videos_${Date.now()}.zip`);
-    } catch (err: any) {
-      if (err?.message === "USER_ABORT") {
-        setIsExporting(false);
-        setExportProgress(0);
-        return;
+    if (list.length > 1) {
+      try {
+        streamZip = await createStreamingZip(`Individual_Videos_${Date.now()}.zip`);
+      } catch (err: any) {
+        if (err?.message === "USER_ABORT") {
+          setIsExporting(false);
+          setExportProgress(0);
+          return;
+        }
       }
     }
 
@@ -932,35 +1037,51 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         let { buffer } = muxer.target as ArrayBufferTarget;
         
         // Handle audio if present
-        const audioData = extractAudioData(item);
-        if (audioData && isFfmpegLoaded && ffmpegRef.current) {
+        let audioData = extractAudioData(item);
+        if (!audioData && item.type === 'svga') {
           try {
-             const ffmpeg = ffmpegRef.current;
-             const vidName = `vid_${item.id}.mp4`;
-             const audName = `aud_${item.id}.mp3`;
-             const outName = `out_${item.id}.mp4`;
-             
-             await ffmpeg.writeFile(vidName, new Uint8Array(buffer));
-             await ffmpeg.writeFile(audName, audioData);
-             
-             // Mux audio and video together, making sure we don't exceed the video length
-             await ffmpeg.exec([
-                 '-i', vidName,
-                 '-i', audName,
-                 '-c:v', 'copy',
-                 '-c:a', 'aac',
-                 '-b:a', '128k',
-                 '-shortest',
-                 outName
-             ]);
-             
-             const muxedData = await ffmpeg.readFile(outName);
-             buffer = (muxedData as Uint8Array).buffer;
-             
-             // Cleanup
-             await ffmpeg.deleteFile(vidName);
-             await ffmpeg.deleteFile(audName);
-             await ffmpeg.deleteFile(outName);
+            if (!item.videoItem) {
+              item.videoItem = await parseSvgaIfNeeded(item);
+            }
+            audioData = extractAudioData(item);
+          } catch(e) {}
+        }
+
+        if (audioData) {
+          try {
+             const ffmpeg = await ensureFFmpeg();
+             if (ffmpeg) {
+               const randId = Math.random().toString(36).substring(2, 9);
+               const vidName = `vid_${randId}.mp4`;
+               const audName = `aud_${randId}.mp3`;
+               const outName = `out_${randId}.mp4`;
+               
+               await ffmpeg.writeFile(vidName, new Uint8Array(buffer));
+               await ffmpeg.writeFile(audName, audioData);
+               
+               // Mux audio and video together, looping audio seamlessly if video duration is longer
+               await ffmpeg.exec([
+                   '-y',
+                   '-i', vidName,
+                   '-stream_loop', '-1',
+                   '-i', audName,
+                   '-c:v', 'copy',
+                   '-c:a', 'aac',
+                   '-b:a', '192k',
+                   '-shortest',
+                   outName
+               ]);
+               
+               const muxedData = await ffmpeg.readFile(outName);
+               buffer = (muxedData as Uint8Array).buffer;
+               
+               // Cleanup temporary files
+               try {
+                 await ffmpeg.deleteFile(vidName);
+                 await ffmpeg.deleteFile(audName);
+                 await ffmpeg.deleteFile(outName);
+               } catch(e) {}
+             }
           } catch (e) {
              console.error("Failed to mux audio into video", e);
              // Fallback to original buffer if muxing fails
@@ -977,38 +1098,17 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         const mp4Filename = `${folderPrefix}${cleanName}.mp4`;
 
         if (streamZip) {
-          // 1. Add MP4
+          // ONLY Add MP4 video file to ZIP archive
           streamZip.addFile(mp4Filename, new Uint8Array(buffer));
-          
-          // 2. Add original SVGA/PAG
-          try {
-            const originalBuffer = await item.file.arrayBuffer();
-            const ext = item.type === 'pag' ? 'pag' : 'svga';
-            streamZip.addFile(`${folderPrefix}${cleanName}.${ext}`, new Uint8Array(originalBuffer));
-          } catch(e) { console.error("Failed to add original file to ZIP", e); }
-          
-          // 3. Add SVGA images/sprites
-          if (item.type === 'svga' && item.videoItem && item.videoItem.images) {
-            for (const [key, data] of Object.entries(item.videoItem.images)) {
-              const imagePath = `${folderPrefix}${cleanName}_images/${key}.png`;
-              if (data && typeof data === 'string' && data.includes('data:image')) {
-                const base64Data = data.split(',')[1];
-                try {
-                  const binaryString = window.atob(base64Data);
-                  const len = binaryString.length;
-                  const bytes = new Uint8Array(len);
-                  for (let i = 0; i < len; i++) {
-                      bytes[i] = binaryString.charCodeAt(i);
-                  }
-                  streamZip.addFile(imagePath, bytes);
-                } catch(e) {}
-              } else if (data instanceof Uint8Array) {
-                streamZip.addFile(imagePath, data);
-              } else if (data instanceof ArrayBuffer) {
-                streamZip.addFile(imagePath, new Uint8Array(data));
-              }
-            }
-          }
+        } else {
+          // Single video direct download
+          const blob = new Blob([buffer], { type: "video/mp4" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `${cleanName}.mp4`;
+          a.click();
+          URL.revokeObjectURL(url);
         }
 
         if (list.length > 5) {
@@ -2422,7 +2522,7 @@ const SvgaCard: React.FC<{
       }
 
       let videoItem = item.videoItem;
-      if (videoItem && videoItem.audios && videoItem.audios.length > 0) {
+      if (videoItem && (videoItem.audios?.length > 0 || extractAudioData(item) !== null)) {
         setHasAudio(true);
       }
       if (!videoItem || !videoItem.images) {
@@ -2441,7 +2541,7 @@ const SvgaCard: React.FC<{
             item.fps = videoItem.FPS || videoItem.fps || 30;
             item.frames = videoItem.frames || 1;
           }
-          if (videoItem && videoItem.audios && videoItem.audios.length > 0) {
+          if (videoItem && (videoItem.audios?.length > 0 || extractAudioData({ ...item, videoItem }) !== null)) {
             setHasAudio(true);
           }
           if (!isCanceled) setIsLoaded(true);
