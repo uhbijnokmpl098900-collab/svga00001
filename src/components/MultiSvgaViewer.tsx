@@ -603,7 +603,21 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
       let hasEncoderError = false;
       const videoEncoder = new VideoEncoder({
-        output: (chunk, metadata) => muxer.addVideoChunk(chunk, metadata),
+        output: (chunk, metadata) => {
+          let safeMetadata: any = undefined;
+          if (metadata) {
+            safeMetadata = { ...metadata };
+            if (safeMetadata.decoderConfig) {
+              safeMetadata.decoderConfig = { ...safeMetadata.decoderConfig };
+              if (safeMetadata.decoderConfig.colorSpace === null) {
+                delete safeMetadata.decoderConfig.colorSpace;
+              }
+            } else if (safeMetadata.decoderConfig === null) {
+              delete safeMetadata.decoderConfig;
+            }
+          }
+          muxer.addVideoChunk(chunk, safeMetadata);
+        },
         error: (e) => {
           console.error("Encoder Error:", e);
           hasEncoderError = true;
@@ -681,10 +695,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
       try {
         videoEncoder.configure({
-          codec: "avc1.4D4034",
+          codec: "avc1.4D002A",
           width: finalWidth,
           height: finalHeight,
-          bitrate: 4_000_000,
+          bitrate: 2_500_000,
           framerate: targetFps
         });
       } catch (e) {
@@ -795,7 +809,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         const timestamp = (frame / targetFps) * 1_000_000;
         const videoFrame = new VideoFrame(canvas, { timestamp });
 
-        while (videoEncoder.encodeQueueSize > 10) { await new Promise(r => setTimeout(r, 5)); }
+        while (videoEncoder.encodeQueueSize > 30) { await new Promise(r => setTimeout(r, 1)); }
 
         if (hasEncoderError) break;
         videoEncoder.encode(videoFrame, { keyFrame: frame % 30 === 0 });
@@ -805,56 +819,23 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         }
       }
 
-      if (videoEncoder.state !== "closed") {
-        await videoEncoder.flush();
-        videoEncoder.close();
+      if (hasEncoderError) {
+        if (videoEncoder.state !== "closed") {
+          try { videoEncoder.close(); } catch(e) {}
+        }
+        throw new Error("حدث خطأ أثناء تشفير الفيديو. يرجى تقليل الجودة أو استخدام متصفح أحدث.");
+      } else {
+        if (videoEncoder.state !== "closed") {
+          await videoEncoder.flush();
+          videoEncoder.close();
+        }
+        muxer.finalize();
       }
 
-      muxer.finalize();
       let { buffer } = muxer.target as ArrayBufferTarget;
 
-      // Handle audio for grid export if present
-      const itemWithAudio = items.find(i => extractAudioData(i) !== null);
-      if (itemWithAudio) {
-        const audioData = extractAudioData(itemWithAudio);
-        if (audioData) {
-          try {
-            const ffmpeg = await ensureFFmpeg();
-            if (ffmpeg) {
-              const randId = Math.random().toString(36).substring(2, 9);
-              const vidName = `grid_vid_${randId}.mp4`;
-              const audName = `grid_aud_${randId}.mp3`;
-              const outName = `grid_out_${randId}.mp4`;
-
-              await ffmpeg.writeFile(vidName, new Uint8Array(buffer));
-              await ffmpeg.writeFile(audName, audioData);
-
-              await ffmpeg.exec([
-                '-y',
-                '-i', vidName,
-                '-stream_loop', '-1',
-                '-i', audName,
-                '-c:v', 'copy',
-                '-c:a', 'aac',
-                '-b:a', '192k',
-                '-shortest',
-                outName
-              ]);
-
-              const muxedData = await ffmpeg.readFile(outName);
-              buffer = (muxedData as Uint8Array).buffer;
-
-              try {
-                await ffmpeg.deleteFile(vidName);
-                await ffmpeg.deleteFile(audName);
-                await ffmpeg.deleteFile(outName);
-              } catch (e) {}
-            }
-          } catch (e) {
-            console.error("Failed to mux audio in grid export", e);
-          }
-        }
-      }
+      // Audio export disabled as requested by the user
+      // if (itemWithAudio) { ... }
 
       const blob = new Blob([buffer], { type: "video/mp4" });
       const url = URL.createObjectURL(blob);
@@ -1005,7 +986,21 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
         let hasEncoderError = false;
         const videoEncoder = new VideoEncoder({
-          output: (chunk, metadata) => muxer.addVideoChunk(chunk, metadata),
+          output: (chunk, metadata) => {
+            let safeMetadata: any = undefined;
+            if (metadata) {
+              safeMetadata = { ...metadata };
+              if (safeMetadata.decoderConfig) {
+                safeMetadata.decoderConfig = { ...safeMetadata.decoderConfig };
+                if (safeMetadata.decoderConfig.colorSpace === null) {
+                  delete safeMetadata.decoderConfig.colorSpace;
+                }
+              } else if (safeMetadata.decoderConfig === null) {
+                delete safeMetadata.decoderConfig;
+              }
+            }
+            muxer.addVideoChunk(chunk, safeMetadata);
+          },
           error: (e) => {
             console.error("Encoder Error:", e);
             hasEncoderError = true;
@@ -1013,10 +1008,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         });
 
         videoEncoder.configure({
-          codec: "avc1.4D4034",
+          codec: "avc1.4D002A",
           width: finalWidth,
           height: finalHeight,
-          bitrate: 4_000_000,
+          bitrate: 2_500_000,
           framerate: targetFps
         });
 
@@ -1134,7 +1129,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           const timestamp = (frame / targetFps) * 1_000_000;
           const videoFrame = new VideoFrame(canvas, { timestamp });
 
-          while (videoEncoder.encodeQueueSize > 10) { await new Promise(r => setTimeout(r, 5)); }
+          while (videoEncoder.encodeQueueSize > 30) { await new Promise(r => setTimeout(r, 1)); }
 
           if (hasEncoderError) break;
           videoEncoder.encode(videoFrame, { keyFrame: frame % 30 === 0 });
@@ -1143,65 +1138,22 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           if (frame % 15 === 0) { await new Promise(r => setTimeout(r, 0)); }
         }
 
-        if (videoEncoder.state !== "closed") {
-          await videoEncoder.flush();
-          videoEncoder.close();
+        if (hasEncoderError) {
+          if (videoEncoder.state !== "closed") {
+            try { videoEncoder.close(); } catch(e) {}
+          }
+          throw new Error("حدث خطأ أثناء تشفير الفيديو. يرجى تقليل الجودة أو استخدام متصفح أحدث.");
+        } else {
+          if (videoEncoder.state !== "closed") {
+            await videoEncoder.flush();
+            videoEncoder.close();
+          }
+          muxer.finalize();
         }
 
-        muxer.finalize();
         let { buffer } = muxer.target as ArrayBufferTarget;
         
-        // Handle audio if present
-        let audioData = extractAudioData(item);
-        if (!audioData && item.type === 'svga') {
-          try {
-            if (!item.videoItem) {
-              item.videoItem = await parseSvgaIfNeeded(item);
-            }
-            audioData = extractAudioData(item);
-          } catch(e) {}
-        }
-
-        if (audioData) {
-          try {
-             const ffmpeg = await ensureFFmpeg();
-             if (ffmpeg) {
-               const randId = Math.random().toString(36).substring(2, 9);
-               const vidName = `vid_${randId}.mp4`;
-               const audName = `aud_${randId}.mp3`;
-               const outName = `out_${randId}.mp4`;
-               
-               await ffmpeg.writeFile(vidName, new Uint8Array(buffer));
-               await ffmpeg.writeFile(audName, audioData);
-               
-               // Mux audio and video together, looping audio seamlessly if video duration is longer
-               await ffmpeg.exec([
-                   '-y',
-                   '-i', vidName,
-                   '-stream_loop', '-1',
-                   '-i', audName,
-                   '-c:v', 'copy',
-                   '-c:a', 'aac',
-                   '-b:a', '192k',
-                   '-shortest',
-                   outName
-               ]);
-               
-               const muxedData = await ffmpeg.readFile(outName);
-               buffer = (muxedData as Uint8Array).buffer;
-               
-               // Cleanup temporary files
-               try {
-                 await ffmpeg.deleteFile(vidName);
-                 await ffmpeg.deleteFile(audName);
-                 await ffmpeg.deleteFile(outName);
-               } catch(e) {}
-             }
-          } catch (e) {
-             console.error("Failed to mux audio into video", e);
-             // Fallback to original buffer if muxing fails
-          }
-        }
+        // Audio export disabled as requested by the user
 
         renderContainer.removeChild(div);
         if (item.type === "pag" && player) {
