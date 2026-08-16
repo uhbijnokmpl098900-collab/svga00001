@@ -130,7 +130,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
     try {
       const ext = fileItem.videoFile.name.split('.').pop() || 'mp4';
       const inputName = `input_${id}.${ext}`;
-      const outputName = `preview_${id}.wav`;
+      const outputName = `preview_${id}.mp3`;
       
       await ffmpeg.writeFile(inputName, await fetchFile(fileItem.videoFile));
       
@@ -140,12 +140,12 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
       
       ffmpeg.on('progress', progressHandler);
 
-      // Extract to wav for accurate preview
+      // Extract directly to MP3 for faster preview and immediate lightweight download
       const code = await ffmpeg.exec([
         '-i', inputName,
         '-vn', // no video
-        '-acodec', 'pcm_s16le',
-        '-ar', '44100',
+        '-c:a', 'libmp3lame',
+        '-b:a', '128k', // lightweight bitrate
         '-ac', '2',
         outputName
       ]);
@@ -157,14 +157,23 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
       }
       
       const data = await ffmpeg.readFile(outputName);
-      const blob = new Blob([data], { type: 'audio/wav' });
+      const blob = new Blob([data], { type: 'audio/mpeg' });
       const previewUrl = URL.createObjectURL(blob);
       
+      // Auto-download the mp3 immediately
+      const a = document.createElement('a');
+      a.href = previewUrl;
+      const originalBase = fileItem.originalName.substring(0, fileItem.originalName.lastIndexOf('.'));
+      a.download = `${originalBase}.mp3`;
+      a.click();
+
       setFiles(prev => prev.map(f => f.id === id ? { 
         ...f, 
-        status: 'ready', 
+        status: 'completed', 
         progress: 100, 
-        previewUrl 
+        previewUrl,
+        finalBlob: blob,
+        finalExt: 'mp3'
       } : f));
       
       // cleanup

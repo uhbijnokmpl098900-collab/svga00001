@@ -46,6 +46,93 @@ const decodeDataToBytes = (data: any): Uint8Array | null => {
   return null;
 };
 
+const WatermarkOverlay: React.FC<{
+  watermark: string;
+  settings: any;
+}> = ({ watermark, settings }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  
+  useEffect(() => {
+    if (!settings.isAnimated || !containerRef.current || !imgRef.current) return;
+    
+    let animationFrameId: number;
+    let startTime: number | null = null;
+    
+    const animate = (time: number) => {
+      if (!startTime) startTime = time;
+      const elapsed = time - startTime;
+      // Approximate frame based on 30fps
+      const frame = Math.floor((elapsed / 1000) * 30);
+      
+      const container = containerRef.current;
+      if (!container) return;
+      
+      const wmSize = Math.min(container.clientWidth, container.clientHeight) * (settings.size / 100);
+      const speed = settings.animationSpeed;
+      const pxPerFrame = speed * 0.5;
+      
+      const maxX = container.clientWidth - wmSize;
+      const maxY = container.clientHeight - wmSize;
+      
+      if (maxX > 0 && maxY > 0) {
+        const distX = frame * pxPerFrame;
+        const distY = frame * pxPerFrame;
+        
+        const modX = distX % (maxX * 2);
+        const modY = distY % (maxY * 2);
+        
+        const x = modX > maxX ? (maxX * 2) - modX : modX;
+        const y = modY > maxY ? (maxY * 2) - modY : modY;
+        
+        if (imgRef.current) {
+          imgRef.current.style.transform = `translate(${x}px, ${y}px)`;
+          imgRef.current.style.width = `${wmSize}px`;
+          imgRef.current.style.height = `${wmSize}px`;
+        }
+      }
+      
+      animationFrameId = requestAnimationFrame(animate);
+    };
+    
+    animationFrameId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [settings]);
+
+  if (!watermark) return null;
+
+  const staticStyle: React.CSSProperties = {
+    opacity: settings.opacity,
+    position: 'absolute',
+    pointerEvents: 'none',
+    zIndex: 50,
+  };
+
+  if (!settings.isAnimated) {
+    staticStyle.width = `${settings.size}%`;
+    staticStyle.height = `${settings.size}%`;
+    staticStyle.objectFit = 'contain';
+    
+    if (settings.position === 'top-left') { staticStyle.top = '5%'; staticStyle.left = '5%'; }
+    else if (settings.position === 'top-right') { staticStyle.top = '5%'; staticStyle.right = '5%'; }
+    else if (settings.position === 'bottom-left') { staticStyle.bottom = '5%'; staticStyle.left = '5%'; }
+    else if (settings.position === 'bottom-right') { staticStyle.bottom = '5%'; staticStyle.right = '5%'; }
+    else if (settings.position === 'center') { 
+      staticStyle.top = '50%'; staticStyle.left = '50%'; 
+      staticStyle.transform = 'translate(-50%, -50%)';
+    }
+  } else {
+    staticStyle.top = 0;
+    staticStyle.left = 0;
+  }
+
+  return (
+    <div ref={containerRef} className="absolute inset-0 pointer-events-none overflow-hidden">
+      <img ref={imgRef} src={watermark} style={staticStyle} alt="watermark" />
+    </div>
+  );
+};
+
 const extractAudioData = (item: any): Uint8Array | null => {
   if (!item) return null;
   if (item.type !== 'svga') return null;
@@ -257,7 +344,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [wmSettings, setWmSettings] = useState({
     position: 'bottom-right' as 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center',
     size: 15,
-    opacity: 0.5
+    opacity: 0.5,
+    isAnimated: false,
+    animationSpeed: 5
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -678,12 +767,25 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         if (wmImg) {
           const wmSize = Math.min(canvas.width, canvas.height) * (wmSettings.size / 100);
           let wx = 0, wy = 0;
-          switch(wmSettings.position) {
-            case "top-left": wx = 40; wy = 40; break;
-            case "top-right": wx = canvas.width - wmSize - 40; wy = 40; break;
-            case "bottom-left": wx = 40; wy = canvas.height - wmSize - 40; break;
-            case "bottom-right": wx = canvas.width - wmSize - 40; wy = canvas.height - wmSize - 40; break;
-            case "center": wx = (canvas.width - wmSize) / 2; wy = (canvas.height - wmSize) / 2; break;
+          if (wmSettings.isAnimated) {
+            const speed = wmSettings.animationSpeed;
+            const pxPerFrame = speed * 2;
+            const maxX = canvas.width - wmSize;
+            const maxY = canvas.height - wmSize;
+            const distX = frame * pxPerFrame;
+            const distY = frame * pxPerFrame;
+            const modX = distX % (maxX * 2);
+            const modY = distY % (maxY * 2);
+            wx = modX > maxX ? (maxX * 2) - modX : modX;
+            wy = modY > maxY ? (maxY * 2) - modY : modY;
+          } else {
+            switch(wmSettings.position) {
+              case "top-left": wx = 40; wy = 40; break;
+              case "top-right": wx = canvas.width - wmSize - 40; wy = 40; break;
+              case "bottom-left": wx = 40; wy = canvas.height - wmSize - 40; break;
+              case "bottom-right": wx = canvas.width - wmSize - 40; wy = canvas.height - wmSize - 40; break;
+              case "center": wx = (canvas.width - wmSize) / 2; wy = (canvas.height - wmSize) / 2; break;
+            }
           }
           ctx.globalAlpha = wmSettings.opacity;
           ctx.drawImage(wmImg, wx, wy, wmSize, wmSize);
@@ -1004,12 +1106,25 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           if (wmImg) {
             const wmSize = Math.min(finalWidth, finalHeight) * (wmSettings.size / 100);
             let wx = 0, wy = 0;
-            switch (wmSettings.position) {
-              case "top-left": wx = 20; wy = 20; break;
-              case "top-right": wx = finalWidth - wmSize - 20; wy = 20; break;
-              case "bottom-left": wx = 20; wy = finalHeight - wmSize - 20; break;
-              case "bottom-right": wx = finalWidth - wmSize - 20; wy = finalHeight - wmSize - 20; break;
-              case "center": wx = (finalWidth - wmSize) / 2; wy = (finalHeight - wmSize) / 2; break;
+            if (wmSettings.isAnimated) {
+              const speed = wmSettings.animationSpeed;
+              const pxPerFrame = speed * 2;
+              const maxX = finalWidth - wmSize;
+              const maxY = finalHeight - wmSize;
+              const distX = frame * pxPerFrame;
+              const distY = frame * pxPerFrame;
+              const modX = distX % (maxX * 2);
+              const modY = distY % (maxY * 2);
+              wx = modX > maxX ? (maxX * 2) - modX : modX;
+              wy = modY > maxY ? (maxY * 2) - modY : modY;
+            } else {
+              switch (wmSettings.position) {
+                case "top-left": wx = 20; wy = 20; break;
+                case "top-right": wx = finalWidth - wmSize - 20; wy = 20; break;
+                case "bottom-left": wx = 20; wy = finalHeight - wmSize - 20; break;
+                case "bottom-right": wx = finalWidth - wmSize - 20; wy = finalHeight - wmSize - 20; break;
+                case "center": wx = (finalWidth - wmSize) / 2; wy = (finalHeight - wmSize) / 2; break;
+              }
             }
             ctx.globalAlpha = wmSettings.opacity;
             ctx.drawImage(wmImg, wx, wy, wmSize, wmSize);
@@ -1331,13 +1446,22 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         ctx.globalAlpha = wmSettings.opacity;
         const wmSize = Math.min(canvas.width, canvas.height) * (wmSettings.size / 100);
         let wx = 0, wy = 0;
-        switch(wmSettings.position) {
-          case 'top-left': wx = 20; wy = 20; break;
-          case 'top-right': wx = canvas.width - wmSize - 20; wy = 20; break;
-          case 'bottom-left': wx = 20; wy = canvas.height - wmSize - 20; break;
-          case 'bottom-right': wx = canvas.width - wmSize - 20; wy = canvas.height - wmSize - 20; break;
-          case 'center': wx = (canvas.width - wmSize) / 2; wy = (canvas.height - wmSize) / 2; break;
+        
+        // For static image capture, if animated we just place it in center or a calculated position
+        // Since it's a single frame, we just use a default or frame 0 position
+        if (wmSettings.isAnimated) {
+           wx = (canvas.width - wmSize) / 2;
+           wy = (canvas.height - wmSize) / 2;
+        } else {
+          switch(wmSettings.position) {
+            case 'top-left': wx = 20; wy = 20; break;
+            case 'top-right': wx = canvas.width - wmSize - 20; wy = 20; break;
+            case 'bottom-left': wx = 20; wy = canvas.height - wmSize - 20; break;
+            case 'bottom-right': wx = canvas.width - wmSize - 20; wy = canvas.height - wmSize - 20; break;
+            case 'center': wx = (canvas.width - wmSize) / 2; wy = (canvas.height - wmSize) / 2; break;
+          }
         }
+        
         ctx.drawImage(wmImg, wx, wy, wmSize, wmSize);
         ctx.globalAlpha = 1.0;
       } catch (e) {
@@ -1993,6 +2117,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   value={wmSettings.position}
                   onChange={(e) => setWmSettings(prev => ({ ...prev, position: e.target.value as any }))}
                   className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-[10px] text-white focus:outline-none"
+                  disabled={wmSettings.isAnimated}
                 >
                   <option value="top-left">أعلى يسار</option>
                   <option value="top-right">أعلى يمين</option>
@@ -2005,7 +2130,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   <input 
                     type="range" min="5" max="100" value={wmSettings.size} 
                     onChange={(e) => setWmSettings(prev => ({ ...prev, size: parseInt(e.target.value) }))}
-                    className="w-24 accent-indigo-500"
+                    className="w-16 accent-indigo-500"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
@@ -2013,8 +2138,29 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   <input 
                     type="range" min="0.1" max="1" step="0.1" value={wmSettings.opacity} 
                     onChange={(e) => setWmSettings(prev => ({ ...prev, opacity: parseFloat(e.target.value) }))}
-                    className="w-24 accent-indigo-500"
+                    className="w-16 accent-indigo-500"
                   />
+                </div>
+                <div className="flex items-center gap-2 border-r border-white/10 pr-4 ml-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={wmSettings.isAnimated}
+                      onChange={(e) => setWmSettings(prev => ({ ...prev, isAnimated: e.target.checked }))}
+                      className="accent-indigo-500"
+                    />
+                    <span className="text-[10px] text-slate-300 font-bold">متحرك</span>
+                  </label>
+                  {wmSettings.isAnimated && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[8px] text-slate-500 uppercase font-black">السرعة</span>
+                      <input 
+                        type="range" min="1" max="10" value={wmSettings.animationSpeed} 
+                        onChange={(e) => setWmSettings(prev => ({ ...prev, animationSpeed: parseInt(e.target.value) }))}
+                        className="w-16 accent-indigo-500"
+                      />
+                    </div>
+                  )}
                 </div>
                 <button onClick={() => setWatermark(null)} className="text-red-500 hover:text-red-400 ml-2">
                   <X className="w-4 h-4" />
@@ -2082,6 +2228,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                         onExportVideo={() => handleExportIndividualVideos([item])}
                         previewBg={previewBg}
                         watermark={watermark}
+                        wmSettings={wmSettings}
                         onUpdatePreset={(presetId) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, presetId } : i))}
                       />
                     ))}
@@ -2146,13 +2293,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   }}
                 >
                   <SvgaPlayer item={selectedItem} />
-                  {watermark && (
-                    <img 
-                      src={watermark} 
-                      className="absolute bottom-4 right-4 w-16 h-16 object-contain opacity-50 pointer-events-none" 
-                      alt="watermark"
-                    />
-                  )}
+                  {watermark && <WatermarkOverlay watermark={watermark} settings={wmSettings} />}
                 </div>
               </div>
 
@@ -2395,8 +2536,9 @@ const SvgaCard: React.FC<{
   onExportVideo?: () => void;
   previewBg: string | null;
   watermark: string | null;
+  wmSettings: any;
   onUpdatePreset: (presetId: string) => void;
-}> = ({ item, onRemove, onMaximize, onDownload, onDownloadSvga, onExportVideo, previewBg, watermark, onUpdatePreset }) => {
+}> = ({ item, onRemove, onMaximize, onDownload, onDownloadSvga, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -2709,13 +2851,7 @@ const SvgaCard: React.FC<{
         />
 
         {/* Watermark */}
-        {watermark && (
-          <img 
-            src={watermark} 
-            className="absolute bottom-4 right-4 w-12 h-12 object-contain opacity-40 pointer-events-none z-10" 
-            alt="wm"
-          />
-        )}
+        {watermark && <WatermarkOverlay watermark={watermark} settings={wmSettings} />}
         
         {/* Audio Badge */}
         {hasAudio && (
