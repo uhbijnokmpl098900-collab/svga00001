@@ -256,8 +256,50 @@ export function setupSvgaAudioPolyfill(): void {
           }
         }
       }
+
       return result;
     };
+
+    const origPauseAnimation = SVGA.Player.prototype.pauseAnimation;
+    if (origPauseAnimation) {
+      SVGA.Player.prototype.pauseAnimation = function () {
+        origPauseAnimation.apply(this, arguments as any);
+        if (this._renderer && this._renderer._bitmapCache) {
+          Object.values(this._renderer._bitmapCache).forEach((sound: any) => {
+            if (sound && typeof sound.pause === 'function') {
+              sound.pause();
+            }
+          });
+        }
+      };
+    }
+
+    const origStartAnimation = SVGA.Player.prototype.startAnimation;
+    if (origStartAnimation) {
+      SVGA.Player.prototype.startAnimation = function () {
+        origStartAnimation.apply(this, arguments as any);
+        if ((window as any).__svgaMuted) return;
+        
+        if (this._videoItem && Array.isArray(this._videoItem.audios) && this._renderer && this._renderer._bitmapCache) {
+          const currentFrame = this._currentFrame || 0;
+          this._videoItem.audios.forEach((audio: any) => {
+            if (audio.startFrame <= currentFrame && audio.endFrame >= currentFrame) {
+              const sound = this._renderer._bitmapCache[audio.audioKey];
+              if (sound && typeof sound.play === 'function') {
+                if (!sound.playing || !sound.playing()) {
+                  const fps = this._videoItem.FPS || this._videoItem.fps || 30;
+                  const timeInSeconds = (currentFrame - audio.startFrame) / fps;
+                  if (typeof sound.seek === 'function') {
+                    sound.seek(timeInSeconds);
+                  }
+                  sound.play();
+                }
+              }
+            }
+          });
+        }
+      };
+    }
   };
 
   if ((window as any).SVGA) {
