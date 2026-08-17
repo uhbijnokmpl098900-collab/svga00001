@@ -90,19 +90,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction }) => {
       <div className="max-w-[1600px] w-full flex flex-col gap-16">
         
         {/* Main Hero / Uploader */}
-        <section className="relative w-full rounded-[3rem] p-1 sm:p-2 bg-gradient-to-b from-slate-800/50 to-transparent border border-white/5 shadow-2xl backdrop-blur-3xl animate-fade-in">
+        <section className="relative w-full rounded-[3rem] p-1 sm:p-2 bg-gradient-to-b from-[#0d1220]/70 to-[#070A12]/40 border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-3xl animate-fade-in overflow-hidden group">
+            {/* 3D Glass Orbs & Neon Lights */}
+            <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-[#4DA3FF]/20 blur-[120px] rounded-full mix-blend-screen pointer-events-none group-hover:bg-[#4DA3FF]/30 transition-all duration-1000"></div>
+            <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-[#8B5CF6]/20 blur-[120px] rounded-full mix-blend-screen pointer-events-none group-hover:bg-[#8B5CF6]/30 transition-all duration-1000"></div>
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 mix-blend-overlay rounded-[3rem] pointer-events-none"></div>
             
-            <div className="text-center mt-6 mb-8 flex flex-col items-center gap-3 relative z-10 w-full overflow-visible">
-              <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight drop-shadow-lg inline-block px-4 py-2 border-b-2 border-indigo-500/50 uppercase whitespace-normal sm:whitespace-nowrap">
-                 Quantum SVGA Processor
+            <div className="text-center mt-8 mb-10 flex flex-col items-center gap-4 relative z-10 w-full overflow-visible">
+              <h1 className="text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-blue-100 to-[#4DA3FF] tracking-tight drop-shadow-[0_0_15px_rgba(77,163,255,0.4)] uppercase whitespace-normal sm:whitespace-nowrap">
+                 SVGA MOTION STUDIO
               </h1>
-              <p className="text-indigo-400 font-bold tracking-widest uppercase text-xs sm:text-sm mt-1 font-arabic bg-indigo-500/10 px-6 py-2 rounded-full border border-indigo-500/20 shadow-md backdrop-blur-sm">
-                 مساحة العمل الاحترافية والمقرات الرئيسية للأدوات
+              <p className="text-[#8B5CF6] font-bold tracking-[0.2em] uppercase text-sm sm:text-base mt-1 bg-white/5 px-8 py-3 rounded-full border border-white/10 shadow-[0_4px_15px_rgba(139,92,246,0.2)] backdrop-blur-md">
+                 Create • Edit • Convert
               </p>
             </div>
             
-            <div className="relative z-10 px-4 sm:px-10 pb-10">
+            <div className="relative z-10 px-4 sm:px-10 pb-12">
                 <Uploader 
                     onUpload={onUpload} 
                     onConverterOpen={() => onAction('videoConverter')}
@@ -136,38 +139,39 @@ export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction }) => {
                        <button
                           key={tool.id}
                           onClick={() => onAction(tool.actionKey)}
-                          className={`group relative text-right flex flex-col items-start gap-3 sm:gap-5 p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] bg-[#0f172a]/80 hover:bg-[#1e293b]/90 border transition-all duration-500 cursor-pointer overflow-hidden shadow-xl hover:-translate-y-2 active:translate-y-1 ${
+                          className={`group relative text-right flex flex-col items-start gap-3 sm:gap-5 p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] glass-panel transition-all duration-500 cursor-pointer overflow-hidden hover:-translate-y-2 active:translate-y-1 ${
                              tool.highlight 
-                              ? 'border-indigo-500/40 hover:border-indigo-400/80 shadow-[0_0_20px_rgba(99,102,241,0.15)] hover:shadow-[0_0_40px_rgba(99,102,241,0.3)]' 
-                              : 'border-white/10 hover:border-white/30 hover:shadow-[0_10px_20px_rgba(0,0,0,0.4)]'
+                              ? 'border-[#4DA3FF]/40 hover:border-[#4DA3FF] shadow-[0_0_20px_rgba(77,163,255,0.15)] hover:shadow-[0_0_40px_rgba(77,163,255,0.3)] bg-gradient-to-b from-[#0d1220]/90 to-[#0d1220]/60' 
+                              : 'border-white/10 hover:border-white/30 hover:shadow-[0_10px_30px_rgba(0,0,0,0.6)] bg-[#0d1220]/60'
                           }`}
                        >
-                          {/* Hover Background Gradient */}
-                          <div className={`absolute inset-0 bg-gradient-to-br transition-all duration-500 opacity-0 group-hover:opacity-100 pointer-events-none ${cat.hoverColor}`}></div>
+                          {/* 3D Glass Glow Hover */}
+                          <div className={`absolute inset-0 bg-gradient-to-br transition-all duration-700 opacity-0 group-hover:opacity-100 pointer-events-none ${cat.hoverColor}`}></div>
+                          <div className="absolute -inset-[100%] top-0 bg-gradient-to-b from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transform -rotate-45 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 ease-in-out pointer-events-none"></div>
                           
                           {/* Icon Container */}
-                          <div className={`relative z-10 p-2 sm:p-4 rounded-xl sm:rounded-2xl transition-transform duration-500 group-hover:scale-110 shadow-lg ${
-                             tool.highlight ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.4)]' : 'bg-white/10 text-slate-300 border border-white/10'
+                          <div className={`relative z-10 p-3 sm:p-4 rounded-xl sm:rounded-2xl transition-all duration-500 group-hover:scale-110 group-hover:rotate-3 shadow-[0_8px_16px_rgba(0,0,0,0.4)] border ${
+                             tool.highlight ? 'bg-gradient-to-br from-[#4DA3FF]/30 to-[#8B5CF6]/30 text-white border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.4),0_0_20px_rgba(77,163,255,0.5)]' : 'bg-white/5 text-slate-300 border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]'
                           }`}>
-                            {React.cloneElement(tool.icon as React.ReactElement, { className: 'w-6 h-6 sm:w-8 sm:h-8' })}
+                            {React.cloneElement(tool.icon as React.ReactElement, { className: 'w-6 h-6 sm:w-8 sm:h-8 drop-shadow-md' })}
                           </div>
 
                           <div className="relative z-10 flex flex-col gap-2 sm:gap-4 w-full h-full flex-grow">
-                             <h3 className={`text-sm sm:text-xl md:text-2xl font-black transition-colors ${tool.highlight ? 'text-indigo-100 group-hover:text-white' : 'text-slate-100 group-hover:text-white'}`}>
+                             <h3 className={`text-sm sm:text-xl md:text-2xl font-black transition-colors ${tool.highlight ? 'text-white group-hover:text-[#22D3EE] drop-shadow-md' : 'text-slate-100 group-hover:text-white drop-shadow-sm'}`}>
                                 {tool.label}
                              </h3>
                              
                              <div className="hidden sm:flex flex-col gap-3 mt-auto">
-                                {/* Arabic Description - Distinct Color */}
-                                <div className="bg-sky-500/10 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-sky-500/30 shadow-inner group-hover:bg-sky-500/20 transition-colors">
-                                   <p className="text-[10px] sm:text-[14px] leading-relaxed font-bold text-sky-300 font-arabic">
+                                {/* Arabic Description */}
+                                <div className="bg-[#070A12]/50 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 shadow-inner group-hover:bg-[#070A12]/30 transition-colors backdrop-blur-sm">
+                                   <p className="text-[10px] sm:text-[14px] leading-relaxed font-bold text-slate-300">
                                       {tool.descAr}
                                    </p>
                                 </div>
                                 
-                                {/* English Description - Distinct Color */}
-                                <div className="bg-emerald-500/5 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-emerald-500/20 shadow-inner group-hover:bg-emerald-500/10 transition-colors" dir="ltr">
-                                   <p className="text-[9px] sm:text-[12px] leading-relaxed font-bold text-emerald-400 font-sans tracking-wide">
+                                {/* English Description */}
+                                <div className="bg-[#070A12]/30 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 shadow-inner transition-colors backdrop-blur-sm" dir="ltr">
+                                   <p className="text-[9px] sm:text-[12px] leading-relaxed font-bold text-slate-400 font-sans tracking-wide">
                                       {tool.descEn}
                                    </p>
                                 </div>
@@ -175,9 +179,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction }) => {
                           </div>
 
                           {/* Arrow overlay top left */}
-                          <div className="hidden sm:block absolute top-6 left-6 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-4 group-hover:translate-x-0">
-                             <div className="w-8 h-8 rounded-full bg-white/20 text-white flex items-center justify-center backdrop-blur-md shadow-lg">
-                                <ArrowLeft className="w-4 h-4 -rotate-45 group-hover:rotate-0 transition-transform duration-500" />
+                          <div className="hidden sm:block absolute top-6 left-6 opacity-0 group-hover:opacity-100 transition-all duration-500 translate-x-4 group-hover:translate-x-0">
+                             <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#8B5CF6] to-[#4DA3FF] text-white flex items-center justify-center shadow-[0_0_15px_rgba(77,163,255,0.6)] border border-white/20">
+                                <ArrowLeft className="w-5 h-5 -rotate-45 group-hover:rotate-0 transition-transform duration-500" />
                              </div>
                           </div>
                        </button>

@@ -41,8 +41,8 @@ export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onCon
 
   return (
     <div 
-      className={`relative max-w-5xl mx-auto min-h-[350px] sm:h-[450px] rounded-[2.5rem] sm:rounded-[3rem] border border-white/10 transition-all duration-500 flex flex-col items-center justify-center gap-6 sm:gap-10 p-6 sm:p-12 cursor-pointer overflow-hidden backdrop-blur-3xl shadow-2xl
-        ${isDragOver ? 'bg-indigo-500/20 scale-[1.02] shadow-[0_0_50px_rgba(99,102,241,0.3)] border-indigo-500/50' : 'bg-[#020617]/60 hover:bg-[#020617]/80 hover:border-white/20'}
+      className={`relative max-w-5xl mx-auto min-h-[350px] sm:h-[450px] rounded-[2.5rem] sm:rounded-[3rem] border transition-all duration-700 flex flex-col items-center justify-center gap-6 sm:gap-10 p-6 sm:p-12 cursor-pointer overflow-hidden shadow-2xl glass-panel group
+        ${isDragOver ? 'bg-[#4DA3FF]/10 scale-[1.03] shadow-[0_0_80px_rgba(77,163,255,0.4)] border-[#4DA3FF] rotate-1' : 'hover:scale-[1.01] hover:border-[#4DA3FF]/50 border-white/10 hover:shadow-[0_0_50px_rgba(77,163,255,0.2)]'}
       `}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -58,20 +58,24 @@ export const Uploader: React.FC<UploaderProps> = ({ onUpload, isUploading, onCon
         multiple
       />
 
-      <div className="absolute -top-24 -left-24 w-64 h-64 bg-indigo-500/10 blur-[100px] rounded-full pointer-events-none"></div>
-      <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-purple-600/10 blur-[100px] rounded-full pointer-events-none"></div>
-      <div className="absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent pointer-events-none"></div>
+      <div className="absolute -top-32 -left-32 w-80 h-80 bg-[#4DA3FF]/20 blur-[120px] rounded-full pointer-events-none group-hover:bg-[#4DA3FF]/40 transition-all duration-700"></div>
+      <div className="absolute -bottom-32 -right-32 w-80 h-80 bg-[#8B5CF6]/20 blur-[120px] rounded-full pointer-events-none group-hover:bg-[#8B5CF6]/40 transition-all duration-700"></div>
+      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 mix-blend-overlay pointer-events-none"></div>
 
       <div className="relative group z-10 w-full flex flex-col items-center">
-         <div className="absolute inset-0 bg-indigo-500 blur-3xl opacity-20 group-hover:opacity-40 transition-opacity pointer-events-none rounded-full w-40 h-40 mx-auto"></div>
-         <div className="relative w-20 h-20 sm:w-28 sm:h-28 bg-gradient-to-br from-indigo-500/20 to-purple-600/20 rounded-3xl flex items-center justify-center text-indigo-400 border border-indigo-400/30 shadow-[0_0_30px_rgba(99,102,241,0.2)] transition-all duration-500 group-hover:scale-110 group-hover:shadow-[0_0_50px_rgba(99,102,241,0.4)]">
-            <UploadCloud className="w-10 h-10 sm:w-12 sm:h-12" />
+         {/* 3D Portal Core */}
+         <div className={`absolute inset-0 bg-gradient-to-tr from-[#4DA3FF] to-[#8B5CF6] blur-3xl transition-all duration-700 pointer-events-none rounded-full mx-auto ${isDragOver ? 'w-64 h-64 opacity-60 animate-spin-slow' : 'w-48 h-48 opacity-20 group-hover:opacity-40 group-hover:scale-110'}`}></div>
+         
+         <div className={`relative bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl flex items-center justify-center border border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.4),0_10px_30px_rgba(0,0,0,0.5)] transition-all duration-700 ${
+           isDragOver ? 'w-32 h-32 rounded-full border-[#4DA3FF] shadow-[0_0_50px_rgba(77,163,255,0.8)]' : 'w-24 h-24 sm:w-32 sm:h-32 rounded-[2rem] group-hover:rounded-[2.5rem] group-hover:rotate-6'
+         }`}>
+            <UploadCloud className={`transition-all duration-700 ${isDragOver ? 'w-16 h-16 text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.8)]' : 'w-12 h-12 sm:w-16 sm:h-16 text-[#4DA3FF] drop-shadow-[0_0_5px_rgba(77,163,255,0.5)]'}`} />
          </div>
       </div>
       
-      <div className="text-center relative z-10 px-4">
-        <h3 className="text-2xl sm:text-4xl font-black text-white mb-3 tracking-tighter uppercase drop-shadow-lg font-sans tracking-wide">Upload Workspace</h3>
-        <p className="text-indigo-400/80 font-black uppercase tracking-[0.2em] sm:tracking-[0.4em] text-[10px] sm:text-[11px] bg-indigo-500/10 py-1.5 px-4 rounded-full inline-block border border-indigo-500/20 font-arabic shadow-sm backdrop-blur-sm">اضغط أو اسحب الملف لرفعه للبدء</p>
+      <div className="text-center relative z-10 px-4 mt-2">
+        <h3 className="text-2xl sm:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-[#4DA3FF] mb-4 tracking-tighter uppercase drop-shadow-[0_0_10px_rgba(77,163,255,0.3)]">DROP YOUR SVGA FILE</h3>
+        <p className="text-white/80 font-bold uppercase tracking-[0.2em] sm:tracking-[0.4em] text-[10px] sm:text-[12px] bg-white/5 py-2 px-6 rounded-full inline-block border border-white/10 font-arabic shadow-sm backdrop-blur-md">Drag & Drop or Browse</p>
       </div>
 
       <div className="mt-8 relative z-10 w-full px-2 sm:px-4 max-w-5xl mx-auto">

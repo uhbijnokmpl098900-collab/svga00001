@@ -195,10 +195,10 @@ export const Header: React.FC<HeaderProps> = (props) => {
             onClick={() => handleToolClick(tool)}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-full transition-all duration-300 shrink-0 select-none ${
               isToolActive 
-                ? 'bg-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)]' 
+                ? 'bg-gradient-to-r from-[#4DA3FF] to-[#8B5CF6] text-white shadow-[0_0_20px_rgba(77,163,255,0.4)] border border-white/20' 
                 : tool.highlight
-                  ? 'text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 border border-transparent hover:border-indigo-500/20'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent hover:border-white/10 bg-white/[0.02]'
+                  ? 'text-[#4DA3FF] hover:text-white hover:bg-[#4DA3FF]/10 border border-transparent hover:border-[#4DA3FF]/30 hover:shadow-[0_0_15px_rgba(77,163,255,0.2)]'
+                  : 'text-slate-400 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/20 hover:shadow-[0_0_15px_rgba(255,255,255,0.1)]'
             }`}
             title={tool.descAr}
           >
@@ -212,13 +212,13 @@ export const Header: React.FC<HeaderProps> = (props) => {
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 h-16 md:h-20 bg-[#020617]/70 backdrop-blur-2xl border-b border-white/5 z-[1000] px-2 md:px-8 flex items-center justify-between transition-all duration-300">
+      <header className="fixed top-4 left-4 right-4 h-16 md:h-20 glass-panel rounded-2xl z-[1000] px-3 md:px-6 flex items-center justify-between transition-all duration-300 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
         
         {/* Logo */}
         <div className="flex items-center shrink-0">
           <button onClick={props.onLogoClick} className="flex items-center gap-2 md:gap-3 group shrink-0">
-            <div className="w-9 h-9 md:w-11 md:h-11 bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-900 rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/30 group-hover:scale-105 group-active:scale-95 transition-all duration-300 border border-white/10 relative overflow-hidden shrink-0">
-               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20 mix-blend-overlay"></div>
+            <div className="w-9 h-9 md:w-11 md:h-11 bg-gradient-to-br from-[#4DA3FF] via-[#8B5CF6] to-[#22D3EE] rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg shadow-[#4DA3FF]/30 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 border border-white/20 relative overflow-hidden shrink-0">
+               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-30 mix-blend-overlay"></div>
                {props.settings?.logoUrl ? (
                  <img src={props.settings.logoUrl} alt="Logo" className="w-full h-full object-cover relative z-10" />
                ) : (
@@ -226,10 +226,10 @@ export const Header: React.FC<HeaderProps> = (props) => {
                )}
             </div>
             <div className="flex flex-col items-start hidden lg:flex shrink-0">
-              <h1 className="text-xl md:text-2xl font-black animated-brand-text tracking-tight whitespace-nowrap overflow-visible">
+              <h1 className="text-xl md:text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-[#4DA3FF] tracking-tight whitespace-nowrap drop-shadow-[0_0_10px_rgba(77,163,255,0.3)]">
                 {props.settings?.appName?.trim() ? props.settings.appName : 'SVGA Studio'}
               </h1>
-              <span className="text-[9px] text-indigo-400 font-bold tracking-[0.2em] uppercase whitespace-nowrap mt-0.5">Professional Platform</span>
+              <span className="text-[9px] text-[#22D3EE] font-bold tracking-[0.2em] uppercase whitespace-nowrap mt-0.5">3D Motion Lab</span>
             </div>
           </button>
         </div>

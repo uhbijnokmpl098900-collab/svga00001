@@ -389,7 +389,7 @@ const App: React.FC = () => {
   const bgUrl = settings?.backgroundUrl || defaultBgUrl;
 
   const dynamicBgStyle: React.CSSProperties = {
-    backgroundImage: `linear-gradient(rgba(2, 6, 23, 0.8), rgba(2, 6, 23, 0.9)), url(${bgUrl})`,
+    backgroundImage: `linear-gradient(rgba(7, 10, 18, 0.85), rgba(7, 10, 18, 0.95)), url(${bgUrl})`,
     backgroundSize: 'cover',
     backgroundPosition: 'center',
     backgroundAttachment: 'fixed'
@@ -508,7 +508,7 @@ const App: React.FC = () => {
         }
       />
       
-      <div className="flex pt-20 h-screen overflow-hidden relative">
+      <div className="flex pt-28 h-screen overflow-hidden relative">
         <main className={`flex-1 overflow-y-auto transition-all duration-700 custom-scrollbar mr-0`}>
           <style>{`
             .no-scrollbar::-webkit-scrollbar {

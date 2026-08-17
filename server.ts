@@ -2,6 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
+import audioRouter from "./src/server/audioRouter";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,7 +18,12 @@ async function startServer() {
     next();
   });
 
+  // Parse JSON bodies
+  app.use(express.json());
+
   // API routes
+  app.use('/api/audio', audioRouter);
+
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });

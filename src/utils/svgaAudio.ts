@@ -236,6 +236,16 @@ export function setupSvgaAudioPolyfill(): void {
                       html5: true,
                       preload: true,
                     });
+                    
+                    // Override play to respect global mute state, preventing the browser media controls from showing
+                    const origPlay = sound.play.bind(sound);
+                    sound.play = function(...args: any[]) {
+                      if ((window as any).__svgaMuted) {
+                        return undefined as any;
+                      }
+                      return origPlay(...args);
+                    };
+                    
                     renderer._bitmapCache[key] = sound;
                   }
                 } catch (e) {

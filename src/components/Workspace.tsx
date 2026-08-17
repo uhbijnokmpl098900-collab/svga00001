@@ -1692,6 +1692,23 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
   }, [metadata, isProcessingVideo, processImportedFile, onCancel]);
 
+  const handleCloseWorkspace = () => {
+    // Stop all audio to prevent it continuing in browser tab
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+    }
+    if (typeof window !== 'undefined') {
+      (window as any).__svgaMuted = true;
+      if ((window as any).Howler) {
+        try {
+          (window as any).Howler.stop();
+        } catch(e) {}
+      }
+    }
+    onCancel();
+  };
+
   const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1730,13 +1747,28 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       audioRef.current.volume = Math.min(volume, 1);
       audioRef.current.muted = isMuted;
 
-      if (isPlaying && audioUrl) {
+      if (isPlaying && audioUrl && !isMuted) {
         const playPromise = audioRef.current.play();
         if (playPromise !== undefined) {
           playPromise.catch((e) => console.log("Audio play prevented:", e));
         }
       } else {
         audioRef.current.pause();
+      }
+    }
+
+    // Also mute global Howler (used by SVGA player for internal audio)
+    if (typeof window !== 'undefined') {
+      (window as any).__svgaMuted = isMuted;
+      if ((window as any).Howler) {
+        try {
+          (window as any).Howler.mute(isMuted);
+          (window as any).Howler.volume(Math.min(volume, 1));
+          if (isMuted) {
+            // Stop all sounds so browser media controls disappear
+            (window as any).Howler.stop();
+          }
+        } catch(e) {}
       }
     }
   }, [isPlaying, audioUrl, volume, isMuted]);
@@ -8922,7 +8954,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             تغيير ملف SVGA
           </button>
           <button
-            onClick={onCancel}
+            onClick={handleCloseWorkspace}
             className="flex-1 lg:flex-none px-4 sm:px-10 py-3 sm:py-5 bg-white/5 hover:bg-red-500/10 text-slate-400 hover:text-red-400 rounded-xl sm:rounded-[2rem] border border-white/10 transition-all font-black uppercase text-[8px] sm:text-[10px] tracking-widest active:scale-95"
           >
             إلغاء المعالجة
