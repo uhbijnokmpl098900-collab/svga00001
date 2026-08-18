@@ -38,6 +38,7 @@ declare var SVGA: any;
 
 import { OnboardingModal } from './components/OnboardingModal';
 import { HelpCircle } from 'lucide-react';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const videoWidth = 1334;
 const videoHeight = 750;
@@ -600,12 +601,14 @@ const App: React.FC = () => {
               />
             )}
             {state === AppState.UNIVERSAL_CONVERTER && (
-              <UniversalMotionTools 
-                currentUser={currentUser} 
-                onCancel={handleReset} 
-                onLoginRequired={() => {}}
-                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
-              />
+              <ErrorBoundary fallbackTitle="حدث خطأ في محول الحركة الشامل" onReset={handleReset}>
+                <UniversalMotionTools 
+                  currentUser={currentUser} 
+                  onCancel={handleReset} 
+                  onLoginRequired={() => {}}
+                  onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+                />
+              </ErrorBoundary>
             )}
             {state === AppState.IMAGE_CONVERTER && (
               <ImageToSvga 

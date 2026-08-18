@@ -6789,7 +6789,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       let baseBitrate = 8000000;
       if (globalQuality === "low") baseBitrate = 2000000;
       if (globalQuality === "medium") baseBitrate = 5000000;
-      if (globalQuality === "high") baseBitrate = 12000000;
+      if (globalQuality === "high") baseBitrate = 6000000;
 
       // Apply user-defined compression ratio (100% = baseBitrate, 10% = 10% of baseBitrate)
       let bitrate = Math.round(baseBitrate * (compressionRatio / 100));
@@ -7658,7 +7658,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
         // VAP Export Optimization
         // 1. Bitrate: Adjusted based on globalQuality and user-defined compressionRatio.
         //    VAP is double-width, so it needs roughly 2x the bitrate of a normal video.
-        let baseBitrate = 12000000; // 12 Mbps (High)
+        let baseBitrate = 6000000; // 12 Mbps (High)
         if (globalQuality === "medium") baseBitrate = 8000000; // 8 Mbps
         if (globalQuality === "low") baseBitrate = 5000000; // 5 Mbps
 
@@ -12537,7 +12537,7 @@ class _MyAppState extends State<MyApp> {
                             setMetadata({
                               ...metadata,
                               fps: Math.min(
-                                120,
+                                60,
                                 Math.max(1, parseFloat(e.target.value) || 30),
                               ),
                             })
@@ -12573,7 +12573,7 @@ class _MyAppState extends State<MyApp> {
                               const newFps = metadata.frames / duration;
                               setMetadata({
                                 ...metadata,
-                                fps: Math.min(120, Math.max(1, newFps)),
+                                fps: Math.min(60, Math.max(1, newFps)),
                               });
                             }
                           }}
@@ -13098,7 +13098,7 @@ class _MyAppState extends State<MyApp> {
               </button>
               <button
                 onClick={handleApplyTextReplace}
-                className="px-6 py-2 bg-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.5)] hover:bg-yellow-400 text-black rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-2 min-w-[120px]"
+                className="px-6 py-2 bg-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.5)] hover:bg-yellow-400 text-black rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-2 min-w-[60px]"
               >
                 استبدال الصورة
               </button>

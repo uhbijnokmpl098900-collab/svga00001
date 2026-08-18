@@ -57,67 +57,119 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     let unsubscribeUser: (() => void) | null = null;
+    let isMounted = true;
+
+    // Safety timeout to guarantee loading is never stuck
+    const safetyTimeout = setTimeout(() => {
+      if (isMounted) {
+        setLoading(false);
+      }
+    }, 2500);
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        // Set up real-time listener for user document
-        const userDocRef = doc(db, 'users', user.uid);
-        
-        // Initial fetch to ensure we have data before setting loading to false
-        const userDoc = await getDoc(userDocRef);
-        if (userDoc.exists()) {
-          const userData = userDoc.data() as UserRecord;
-          setCurrentUser({ ...userData, id: user.uid });
-        } else {
-          // Create user record if it doesn't exist
-          const deviceId = getDeviceId();
-          const lastIp = await getClientIp();
-          const isAdmin = user.email === 'uhbijnokmpl098900@gmail.com';
+      try {
+        if (user) {
+          // Set up real-time listener for user document
+          const userDocRef = doc(db, 'users', user.uid);
           
-          // Fetch settings for default free attempts
-          const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
-          const defaultFreeAttempts = settingsDoc.exists() ? (settingsDoc.data().defaultFreeAttempts ?? 5) : 5;
-          
-          const newUser: UserRecord = {
-            id: user.uid,
-            name: user.displayName || user.email?.split('@')[0] || 'User',
-            email: user.email || undefined,
-            role: isAdmin ? 'admin' : 'user',
-            isApproved: true,
-            isVIP: isAdmin,
-            status: 'active',
-            subscriptionType: isAdmin ? 'year' : 'none',
-            freeAttempts: isAdmin ? 999999 : defaultFreeAttempts,
-            coins: isAdmin ? 999999 : 0,
-            subscriptionExpiry: isAdmin ? Timestamp.fromDate(new Date(Date.now() + 1000 * 60 * 60 * 24 * 365)) : null,
-            createdAt: Timestamp.now(),
-            lastLogin: Timestamp.now(),
-            deviceId,
-            lastIp,
-            hasSvgaExAccess: isAdmin
-          };
-          await setDoc(userDocRef, newUser);
-          setCurrentUser(newUser);
-        }
-
-        // Start real-time listener
-        unsubscribeUser = onSnapshot(userDocRef, (doc) => {
-          if (doc.exists()) {
-            setCurrentUser({ ...doc.data() as UserRecord, id: user.uid });
+          try {
+            // Initial fetch to ensure we have data before setting loading to false
+            const userDoc = await getDoc(userDocRef);
+            if (userDoc.exists()) {
+              const userData = userDoc.data() as UserRecord;
+              if (isMounted) setCurrentUser({ ...userData, id: user.uid });
+            } else {
+              // Create user record if it doesn't exist
+              const deviceId = getDeviceId();
+              const lastIp = await getClientIp();
+              const isAdmin = user.email === 'uhbijnokmpl098900@gmail.com';
+              
+              let defaultFreeAttempts = 5;
+              try {
+                const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
+                if (settingsDoc.exists() && settingsDoc.data().defaultFreeAttempts !== undefined) {
+                  defaultFreeAttempts = settingsDoc.data().defaultFreeAttempts;
+                }
+              } catch (err) {
+                console.warn("Could not fetch default free attempts settings:", err);
+              }
+              
+              const newUser: UserRecord = {
+                id: user.uid,
+                name: user.displayName || user.email?.split('@')[0] || 'User',
+                email: user.email || undefined,
+                role: isAdmin ? 'admin' : 'user',
+                isApproved: true,
+                isVIP: isAdmin,
+                status: 'active',
+                subscriptionType: isAdmin ? 'year' : 'none',
+                freeAttempts: isAdmin ? 999999 : defaultFreeAttempts,
+                coins: isAdmin ? 999999 : 0,
+                subscriptionExpiry: isAdmin ? Timestamp.fromDate(new Date(Date.now() + 1000 * 60 * 60 * 24 * 365)) : null,
+                createdAt: Timestamp.now(),
+                lastLogin: Timestamp.now(),
+                deviceId,
+                lastIp,
+                hasSvgaExAccess: isAdmin
+              };
+              await setDoc(userDocRef, newUser);
+              if (isMounted) setCurrentUser(newUser);
+            }
+          } catch (e: any) {
+            console.warn("Initial user fetch failed, using fallback:", e);
+            const isAdmin = user.email === 'uhbijnokmpl098900@gmail.com';
+            if (isMounted) {
+              setCurrentUser({
+                id: user.uid,
+                name: user.displayName || user.email?.split('@')[0] || 'User',
+                email: user.email || undefined,
+                role: isAdmin ? 'admin' : 'user',
+                isApproved: true,
+                isVIP: isAdmin,
+                status: 'active',
+                subscriptionType: isAdmin ? 'year' : 'none',
+                freeAttempts: isAdmin ? 999999 : 5,
+                coins: isAdmin ? 999999 : 0,
+                subscriptionExpiry: null,
+                createdAt: Timestamp.now(),
+                lastLogin: Timestamp.now(),
+                deviceId: getDeviceId(),
+                lastIp: 'local',
+                hasSvgaExAccess: isAdmin
+              });
+            }
           }
-        });
 
-      } else {
-        setCurrentUser(null);
-        if (unsubscribeUser) {
-          unsubscribeUser();
-          unsubscribeUser = null;
+          // Start real-time listener with error safety
+          try {
+            unsubscribeUser = onSnapshot(userDocRef, (doc) => {
+              if (doc.exists() && isMounted) {
+                setCurrentUser({ ...doc.data() as UserRecord, id: user.uid });
+              }
+            }, (error) => {
+              console.warn("User onSnapshot error:", error);
+            });
+          } catch (e) {
+            console.warn("Failed to attach user snapshot listener:", e);
+          }
+
+        } else {
+          if (isMounted) setCurrentUser(null);
+          if (unsubscribeUser) {
+            unsubscribeUser();
+            unsubscribeUser = null;
+          }
         }
+      } catch (err) {
+        console.error("Auth state handler error:", err);
+      } finally {
+        if (isMounted) setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => {
+      isMounted = false;
+      clearTimeout(safetyTimeout);
       unsubscribeAuth();
       if (unsubscribeUser) unsubscribeUser();
     };

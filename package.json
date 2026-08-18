@@ -41,6 +41,7 @@
     "tailwind-merge": "^3.5.0",
     "tsx": "^4.21.0",
     "upng-js": "^2.1.0",
+    "video-animation-player": "^1.0.5",
     "wavesurfer.js": "^7.12.8"
   },
   "devDependencies": {
@@ -48,6 +49,8 @@
     "@types/fluent-ffmpeg": "^2.1.28",
     "@types/multer": "^2.2.0",
     "@types/node": "^25.5.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "@types/upng-js": "^2.1.5",
     "@vitejs/plugin-react": "^5.0.0",
     "esbuild": "^0.28.2",

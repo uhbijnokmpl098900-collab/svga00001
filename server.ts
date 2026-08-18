@@ -11,13 +11,6 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Add COOP/COEP headers for FFmpeg SharedArrayBuffer support
-  app.use((req, res, next) => {
-    res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
-    res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-    next();
-  });
-
   // Parse JSON bodies
   app.use(express.json());
 
@@ -42,9 +35,10 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     // Serve static files in production
-    app.use(express.static(path.join(__dirname, "dist")));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
+    const distPath = path.join(process.cwd(), "dist");
+    app.use(express.static(distPath));
+    app.use((req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
