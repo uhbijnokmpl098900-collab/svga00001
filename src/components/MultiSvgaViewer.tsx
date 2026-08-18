@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music } from 'lucide-react';
+import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music , SquareCheck } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { PresetBackground, UserRecord } from '../types';
@@ -12,7 +12,7 @@ import { jsPDF } from 'jspdf';
 import { createStreamingZip } from '../utils/streamZip';
 import { calculateSafeDimensions } from '../utils/dimensions';
 import { getPAG, convertPagToSvga } from '../utils/pagEngine';
-import { ensureMp3WithId3 } from '../utils/svgaAudio';
+import { ensureMp3WithId3, extractAudioFromSvga } from '../utils/svgaAudio';
 
 const decodeDataToBytes = (data: any): Uint8Array | null => {
   if (!data) return null;
@@ -322,6 +322,7 @@ const EmbeddedAudioPlayer: React.FC<{ item: any }> = ({ item }) => {
 export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, currentUser, onSubscriptionRequired }) => {
   const { checkAccess } = useAccessControl();
   const [items, setItems] = useState<MultiSvgaItem[]>([]);
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [isDragging, setIsDragging] = useState(false);
   const [previewBg, setPreviewBg] = useState<string | null>(null);
   const [watermark, setWatermark] = useState<string | null>(null);
@@ -494,15 +495,41 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       if (item) URL.revokeObjectURL(item.url);
       return prev.filter(i => i.id !== id);
     });
+    setSelectedItemIds(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(id);
+      return newSet;
+    });
+  };
+
+  const handleToggleSelect = (id: string) => {
+    setSelectedItemIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) newSet.delete(id);
+      else newSet.add(id);
+      return newSet;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedItemIds.size === items.length && items.length > 0) {
+      setSelectedItemIds(new Set());
+    } else {
+      setSelectedItemIds(new Set(items.map(i => i.id)));
+    }
   };
 
   const clearAll = () => {
     items.forEach(item => URL.revokeObjectURL(item.url));
     setItems([]);
+    setSelectedItemIds(new Set());
   };
 
+  const getActiveItems = () => selectedItemIds.size > 0 ? items.filter(i => selectedItemIds.has(i.id)) : items;
+
   const handleExportGrid = async () => {
-    if ((items as any[]).length === 0) return;
+    const activeItems = getActiveItems();
+    if (activeItems.length === 0) return;
 
     const { allowed } = await checkAccess("Multi SVGA Export");
     if (!allowed) {
@@ -514,7 +541,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     setExportProgress(0);
 
     if (currentUser) {
-      logActivity(currentUser, "export", `Multi SVGA Grid Export: ${(items as any[]).length} files`);
+      logActivity(currentUser, "export", `Multi SVGA Grid Export: ${activeItems.length} files`);
     }
 
     const renderContainer = document.createElement("div");
@@ -535,8 +562,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       let cols: number;
       let rows: number;
 
-      if ((items as any[]).length === 1) {
-        const item = items[0];
+      if (activeItems.length === 1) {
+        const item = activeItems[0];
         canvasWidth = DEVICE_PRESETS.find(p => p.id === item.presetId)?.width || item.dimensions?.width || 500;
         canvasHeight = DEVICE_PRESETS.find(p => p.id === item.presetId)?.height || item.dimensions?.height || 500;
         cols = 1;
@@ -548,11 +575,11 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           canvasWidth = exportResolution === "1080p" ? 1080 : 720;
           canvasHeight = exportResolution === "1080p" ? 1920 : 1280;
         }
-        cols = Math.ceil(Math.sqrt((items as any[]).length));
-        rows = Math.ceil((items as any[]).length / cols);
+        cols = Math.ceil(Math.sqrt(activeItems.length));
+        rows = Math.ceil(activeItems.length / cols);
       }
 
-      const padding = (items as any[]).length === 1 ? 0 : 20;
+      const padding = activeItems.length === 1 ? 0 : 20;
       const availableWidth = canvasWidth - (padding * (cols + 1));
       const availableHeight = canvasHeight - (padding * (rows + 1));
       const cardW = availableWidth / cols;
@@ -567,7 +594,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: true })!;
 
       let maxFrames = 0;
-      items.forEach(item => {
+      activeItems.forEach(item => {
         const frames = item.frames || 1;
         const fps = item.fps || 30;
         const duration = frames / fps;
@@ -626,10 +653,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       });
 
       const offscreenPlayers = [];
-      for (let i = 0; i < (items as any[]).length; i++) {
-        const item = items[i];
-        const w = (items as any[]).length === 1 ? (DEVICE_PRESETS.find(p => p.id === item.presetId)?.width || item.dimensions?.width || 500) : cardW;
-        const h = (items as any[]).length === 1 ? (DEVICE_PRESETS.find(p => p.id === item.presetId)?.height || item.dimensions?.height || 500) : cardH;
+      for (let i = 0; i < activeItems.length; i++) {
+        const item = activeItems[i];
+        const w = activeItems.length === 1 ? (DEVICE_PRESETS.find(p => p.id === item.presetId)?.width || item.dimensions?.width || 500) : cardW;
+        const h = activeItems.length === 1 ? (DEVICE_PRESETS.find(p => p.id === item.presetId)?.height || item.dimensions?.height || 500) : cardH;
         
         const div = document.createElement("div");
         div.style.width = w + "px";
@@ -721,7 +748,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         for (let index = 0; index < offscreenPlayers.length; index++) {
           const { player, item, cardW, cardH, internalCanvas } = offscreenPlayers[index];
           let x, y;
-          if ((items as any[]).length === 1) {
+          if (activeItems.length === 1) {
             x = 0;
             y = 0;
           } else {
@@ -767,7 +794,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             
             ctx.save();
             ctx.beginPath();
-            if ((items as any[]).length > 1) {
+            if (activeItems.length > 1) {
               ctx.roundRect(x, y, cardW * scaleX, cardH * scaleY, 40 * Math.min(scaleX, scaleY));
             } else {
               ctx.rect(x, y, canvas.width, canvas.height);
@@ -855,7 +882,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   };
 
   const handleExportIndividualVideos = async (itemsToExport?: MultiSvgaItem[]) => {
-    const list = itemsToExport || items;
+    const list = itemsToExport || getActiveItems();
     if (list.length === 0) return;
 
     const nameCounts: Record<string, number> = {};
@@ -1025,6 +1052,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
         let player: any = null;
         let internalCanvas: HTMLCanvasElement | null = null;
+        let audioBytesToMux: Uint8Array | null = null;
 
         if (item.type === "pag") {
           const PAG = await getPAG();
@@ -1060,6 +1088,15 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           player.setContentMode(preset ? 'AspectFill' : 'AspectFit');
           player.stepToFrame(0, false);
           internalCanvas = div.querySelector("canvas");
+          
+          try {
+            const audioData = await extractAudioFromSvga(videoItem);
+            if (audioData.audioBytes) {
+               audioBytesToMux = audioData.audioBytes;
+            }
+          } catch (e) {
+            console.warn("Could not extract audio for export", e);
+          }
         }
 
         await new Promise(r => setTimeout(r, 200));
@@ -1153,7 +1190,43 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
         let { buffer } = muxer.target as ArrayBufferTarget;
         
-        // Audio export disabled as requested by the user
+        let finalMp4Buffer = buffer;
+
+        if (audioBytesToMux) {
+            try {
+                const ffmpeg = await ensureFFmpeg();
+                if (ffmpeg) {
+                    const videoName = `vid_${item.id}.mp4`;
+                    const audioName = `aud_${item.id}.mp3`;
+                    const outputName = `out_${item.id}.mp4`;
+                    
+                    await ffmpeg.writeFile(videoName, new Uint8Array(buffer));
+                    await ffmpeg.writeFile(audioName, audioBytesToMux);
+                    
+                    const durationSec = totalFrames / targetFps;
+                    
+                    await ffmpeg.exec([
+                        '-i', videoName,
+                        '-i', audioName,
+                        '-c:v', 'copy',
+                        '-c:a', 'aac',
+                        '-map', '0:v:0',
+                        '-map', '1:a:0',
+                        '-t', durationSec.toString(),
+                        outputName
+                    ]);
+                    
+                    const outData = await ffmpeg.readFile(outputName);
+                    finalMp4Buffer = (outData as Uint8Array).buffer;
+                    
+                    ffmpeg.deleteFile(videoName);
+                    ffmpeg.deleteFile(audioName);
+                    ffmpeg.deleteFile(outputName);
+                }
+            } catch (e) {
+                console.error("FFmpeg audio muxing failed for", item.name, e);
+            }
+        }
 
         renderContainer.removeChild(div);
         if (item.type === "pag" && player) {
@@ -1166,10 +1239,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
         if (streamZip) {
           // ONLY Add MP4 video file to ZIP archive
-          streamZip.addFile(mp4Filename, new Uint8Array(buffer));
+          streamZip.addFile(mp4Filename, new Uint8Array(finalMp4Buffer));
         } else {
           // Single video direct download
-          const blob = new Blob([buffer], { type: "video/mp4" });
+          const blob = new Blob([finalMp4Buffer], { type: "video/mp4" });
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url;
@@ -1425,11 +1498,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   };
 
   const handleDownloadAllImages = async () => {
-    if ((items as any[]).length === 0) return;
+    const activeItems = getActiveItems();
+    if (activeItems.length === 0) return;
 
     const nameCounts: Record<string, number> = {};
     const uniqueNames: Record<string, string> = {};
-    items.forEach(item => {
+    activeItems.forEach(item => {
       let folderPrefix = "";
       if (item.folderPath) {
         folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
@@ -1466,12 +1540,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     setExportProgress(0);
     
     if (currentUser) {
-      logActivity(currentUser, 'export', `Multi SVGA ZIP Export: ${(items as any[]).length} files`);
+      logActivity(currentUser, 'export', `Multi SVGA ZIP Export: ${activeItems.length} files`);
     }
 
     try {
-        for (let i = 0; i < (items as any[]).length; i++) {
-          const item = items[i];
+        for (let i = 0; i < activeItems.length; i++) {
+          const item = activeItems[i];
           let folderPrefix = "";
           if (item.folderPath) {
             folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
@@ -1482,7 +1556,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           const baseName = uniqueNames[item.id];
           
           zipStream.addFile(`${folderPrefix}${baseName}.png`, new Uint8Array(arrayBuffer));
-          setExportProgress(Math.round(((i + 1) / (items as any[]).length) * 100));
+          setExportProgress(Math.round(((i + 1) / activeItems.length) * 100));
           
           // Allow GC
           await new Promise(resolve => setTimeout(resolve, 5));
@@ -1496,11 +1570,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   };
 
   const handleDownloadAllSvga = async () => {
-    if ((items as any[]).length === 0) return;
+    const activeItems = getActiveItems();
+    if (activeItems.length === 0) return;
 
     const nameCounts: Record<string, number> = {};
     const uniqueNames: Record<string, string> = {};
-    items.forEach(item => {
+    activeItems.forEach(item => {
       let folderPrefix = "";
       if (item.folderPath) {
         folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
@@ -1537,12 +1612,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     setExportProgress(0);
     
     if (currentUser) {
-      logActivity(currentUser, 'export', `Multi SVGA Files Export: ${(items as any[]).length} files`);
+      logActivity(currentUser, 'export', `Multi SVGA Files Export: ${activeItems.length} files`);
     }
 
     try {
-        for (let i = 0; i < (items as any[]).length; i++) {
-          const item = items[i];
+        for (let i = 0; i < activeItems.length; i++) {
+          const item = activeItems[i];
           let folderPrefix = "";
           if (item.folderPath) {
             folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
@@ -1551,7 +1626,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           const baseName = uniqueNames[item.id];
     
           if (item.type === "pag") {
-            const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / (items as any[]).length) * 100)) });
+            const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / activeItems.length) * 100)) });
             const arrayBuffer = await result.svgaBlob.arrayBuffer();
             zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
           } else {
@@ -1568,7 +1643,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
              console.error("Failed to capture PNG for", item.name, err);
           }
 
-          setExportProgress(Math.round(((i + 1) / (items as any[]).length) * 100));
+          setExportProgress(Math.round(((i + 1) / activeItems.length) * 100));
           await new Promise(resolve => setTimeout(resolve, 5));
         }
         await zipStream.close();
@@ -1580,11 +1655,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   };
 
   const handleDownloadAllCombined = async () => {
-    if ((items as any[]).length === 0) return;
+    const activeItems = getActiveItems();
+    if (activeItems.length === 0) return;
 
     const nameCounts: Record<string, number> = {};
     const uniqueNames: Record<string, string> = {};
-    items.forEach(item => {
+    activeItems.forEach(item => {
       let folderPrefix = "";
       if (item.folderPath) {
         folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
@@ -1624,8 +1700,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' });
         let isFirstPage = true;
 
-        for (let i = 0; i < (items as any[]).length; i++) {
-          const item = items[i];
+        for (let i = 0; i < activeItems.length; i++) {
+          const item = activeItems[i];
           let folderPrefix = "";
           if (item.folderPath) {
             folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
@@ -1635,7 +1711,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     
           // 1. Add SVGA file
           if (item.type === "pag") {
-            const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / (items as any[]).length) * 100)) });
+            const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / activeItems.length) * 100)) });
             const arrayBuffer = await result.svgaBlob.arrayBuffer();
             zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
           } else {
@@ -1668,7 +1744,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           pdf.addImage(pngUint8, 'PNG', x, y, finalWidth, finalHeight);
           isFirstPage = false;
     
-          setExportProgress(Math.round(((i + 1) / (items as any[]).length) * 100));
+          setExportProgress(Math.round(((i + 1) / activeItems.length) * 100));
           await new Promise(resolve => setTimeout(resolve, 5));
         }
 
@@ -1951,6 +2027,13 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 )}
               </button>
               <button 
+                onClick={handleSelectAll}
+                className="px-6 py-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-2xl border border-indigo-500/20 font-black text-sm transition-all flex items-center gap-2"
+              >
+                <SquareCheck className="w-4 h-4" />
+                {selectedItemIds.size === (items as any[]).length && (items as any[]).length > 0 ? 'إلغاء التحديد' : 'تحديد الكل'}
+              </button>
+              <button 
                 onClick={clearAll}
                 className="px-6 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-2xl border border-red-500/20 font-black text-sm transition-all flex items-center gap-2"
               >
@@ -2182,6 +2265,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                         watermark={watermark}
                         wmSettings={wmSettings}
                         onUpdatePreset={(presetId) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, presetId } : i))}
+                        isSelected={selectedItemIds.has(item.id)}
+                        onToggleSelect={() => handleToggleSelect(item.id)}
                       />
                     ))}
                   </AnimatePresence>
@@ -2490,7 +2575,9 @@ const SvgaCard: React.FC<{
   watermark: string | null;
   wmSettings: any;
   onUpdatePreset: (presetId: string) => void;
-}> = ({ item, onRemove, onMaximize, onDownload, onDownloadSvga, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset }) => {
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
+}> = ({ item, onRemove, onMaximize, onDownload, onDownloadSvga, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -2805,9 +2892,25 @@ const SvgaCard: React.FC<{
         {/* Watermark */}
         {watermark && <WatermarkOverlay watermark={watermark} settings={wmSettings} />}
         
+        {/* Selection Checkbox */}
+        {onToggleSelect && (
+          <div className={`absolute top-4 left-4 z-30 transition-opacity duration-300 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+            <button
+              onClick={onToggleSelect}
+              className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${
+                isSelected ? "bg-indigo-500 border-indigo-500 text-white shadow-lg shadow-indigo-500/20" : "bg-black/40 backdrop-blur-md border-white/50 hover:border-white hover:bg-black/60 text-transparent"
+              }`}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </button>
+          </div>
+        )}
+        
         {/* Audio Badge */}
         {hasAudio && (
-          <div className="absolute top-4 left-4 z-20 px-3 py-1.5 bg-indigo-500/80 backdrop-blur-md border border-indigo-400/50 rounded-xl flex items-center gap-2 shadow-lg">
+          <div className={`absolute ${onToggleSelect ? 'top-14' : 'top-4'} left-4 z-20 px-3 py-1.5 bg-indigo-500/80 backdrop-blur-md border border-indigo-400/50 rounded-xl flex items-center gap-2 shadow-lg`}>
             <Volume2 className="w-4 h-4 text-white" />
             <span className="text-[10px] font-black text-white uppercase tracking-wider">يحتوي صوت</span>
           </div>
