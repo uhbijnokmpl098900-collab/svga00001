@@ -4,7 +4,8 @@ import {
   Sliders, Palette, CheckCircle2, Play, Pause, Sparkles, 
   Gauge, ArrowDownCircle, AlertCircle, Loader2, Eye, ShieldCheck,
   Check, RefreshCcw, Music, Volume2, VolumeX, Trash2, Plus,
-  FileAudio, Headphones, Film, HelpCircle, Video
+  FileAudio, Headphones, Film, HelpCircle, Video,
+  Stamp, Move, Square, Maximize2, SlidersHorizontal, Activity, Compass
 } from 'lucide-react';
 import { UserRecord } from '../types';
 // @ts-ignore
@@ -13,6 +14,145 @@ import { Player as SvgaPlayer, Parser as SvgaParser } from 'svga.lite';
 import UPNG from 'upng-js';
 import * as Mp4Muxer from 'mp4-muxer';
 import { encodeSVGA } from '../utils/svgaEncoder';
+
+// Helper for calculating animated square watermark position
+export const computeWatermarkPosition = (
+  progress: number,
+  canvasW: number,
+  canvasH: number,
+  sizePct: number,
+  motionType: string,
+  motionAmount: number,
+  speed: number,
+  positionAnchor: string
+) => {
+  const side = Math.max(16, Math.round(Math.min(canvasW, canvasH) * (sizePct / 100)));
+  const margin = Math.max(8, Math.round(side * 0.15));
+  const availW = Math.max(0, canvasW - side - margin * 2);
+  const availH = Math.max(0, canvasH - side - margin * 2);
+  const intensity = Math.max(0, Math.min(1, motionAmount / 100));
+
+  let baseX = margin;
+  let baseY = margin;
+
+  if (positionAnchor === 'center') {
+    baseX = (canvasW - side) / 2;
+    baseY = (canvasH - side) / 2;
+  } else if (positionAnchor === 'top-left') {
+    baseX = margin;
+    baseY = margin;
+  } else if (positionAnchor === 'top-right') {
+    baseX = canvasW - side - margin;
+    baseY = margin;
+  } else if (positionAnchor === 'bottom-left') {
+    baseX = margin;
+    baseY = canvasH - side - margin;
+  } else if (positionAnchor === 'bottom-right') {
+    baseX = canvasW - side - margin;
+    baseY = canvasH - side - margin;
+  }
+
+  let x = baseX;
+  let y = baseY;
+
+  const t = progress * speed * Math.PI * 2;
+
+  if (motionType === 'floating') {
+    const dx = Math.sin(t) * (availW * 0.45 * intensity);
+    const dy = Math.cos(t * 1.35) * (availH * 0.45 * intensity);
+    x = baseX + dx;
+    y = baseY + dy;
+  } else if (motionType === 'bounce') {
+    const fx = Math.abs(((progress * speed * 1.5) % 2) - 1);
+    const fy = Math.abs(((progress * speed * 1.15 + 0.35) % 2) - 1);
+    const targetX = margin + fx * availW;
+    const targetY = margin + fy * availH;
+    x = baseX + (targetX - baseX) * intensity;
+    y = baseY + (targetY - baseY) * intensity;
+  } else if (motionType === 'orbit') {
+    const rx = (availW / 2) * intensity;
+    const ry = (availH / 2) * intensity;
+    const centerX = (canvasW - side) / 2;
+    const centerY = (canvasH - side) / 2;
+    x = centerX + Math.cos(t) * rx;
+    y = centerY + Math.sin(t) * ry;
+  } else if (motionType === 'diagonal') {
+    const sweep = (Math.sin(t) + 1) / 2;
+    const dx = (sweep - 0.5) * availW * intensity;
+    const dy = (sweep - 0.5) * availH * intensity;
+    x = baseX + dx;
+    y = baseY + dy;
+  } else if (motionType === 'wave') {
+    const sweepX = (progress * speed) % 1;
+    const dx = (sweepX - 0.5) * availW * intensity;
+    const dy = Math.sin(sweepX * Math.PI * 4) * (availH * 0.35 * intensity);
+    x = baseX + dx;
+    y = baseY + dy;
+  }
+
+  // Ensure watermark stays safely within canvas boundaries
+  x = Math.max(margin / 2, Math.min(canvasW - side - margin / 2, x));
+  y = Math.max(margin / 2, Math.min(canvasH - side - margin / 2, y));
+
+  return { x, y, side };
+};
+
+// Helper for rendering high-precision square watermark onto canvas context
+export const drawSquareWatermarkToContext = (
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  x: number,
+  y: number,
+  side: number,
+  opacity: number,
+  borderRadius: number,
+  hasBorder: boolean
+) => {
+  ctx.save();
+  ctx.globalAlpha = Math.max(0.05, Math.min(1.0, opacity));
+
+  // Rounded Square path
+  const r = Math.min(borderRadius, side / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + side - r, y);
+  ctx.quadraticCurveTo(x + side, y, x + side, y + r);
+  ctx.lineTo(x + side, y + side - r);
+  ctx.quadraticCurveTo(x + side, y + side, x + side - r, y + side);
+  ctx.lineTo(x + r, y + side);
+  ctx.quadraticCurveTo(x, y + side, x, y + side - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+
+  // Subtle drop shadow for clarity over any background
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+  ctx.shadowBlur = Math.max(4, side * 0.08);
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = Math.max(2, side * 0.04);
+
+  // Clip to square
+  ctx.save();
+  ctx.clip();
+
+  // Crop & draw image covering the square area
+  const nw = img.naturalWidth || img.width || side;
+  const nh = img.naturalHeight || img.height || side;
+  const minDim = Math.min(nw, nh);
+  const sx = (nw - minDim) / 2;
+  const sy = (nh - minDim) / 2;
+
+  ctx.drawImage(img, sx, sy, minDim, minDim, x, y, side, side);
+  ctx.restore();
+
+  if (hasBorder) {
+    ctx.lineWidth = Math.max(1.5, side * 0.025);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.stroke();
+  }
+
+  ctx.restore();
+};
 
 interface UniversalMotionToolsProps {
   currentUser: UserRecord | null;
@@ -104,6 +244,140 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   const [compressionQuality, setCompressionQuality] = useState<number>(85);
   const [resolutionScale, setResolutionScale] = useState<number>(1.0);
   const [targetFps, setTargetFps] = useState<number>(24);
+
+  // Watermark Studio State (العلامة المائية المتحركة المربعة)
+  const [enableWatermark, setEnableWatermark] = useState<boolean>(false);
+  const [watermarkUrl, setWatermarkUrl] = useState<string | null>(null);
+  const [watermarkFile, setWatermarkFile] = useState<File | null>(null);
+  const [watermarkName, setWatermarkName] = useState<string>('');
+  const [watermarkSize, setWatermarkSize] = useState<number>(18); // 8% to 45%
+  const [watermarkMotionType, setWatermarkMotionType] = useState<'floating' | 'bounce' | 'orbit' | 'diagonal' | 'wave' | 'static'>('floating');
+  const [watermarkMotionAmount, setWatermarkMotionAmount] = useState<number>(50); // 0% to 100%
+  const [watermarkSpeed, setWatermarkSpeed] = useState<number>(1.0); // 0.3x to 3.0x
+  const [watermarkOpacity, setWatermarkOpacity] = useState<number>(90); // 10% to 100%
+  const [watermarkBorderRadius, setWatermarkBorderRadius] = useState<number>(12); // 0px to 32px
+  const [watermarkPosition, setWatermarkPosition] = useState<'center' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'>('bottom-right');
+  const [watermarkBorder, setWatermarkBorder] = useState<boolean>(true);
+  const watermarkInputRef = useRef<HTMLInputElement>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const [previewWmCoords, setPreviewWmCoords] = useState<{ x: number; y: number; side: number }>({ x: 20, y: 20, side: 64 });
+
+  // Live preview watermark animation loop
+  useEffect(() => {
+    if (!enableWatermark || !watermarkUrl) return;
+
+    let animId: number;
+    const startTime = performance.now();
+
+    const loop = (now: number) => {
+      const elapsed = (now - startTime) / 1000;
+      const dur = Math.max(1, videoDuration || 3);
+      const progress = (elapsed % dur) / dur;
+
+      const containerEl = previewContainerRef.current;
+      if (containerEl) {
+        const rect = containerEl.getBoundingClientRect();
+        const w = rect.width || 480;
+        const h = rect.height || 640;
+        const coords = computeWatermarkPosition(
+          progress,
+          w,
+          h,
+          watermarkSize,
+          watermarkMotionType,
+          watermarkMotionAmount,
+          watermarkSpeed,
+          watermarkPosition
+        );
+        setPreviewWmCoords(coords);
+      }
+
+      animId = requestAnimationFrame(loop);
+    };
+
+    animId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animId);
+  }, [
+    enableWatermark,
+    watermarkUrl,
+    watermarkSize,
+    watermarkMotionType,
+    watermarkMotionAmount,
+    watermarkSpeed,
+    watermarkPosition,
+    videoDuration
+  ]);
+
+  // Create sample stylish square watermark
+  const handleUseSampleWatermark = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const c = canvas.getContext('2d');
+    if (!c) return;
+
+    const grad = c.createLinearGradient(0, 0, 256, 256);
+    grad.addColorStop(0, '#6366F1');
+    grad.addColorStop(0.5, '#A855F7');
+    grad.addColorStop(1, '#EC4899');
+    c.fillStyle = grad;
+    c.fillRect(0, 0, 256, 256);
+
+    c.fillStyle = 'rgba(255, 255, 255, 0.18)';
+    c.beginPath();
+    c.arc(128, 128, 92, 0, Math.PI * 2);
+    c.fill();
+
+    c.fillStyle = '#FFFFFF';
+    c.font = 'bold 36px sans-serif';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText('SVGA', 128, 108);
+
+    c.font = 'bold 20px sans-serif';
+    c.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    c.fillText('STUDIO', 128, 154);
+
+    c.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+    c.lineWidth = 10;
+    c.strokeRect(12, 12, 232, 232);
+
+    const dataUrl = canvas.toDataURL('image/png');
+    setWatermarkUrl(dataUrl);
+    setWatermarkFile(null);
+    setWatermarkName('Sample_Watermark_Badge.png');
+    setEnableWatermark(true);
+  };
+
+  const handleWatermarkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('يرجى اختيار ملف صورة صالح (PNG / JPG / SVG / WebP)');
+      return;
+    }
+
+    if (watermarkUrl && watermarkUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(watermarkUrl);
+    }
+
+    const url = URL.createObjectURL(file);
+    setWatermarkFile(file);
+    setWatermarkUrl(url);
+    setWatermarkName(file.name);
+    setEnableWatermark(true);
+  };
+
+  const handleRemoveWatermark = () => {
+    if (watermarkUrl && watermarkUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(watermarkUrl);
+    }
+    setWatermarkUrl(null);
+    setWatermarkFile(null);
+    setWatermarkName('');
+    setEnableWatermark(false);
+  };
 
   // Export Progress State
   const [isExporting, setIsExporting] = useState<boolean>(false);
@@ -761,6 +1035,19 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         });
       }
 
+      // Preload watermark image if enabled
+      let wmImgEl: HTMLImageElement | null = null;
+      if (enableWatermark && watermarkUrl) {
+        wmImgEl = new Image();
+        wmImgEl.crossOrigin = 'anonymous';
+        wmImgEl.src = watermarkUrl;
+        await new Promise((res) => {
+          if (!wmImgEl) return res(null);
+          wmImgEl.onload = () => res(null);
+          wmImgEl.onerror = () => res(null);
+        });
+      }
+
       // Main Canvas for Frame Rendering
       const canvas = document.createElement('canvas');
       canvas.width = outW;
@@ -890,6 +1177,31 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             // Draw blended animation on top of background
             ctx.drawImage(rgbCanvas, 0, 0, outW, outH);
           }
+        }
+
+        // Draw Animated Square Watermark onto frame if enabled
+        if (enableWatermark && wmImgEl && wmImgEl.complete && wmImgEl.naturalWidth > 0) {
+          const wmProgress = totalFrames > 1 ? i / (totalFrames - 1) : 0;
+          const { x, y, side } = computeWatermarkPosition(
+            wmProgress,
+            outW,
+            outH,
+            watermarkSize,
+            watermarkMotionType,
+            watermarkMotionAmount,
+            watermarkSpeed,
+            watermarkPosition
+          );
+          drawSquareWatermarkToContext(
+            ctx,
+            wmImgEl,
+            x,
+            y,
+            side,
+            watermarkOpacity / 100,
+            watermarkBorderRadius,
+            watermarkBorder
+          );
         }
 
         // @ts-ignore
@@ -1066,6 +1378,19 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       const exportCtx = exportCanvas.getContext('2d', { willReadFrequently: true });
       if (!exportCtx) throw new Error('فشل إنشاء سياق التصدير');
 
+      // Preload watermark image if enabled
+      let wmImgEl: HTMLImageElement | null = null;
+      if (enableWatermark && watermarkUrl) {
+        wmImgEl = new Image();
+        wmImgEl.crossOrigin = 'anonymous';
+        wmImgEl.src = watermarkUrl;
+        await new Promise((res) => {
+          if (!wmImgEl) return res(null);
+          wmImgEl.onload = () => res(null);
+          wmImgEl.onerror = () => res(null);
+        });
+      }
+
       const imagesMap: Record<string, Uint8Array> = {};
       const sprites: any[] = [];
 
@@ -1156,6 +1481,31 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
         exportCtx.clearRect(0, 0, outW, outH);
         exportCtx.drawImage(rgbCanvas, 0, 0, origW, origH, 0, 0, outW, outH);
+
+        // Draw Animated Square Watermark onto frame if enabled
+        if (enableWatermark && wmImgEl && wmImgEl.complete && wmImgEl.naturalWidth > 0) {
+          const wmProgress = totalFrames > 1 ? i / (totalFrames - 1) : 0;
+          const { x, y, side } = computeWatermarkPosition(
+            wmProgress,
+            outW,
+            outH,
+            watermarkSize,
+            watermarkMotionType,
+            watermarkMotionAmount,
+            watermarkSpeed,
+            watermarkPosition
+          );
+          drawSquareWatermarkToContext(
+            exportCtx,
+            wmImgEl,
+            x,
+            y,
+            side,
+            watermarkOpacity / 100,
+            watermarkBorderRadius,
+            watermarkBorder
+          );
+        }
 
         const scaledImageData = exportCtx.getImageData(0, 0, outW, outH);
 
@@ -1651,6 +2001,297 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
               </button>
             </div>
 
+            {/* Watermark Studio (العلامة المائية المتحركة المربعة) */}
+            <div className="p-5 border-b border-white/5 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Stamp className="w-3.5 h-3.5 text-pink-400" />
+                  العلامة المائية المتحركة (مربعة)
+                </span>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setEnableWatermark(!enableWatermark)}
+                    className={`w-11 h-5 rounded-full relative transition-colors ${enableWatermark ? 'bg-pink-500' : 'bg-slate-700'}`}
+                  >
+                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${enableWatermark ? 'left-0.5 translate-x-6' : 'left-0.5'}`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Hidden file input for watermark image */}
+              <input
+                ref={watermarkInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleWatermarkUpload}
+                className="hidden"
+              />
+
+              {enableWatermark && (
+                <div className="space-y-4 pt-1 animate-in fade-in slide-in-from-top-2 duration-200">
+                  {/* Upload or Selected Watermark Display */}
+                  {watermarkUrl ? (
+                    <div className="p-3.5 bg-pink-500/5 border border-pink-500/20 rounded-2xl space-y-3">
+                      <div className="flex items-center gap-3">
+                        {/* Square Watermark Thumbnail Preview */}
+                        <div 
+                          className="w-14 h-14 bg-black/40 border-2 border-pink-400/50 shadow-md flex items-center justify-center overflow-hidden flex-shrink-0 relative"
+                          style={{ borderRadius: `${Math.min(16, watermarkBorderRadius / 2)}px` }}
+                        >
+                          <img
+                            src={watermarkUrl}
+                            alt="Watermark Preview"
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-white truncate" title={watermarkName}>
+                            {watermarkName || 'علامة مائية مربعة'}
+                          </p>
+                          <p className="text-[10px] text-pink-300/80 font-medium">مربعة ومتحركة على الفيديو</p>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => watermarkInputRef.current?.click()}
+                          className="flex-1 py-1.5 px-3 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl text-[11px] font-bold transition-all border border-white/10 flex items-center justify-center gap-1.5"
+                        >
+                          <RefreshCw className="w-3 h-3 text-pink-400" />
+                          <span>تغيير الصورة</span>
+                        </button>
+                        <button
+                          onClick={handleRemoveWatermark}
+                          className="py-1.5 px-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl text-[11px] font-bold transition-all border border-red-500/20 flex items-center justify-center gap-1.5"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>حذف</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div
+                        onClick={() => watermarkInputRef.current?.click()}
+                        className="w-full py-4 px-4 rounded-2xl border border-dashed border-pink-500/40 bg-pink-500/5 hover:bg-pink-500/10 cursor-pointer transition-all flex items-center justify-center gap-3 group"
+                      >
+                        <div className="w-8 h-8 rounded-xl bg-pink-500/20 text-pink-400 flex items-center justify-center group-hover:scale-105 transition-all">
+                          <Upload className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-white group-hover:text-pink-300 transition-colors">
+                            رفع صورة العلامة المائية (PNG / SVG / JPG)
+                          </p>
+                          <p className="text-[10px] text-slate-400">ستظهر كعلامة مربعة متحركة على الفيديو</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={handleUseSampleWatermark}
+                        className="w-full py-2 px-3 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition-all border border-white/10 flex items-center justify-center gap-1.5"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-pink-400" />
+                        <span>استخدام شعار تجريبي جاهز (SVGA Studio)</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Motion Type Selection (نوع الحركة) */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center text-xs font-bold text-slate-300">
+                      <span className="flex items-center gap-1.5">
+                        <Move className="w-3.5 h-3.5 text-pink-400" />
+                        نمط ونوع الحركة
+                      </span>
+                      <span className="text-[11px] text-pink-300 font-mono">
+                        {watermarkMotionType === 'floating' ? 'طافي انسيابي' :
+                         watermarkMotionType === 'bounce' ? 'ارتداد حواف' :
+                         watermarkMotionType === 'orbit' ? 'مداري دائري' :
+                         watermarkMotionType === 'diagonal' ? 'متأرجح قطري' :
+                         watermarkMotionType === 'wave' ? 'موجي' : 'ثابت بدون حركة'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { id: 'floating', label: 'طافي انسيابي' },
+                        { id: 'bounce', label: 'ارتداد الحواف' },
+                        { id: 'orbit', label: 'مداري دائري' },
+                        { id: 'diagonal', label: 'متأرجح قطري' },
+                        { id: 'wave', label: 'مسار موجي' },
+                        { id: 'static', label: 'ثابت بالزاوية' },
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          onClick={() => setWatermarkMotionType(item.id as any)}
+                          className={`py-2 px-1 rounded-xl text-[11px] font-bold transition-all border ${
+                            watermarkMotionType === item.id
+                              ? 'bg-pink-500/20 text-white border-pink-500/60 shadow-sm'
+                              : 'bg-white/5 text-slate-400 hover:text-white border-white/5 hover:border-white/10'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Motion Amount / Range Slider (كمية ومدى الحركة) */}
+                  {watermarkMotionType !== 'static' && (
+                    <div className="space-y-1.5 p-3 rounded-2xl bg-white/5 border border-white/5">
+                      <div className="flex justify-between items-center text-xs font-bold text-slate-300">
+                        <span className="flex items-center gap-1.5">
+                          <Sliders className="w-3.5 h-3.5 text-pink-400" />
+                          كمية ومدى الحركة
+                        </span>
+                        <span className="text-pink-300 font-mono font-bold">{watermarkMotionAmount}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={watermarkMotionAmount}
+                        onChange={(e) => setWatermarkMotionAmount(Number(e.target.value))}
+                        className="w-full accent-pink-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                      <div className="flex justify-between text-[10px] text-slate-500 font-medium">
+                        <span>حركة ضيقة (0%)</span>
+                        <span>متوازنة (50%)</span>
+                        <span>واسعة النطاق (100%)</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Watermark Size Slider (مقاس وحجم المربع) */}
+                  <div className="space-y-1.5 p-3 rounded-2xl bg-white/5 border border-white/5">
+                    <div className="flex justify-between items-center text-xs font-bold text-slate-300">
+                      <span className="flex items-center gap-1.5">
+                        <Maximize2 className="w-3.5 h-3.5 text-pink-400" />
+                        مقاس وحجم العلامة المربعة
+                      </span>
+                      <span className="text-pink-300 font-mono font-bold">{watermarkSize}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="8"
+                      max="40"
+                      value={watermarkSize}
+                      onChange={(e) => setWatermarkSize(Number(e.target.value))}
+                      className="w-full accent-pink-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] text-slate-500 font-medium">
+                      <span>صغيرة (8%)</span>
+                      <span>متوسطة (18%)</span>
+                      <span>كبيرة وبارزة (40%)</span>
+                    </div>
+                  </div>
+
+                  {/* Watermark Speed Slider (سرعة الحركة) */}
+                  {watermarkMotionType !== 'static' && (
+                    <div className="space-y-1.5 p-3 rounded-2xl bg-white/5 border border-white/5">
+                      <div className="flex justify-between items-center text-xs font-bold text-slate-300">
+                        <span className="flex items-center gap-1.5">
+                          <Gauge className="w-3.5 h-3.5 text-pink-400" />
+                          سرعة الحركة
+                        </span>
+                        <span className="text-pink-300 font-mono font-bold">{watermarkSpeed.toFixed(1)}x</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.3"
+                        max="3.0"
+                        step="0.1"
+                        value={watermarkSpeed}
+                        onChange={(e) => setWatermarkSpeed(Number(e.target.value))}
+                        className="w-full accent-pink-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                      <div className="flex justify-between text-[10px] text-slate-500 font-medium">
+                        <span>هادئة (0.3x)</span>
+                        <span>عادية (1.0x)</span>
+                        <span>سريعة (3.0x)</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Corner Radius & Opacity */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* Corner Radius */}
+                    <div className="p-3 rounded-2xl bg-white/5 border border-white/5 space-y-1.5">
+                      <div className="flex justify-between items-center text-xs font-bold text-slate-300">
+                        <span className="flex items-center gap-1">
+                          <Square className="w-3 h-3 text-pink-400" />
+                          انحناء المربع
+                        </span>
+                        <span className="text-pink-300 font-mono text-[11px] font-bold">{watermarkBorderRadius}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="32"
+                        value={watermarkBorderRadius}
+                        onChange={(e) => setWatermarkBorderRadius(Number(e.target.value))}
+                        className="w-full accent-pink-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Opacity */}
+                    <div className="p-3 rounded-2xl bg-white/5 border border-white/5 space-y-1.5">
+                      <div className="flex justify-between items-center text-xs font-bold text-slate-300">
+                        <span>الشفافية</span>
+                        <span className="text-pink-300 font-mono text-[11px] font-bold">{watermarkOpacity}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="10"
+                        max="100"
+                        value={watermarkOpacity}
+                        onChange={(e) => setWatermarkOpacity(Number(e.target.value))}
+                        className="w-full accent-pink-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Initial Position / Anchor */}
+                  <div className="space-y-2">
+                    <span className="text-xs font-bold text-slate-300 block">نقطة الارتكاز / موضع البداية</span>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { id: 'top-left', label: 'أعلى يسار' },
+                        { id: 'top-right', label: 'أعلى يمين' },
+                        { id: 'center', label: 'الوسط' },
+                        { id: 'bottom-left', label: 'أسفل يسار' },
+                        { id: 'bottom-right', label: 'أسفل يمين' },
+                      ].map((pos) => (
+                        <button
+                          key={pos.id}
+                          onClick={() => setWatermarkPosition(pos.id as any)}
+                          className={`py-1.5 px-2 rounded-xl text-[11px] font-bold transition-all border ${
+                            watermarkPosition === pos.id
+                              ? 'bg-pink-500/20 text-pink-300 border-pink-500/60'
+                              : 'bg-white/5 text-slate-400 hover:text-white border-white/5 hover:border-white/10'
+                          }`}
+                        >
+                          {pos.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Border Frame Toggle */}
+                  <div className="flex items-center justify-between p-3 rounded-2xl bg-white/5 border border-white/5">
+                    <span className="text-xs font-bold text-slate-300">إطار خارجي وظل للمربع</span>
+                    <button
+                      onClick={() => setWatermarkBorder(!watermarkBorder)}
+                      className={`w-10 h-5 rounded-full relative transition-colors ${watermarkBorder ? 'bg-pink-500' : 'bg-slate-700'}`}
+                    >
+                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${watermarkBorder ? 'left-0.5 translate-x-5' : 'left-0.5'}`} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* 3. Background Color Switcher (قلب ألوان الخلفية) */}
             <div className="p-5 border-b border-white/5">
               <div className="flex items-center justify-between mb-3">
@@ -2029,7 +2670,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             {fileUrl ? (
               <>
               <div 
-                className="relative w-full h-full flex flex-col items-center justify-center rounded-[2rem] border border-white/10 overflow-hidden shadow-2xl transition-colors duration-300"
+                ref={previewContainerRef}
+                className="relative w-full h-full flex flex-col items-center justify-center rounded-[2rem] border border-white/10 overflow-hidden shadow-2xl transition-colors duration-300 select-none"
                 style={{ 
                   backgroundColor: bgMode === 'color' ? bgColor : '#0E1017',
                   backgroundImage: bgMode === 'image' && bgImageUrl ? `url(${bgImageUrl})` : 'none',
@@ -2040,6 +2682,35 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                 {/* Checkered Pattern for Transparent Checking */}
                 {bgMode === 'checker' && (
                   <div className="absolute inset-0 pattern-checkered opacity-35 pointer-events-none" />
+                )}
+
+                {/* Live Animated Square Watermark Overlay Preview */}
+                {enableWatermark && watermarkUrl && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: `${previewWmCoords.x}px`,
+                      top: `${previewWmCoords.y}px`,
+                      width: `${previewWmCoords.side}px`,
+                      height: `${previewWmCoords.side}px`,
+                      opacity: watermarkOpacity / 100,
+                      borderRadius: `${watermarkBorderRadius}px`,
+                      border: watermarkBorder ? '2px solid rgba(255, 255, 255, 0.8)' : 'none',
+                      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
+                      zIndex: 25,
+                      pointerEvents: 'none',
+                      overflow: 'hidden',
+                      transition: watermarkMotionType === 'static' ? 'all 0.15s ease-out' : 'none',
+                    }}
+                    className="flex items-center justify-center bg-black/20 backdrop-blur-[1px]"
+                  >
+                    <img
+                      src={watermarkUrl}
+                      alt="Animated Square Watermark"
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
                 )}
 
                 {/* View Switcher Bar (VAP Video vs Exported SVGA) */}
