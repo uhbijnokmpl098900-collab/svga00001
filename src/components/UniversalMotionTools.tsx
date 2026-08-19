@@ -1326,6 +1326,36 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     });
   };
 
+  // Robust, jitter-free frame seeker that ensures the GPU / video decoder texture is fully rendered
+  const seekVideoToFrame = (video: HTMLVideoElement, targetTime: number): Promise<void> => {
+    return new Promise<void>((resolve) => {
+      let isDone = false;
+      const finish = () => {
+        if (!isDone) {
+          isDone = true;
+          video.removeEventListener('seeked', onSeeked);
+          video.removeEventListener('error', finish);
+          resolve();
+        }
+      };
+
+      const onSeeked = () => {
+        if ('requestVideoFrameCallback' in video) {
+          (video as any).requestVideoFrameCallback(() => finish());
+        } else {
+          requestAnimationFrame(() => finish());
+        }
+      };
+
+      video.addEventListener('seeked', onSeeked, { once: true });
+      video.addEventListener('error', finish, { once: true });
+      video.currentTime = targetTime;
+
+      // Safe fallback timeout in case the seeked event was missed
+      setTimeout(finish, 350);
+    });
+  };
+
   // Convert Audio File or Video Audio Track to AudioData Chunks for MP4 Muxing
   const prepareAudioDataChunks = async (
     audioBlobOrUrl: Blob | string,
@@ -1533,16 +1563,26 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       const totalPixels = outW * outH;
       const codec = totalPixels > 2228224 ? 'avc1.4d0033' : 'avc1.4d002a';
       
-      // Smart Bitrate Calculation scaling with custom dimensions to reduce file size when resized
-      let originalBitrate = 5000000;
-      if (sourceFile && duration > 0) {
-         originalBitrate = Math.round((sourceFile.size * 8) / duration);
+      // Smart, jitter-free Bitrate Calculation scaling with custom dimensions and compression
+      let originalBitrate = 4500000;
+      if (sourceFile && duration > 0 && sourceFile.size > 0) {
+        originalBitrate = Math.round((sourceFile.size * 8) / duration);
       }
       
       const pixelScaleFactor = (outW * outH) / (vw * vh || 1);
       const cLevel = compressionLevel / 100;
-      let bitrate = Math.round(originalBitrate * pixelScaleFactor * (1.5 - (cLevel * 1.4)));
-      bitrate = Math.max(300000, bitrate);
+      
+      // Calculate target bitrate based on pixel surface and target compression level
+      const pixelBaselineBitrate = Math.round(totalPixels * 3.0);
+      const baseBitrate = Math.max(pixelBaselineBitrate, originalBitrate * pixelScaleFactor);
+      
+      // Smooth non-destructive compression factor (1.2x at 0% down to 0.45x at 100%)
+      const compressionFactor = Math.max(0.45, 1.2 - (cLevel * 0.75));
+      let bitrate = Math.round(baseBitrate * compressionFactor);
+      
+      // Safe minimum bitrate floor based on resolution to prevent decoder lag and stuttering
+      const minSafeBitrate = Math.max(1200000, Math.round(totalPixels * 1.5));
+      bitrate = Math.max(minSafeBitrate, Math.min(25000000, bitrate));
 
       // @ts-ignore
       const videoEncoder = new VideoEncoder({
@@ -1556,6 +1596,9 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         height: outH,
         bitrate: bitrate,
         framerate: fps,
+        bitrateMode: 'variable',
+        latencyMode: 'quality',
+        avc: { format: 'avc' }
       });
 
       let audioEncoder: any = null;
@@ -1638,27 +1681,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
           return;
         }
 
-        const currentTime = Math.min(i / fps, Math.max(0, duration - 0.02));
-        
-        await new Promise<void>((resolve) => {
-          let resolved = false;
-          const onSeeked = () => {
-            if (!resolved) {
-              resolved = true;
-              video.removeEventListener('seeked', onSeeked);
-              resolve();
-            }
-          };
-          video.addEventListener('seeked', onSeeked, { once: true });
-          video.currentTime = currentTime;
-          setTimeout(() => {
-            if (!resolved) {
-              resolved = true;
-              video.removeEventListener('seeked', onSeeked);
-              resolve();
-            }
-          }, 80);
-        });
+        const currentTime = Math.min(i / fps, Math.max(0, duration - 0.01));
+        await seekVideoToFrame(video, currentTime);
 
         if (!isStandardMP4) {
           // Regular VAP: Draw full side-by-side / stacked VAP frame directly onto canvas
@@ -1684,70 +1708,62 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             alphaCtx.clearRect(0, 0, origW, origH);
             alphaCtx.drawImage(video, srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH, 0, 0, origW, origH);
 
-                    if (webglRenderer) {
-           // Because origW/origH are defined later, we re-init if needed
-           if (webglRenderer.canvas.width !== origW) {
-              webglRenderer = new WebGLVapRenderer(origW, origH);
-           }
-           const glCanvas = webglRenderer.render(video, [srcRgbX, srcRgbY, srcRgbW, srcRgbH], [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH], alphaThreshold, unmultiplyAlpha);
-           rgbCtx.clearRect(0, 0, origW, origH);
-           rgbCtx.drawImage(glCanvas, 0, 0);
-        } else {
-
-          if (webglRenderer) {
-             const glCanvas = webglRenderer.render(video, [srcRgbX, srcRgbY, srcRgbW, srcRgbH], [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH], alphaThreshold, unmultiplyAlpha);
-             rgbCtx.clearRect(0, 0, cfgW, cfgH);
-             rgbCtx.drawImage(glCanvas, 0, 0, cfgW, cfgH);
-          } else {
-const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
-            const alphaData = alphaCtx.getImageData(0, 0, origW, origH);
-
-            const compData = rgbCtx.createImageData(origW, origH);
-            const dest = compData.data;
-            const rgbPixels = rgbData.data;
-            const alphaPixels = alphaData.data;
-            const pixelCount = origW * origH;
-            const threshold = alphaThreshold;
-
-            for (let p = 0; p < pixelCount; p++) {
-              const idx = p * 4;
-              const aR = alphaPixels[idx];
-              const aG = alphaPixels[idx + 1];
-              const aB = alphaPixels[idx + 2];
-              const rawAlpha = Math.round(0.299 * aR + 0.587 * aG + 0.114 * aB);
-
-              if (rawAlpha <= threshold) {
-                dest[idx] = 0;
-                dest[idx + 1] = 0;
-                dest[idx + 2] = 0;
-                dest[idx + 3] = 0;
-              } else {
-                let aVal = rawAlpha;
-                if (aVal < 255) {
-                  aVal = Math.min(255, Math.round(((rawAlpha - threshold) / (255 - threshold)) * 255));
-                }
-                const alphaRatio = aVal / 255;
-
-                let r = rgbPixels[idx];
-                let g = rgbPixels[idx + 1];
-                let b = rgbPixels[idx + 2];
-
-                if (unmultiplyAlpha && alphaRatio > 0.02) {
-                  r = Math.min(255, Math.max(0, Math.round(r / alphaRatio)));
-                  g = Math.min(255, Math.max(0, Math.round(g / alphaRatio)));
-                  b = Math.min(255, Math.max(0, Math.round(b / alphaRatio)));
-                }
-
-                dest[idx] = r;
-                dest[idx + 1] = g;
-                dest[idx + 2] = b;
-                dest[idx + 3] = aVal;
+            if (webglRenderer) {
+              if (webglRenderer.canvas.width !== origW) {
+                webglRenderer = new WebGLVapRenderer(origW, origH);
               }
-            }
+              const glCanvas = webglRenderer.render(video, [srcRgbX, srcRgbY, srcRgbW, srcRgbH], [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH], alphaThreshold, unmultiplyAlpha);
+              rgbCtx.clearRect(0, 0, origW, origH);
+              rgbCtx.drawImage(glCanvas, 0, 0);
+            } else {
+              const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
+              const alphaData = alphaCtx.getImageData(0, 0, origW, origH);
 
-            rgbCtx.putImageData(compData, 0, 0);
-          }
-        }
+              const compData = rgbCtx.createImageData(origW, origH);
+              const dest = compData.data;
+              const rgbPixels = rgbData.data;
+              const alphaPixels = alphaData.data;
+              const pixelCount = origW * origH;
+              const threshold = alphaThreshold;
+
+              for (let p = 0; p < pixelCount; p++) {
+                const idx = p * 4;
+                const aR = alphaPixels[idx];
+                const aG = alphaPixels[idx + 1];
+                const aB = alphaPixels[idx + 2];
+                const rawAlpha = Math.round(0.299 * aR + 0.587 * aG + 0.114 * aB);
+
+                if (rawAlpha <= threshold) {
+                  dest[idx] = 0;
+                  dest[idx + 1] = 0;
+                  dest[idx + 2] = 0;
+                  dest[idx + 3] = 0;
+                } else {
+                  let aVal = rawAlpha;
+                  if (aVal < 255) {
+                    aVal = Math.min(255, Math.round(((rawAlpha - threshold) / (255 - threshold)) * 255));
+                  }
+                  const alphaRatio = aVal / 255;
+
+                  let r = rgbPixels[idx];
+                  let g = rgbPixels[idx + 1];
+                  let b = rgbPixels[idx + 2];
+
+                  if (unmultiplyAlpha && alphaRatio > 0.02) {
+                    r = Math.min(255, Math.max(0, Math.round(r / alphaRatio)));
+                    g = Math.min(255, Math.max(0, Math.round(g / alphaRatio)));
+                    b = Math.min(255, Math.max(0, Math.round(b / alphaRatio)));
+                  }
+
+                  dest[idx] = r;
+                  dest[idx + 1] = g;
+                  dest[idx + 2] = b;
+                  dest[idx + 3] = aVal;
+                }
+              }
+
+              rgbCtx.putImageData(compData, 0, 0);
+            }
 
             // Draw blended animation on top of background
             ctx.drawImage(rgbCanvas, 0, 0, outW, outH);
@@ -1779,13 +1795,19 @@ const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
           );
         }
 
+        const frameTimestamp = Math.round((i * 1000000) / fps);
+        const nextTimestamp = Math.round(((i + 1) * 1000000) / fps);
+        const actualFrameDuration = Math.max(1, nextTimestamp - frameTimestamp);
+
         // @ts-ignore
         const frame = new VideoFrame(canvas, {
-          timestamp: Math.round(i * frameDuration),
-          duration: Math.round(frameDuration),
+          timestamp: frameTimestamp,
+          duration: actualFrameDuration,
         });
 
-        videoEncoder.encode(frame, { keyFrame: i % (fps * 2) === 0 });
+        // Keyframe every ~12-24 frames (or at frame 0) to ensure smooth seek, buffer stability and no stutter
+        const isKeyFrame = i === 0 || i % Math.max(10, Math.min(30, Math.round(fps))) === 0;
+        videoEncoder.encode(frame, { keyFrame: isKeyFrame });
         frame.close();
 
         const pct = Math.round(((i + 1) / totalFrames) * 85);
@@ -1982,27 +2004,8 @@ const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
           return;
         }
 
-        const currentTime = Math.min(i * frameInterval, Math.max(0, duration - 0.02));
-        
-        await new Promise<void>((resolve) => {
-          let resolved = false;
-          const onSeeked = () => {
-            if (!resolved) {
-              resolved = true;
-              video.removeEventListener('seeked', onSeeked);
-              resolve();
-            }
-          };
-          video.addEventListener('seeked', onSeeked, { once: true });
-          video.currentTime = currentTime;
-          setTimeout(() => {
-            if (!resolved) {
-              resolved = true;
-              video.removeEventListener('seeked', onSeeked);
-              resolve();
-            }
-          }, 60);
-        });
+        const currentTime = Math.min(i * frameInterval, Math.max(0, duration - 0.01));
+        await seekVideoToFrame(video, currentTime);
 
         rgbCtx.clearRect(0, 0, origW, origH);
         rgbCtx.drawImage(video, srcRgbX, srcRgbY, srcRgbW, srcRgbH, 0, 0, origW, origH);
