@@ -108,6 +108,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction }) => {
             <div className="relative z-10 px-4 sm:px-10 pb-12">
                 <Uploader 
                     onUpload={onUpload} 
+                    isUploading={false}
                     onConverterOpen={() => onAction('videoConverter')}
                     onMultiSvgaOpen={() => onAction('multiSvga')}
                     onBatchImageOpen={() => onAction('batchImageOpen')}

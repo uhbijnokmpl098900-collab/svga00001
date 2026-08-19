@@ -1,30 +1,10 @@
 const fs = require('fs');
+const path = 'src/components/UniversalMotionTools.tsx';
+let code = fs.readFileSync(path, 'utf8');
 
-let content = fs.readFileSync('src/components/UniversalMotionTools.tsx', 'utf8');
+const regex = /bitrate = Math\.round\(originalBitrate \* \(1\.5 - \(cLevel \* 1\.4\)\)\); else \{[\s\S]*?bitrate = Math\.round\(originalBitrate \* scale\);\n\s*\}/g;
 
-const badCode = `                  )}
-                </div>
-              </div>
-            ) : (`;
+code = code.replace(regex, `bitrate = Math.round(originalBitrate * (1.5 - (cLevel * 1.4)));`);
 
-const fixedCode = `                  )}
-                </div>
-              </div>
-              </>
-            ) : (`;
-
-content = content.replace(badCode, fixedCode);
-
-const otherBadCode = `            {fileUrl ? (
-              <div 
-                className="relative w-full h-full flex flex-col items-center justify-center rounded-[2rem] border border-white/10 overflow-hidden shadow-2xl transition-colors duration-300"`;
-
-const otherFixedCode = `            {fileUrl ? (
-              <>
-              <div 
-                className="relative w-full h-full flex flex-col items-center justify-center rounded-[2rem] border border-white/10 overflow-hidden shadow-2xl transition-colors duration-300"`;
-
-content = content.replace(otherBadCode, otherFixedCode);
-
-fs.writeFileSync('src/components/UniversalMotionTools.tsx', content);
-console.log("Syntax fixed");
+fs.writeFileSync(path, code);
+console.log('Fixed syntax error');

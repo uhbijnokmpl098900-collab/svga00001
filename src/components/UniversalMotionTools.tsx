@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
-  Upload, X, Info, FileVideo, RefreshCw, Box, Download, 
+  Upload, X, Info, BoxSelect, FileVideo, RefreshCw, Box, Download, 
   Sliders, Palette, CheckCircle2, Play, Pause, Sparkles, 
   Gauge, ArrowDownCircle, AlertCircle, Loader2, Eye, ShieldCheck,
   Check, RefreshCcw, Music, Volume2, VolumeX, Trash2, Plus,
@@ -175,6 +175,146 @@ interface VapConfig {
   };
 }
 
+
+class WebGLVapRenderer {
+  canvas: HTMLCanvasElement;
+  gl: WebGLRenderingContext;
+  program: WebGLProgram;
+  positionBuffer: WebGLBuffer;
+  texCoordBuffer: WebGLBuffer;
+  texture: WebGLTexture;
+  aPosition: number;
+  aTexCoord: number;
+  uImage: WebGLUniformLocation | null;
+  uRgbRect: WebGLUniformLocation | null;
+  uAlphaRect: WebGLUniformLocation | null;
+  uThreshold: WebGLUniformLocation | null;
+  uUnmultiply: WebGLUniformLocation | null;
+
+  constructor(width: number, height: number) {
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = width;
+    this.canvas.height = height;
+    const gl = this.canvas.getContext('webgl', { premultipliedAlpha: false, preserveDrawingBuffer: true });
+    if (!gl) throw new Error('WebGL not supported');
+    this.gl = gl;
+
+    const vsSource = `
+      attribute vec2 a_position;
+      attribute vec2 a_texCoord;
+      varying vec2 v_texCoord;
+      void main() {
+        gl_Position = vec4(a_position, 0.0, 1.0);
+        v_texCoord = a_texCoord;
+      }
+    `;
+
+    const fsSource = `
+      precision highp float;
+      varying vec2 v_texCoord;
+      uniform sampler2D u_image;
+      uniform vec4 u_rgbRect;
+      uniform vec4 u_alphaRect;
+      uniform float u_threshold;
+      uniform float u_unmultiply;
+
+      void main() {
+        vec2 rgbCoord = vec2(u_rgbRect.x + v_texCoord.x * u_rgbRect.z, u_rgbRect.y + v_texCoord.y * u_rgbRect.w);
+        vec2 alphaCoord = vec2(u_alphaRect.x + v_texCoord.x * u_alphaRect.z, u_alphaRect.y + v_texCoord.y * u_alphaRect.w);
+
+        vec4 rgbPixel = texture2D(u_image, rgbCoord);
+        vec4 alphaPixel = texture2D(u_image, alphaCoord);
+
+        float rawAlpha = 0.299 * alphaPixel.r + 0.587 * alphaPixel.g + 0.114 * alphaPixel.b;
+        
+        if (rawAlpha <= u_threshold) {
+            gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+        } else {
+            float aVal = min(1.0, (rawAlpha - u_threshold) / (1.0 - u_threshold));
+            vec3 color = rgbPixel.rgb;
+            if (u_unmultiply > 0.5 && aVal > 0.02) {
+                color = clamp(color / aVal, 0.0, 1.0);
+            }
+            gl_FragColor = vec4(color, aVal);
+        }
+      }
+    `;
+
+    const compileShader = (type: number, source: string) => {
+      const shader = gl.createShader(type);
+      if (!shader) return null;
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      return shader;
+    };
+
+    const vs = compileShader(gl.VERTEX_SHADER, vsSource);
+    const fs = compileShader(gl.FRAGMENT_SHADER, fsSource);
+    this.program = gl.createProgram()!;
+    gl.attachShader(this.program, vs!);
+    gl.attachShader(this.program, fs!);
+    gl.linkProgram(this.program);
+
+    this.aPosition = gl.getAttribLocation(this.program, 'a_position');
+    this.aTexCoord = gl.getAttribLocation(this.program, 'a_texCoord');
+    this.uImage = gl.getUniformLocation(this.program, 'u_image');
+    this.uRgbRect = gl.getUniformLocation(this.program, 'u_rgbRect');
+    this.uAlphaRect = gl.getUniformLocation(this.program, 'u_alphaRect');
+    this.uThreshold = gl.getUniformLocation(this.program, 'u_threshold');
+    this.uUnmultiply = gl.getUniformLocation(this.program, 'u_unmultiply');
+
+    this.positionBuffer = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1.0, -1.0,   1.0, -1.0,   -1.0,  1.0,
+      -1.0,  1.0,   1.0, -1.0,    1.0,  1.0
+    ]), gl.STATIC_DRAW);
+
+    this.texCoordBuffer = gl.createBuffer()!;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+       0.0,  1.0,   1.0,  1.0,    0.0,  0.0,
+       0.0,  0.0,   1.0,  1.0,    1.0,  0.0
+    ]), gl.STATIC_DRAW);
+
+    this.texture = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  }
+
+  render(video: HTMLVideoElement, rgbRect: number[], alphaRect: number[], threshold: number, unmultiply: boolean) {
+    const gl = this.gl;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.useProgram(this.program);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+    gl.enableVertexAttribArray(this.aPosition);
+    gl.vertexAttribPointer(this.aPosition, 2, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer);
+    gl.enableVertexAttribArray(this.aTexCoord);
+    gl.vertexAttribPointer(this.aTexCoord, 2, gl.FLOAT, false, 0, 0);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+    gl.uniform1i(this.uImage, 0);
+
+    gl.uniform4f(this.uRgbRect, rgbRect[0]/vw, rgbRect[1]/vh, rgbRect[2]/vw, rgbRect[3]/vh);
+    gl.uniform4f(this.uAlphaRect, alphaRect[0]/vw, alphaRect[1]/vh, alphaRect[2]/vw, alphaRect[3]/vh);
+    gl.uniform1f(this.uThreshold, threshold / 255.0);
+    gl.uniform1f(this.uUnmultiply, unmultiply ? 1.0 : 0.0);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    return this.canvas;
+  }
+}
+
 export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   currentUser,
   onCancel,
@@ -218,6 +358,16 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   const [isPlaybackMuted, setIsPlaybackMuted] = useState<boolean>(false);
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
 
+
+
+
+
+
+
+
+
+
+
   // Background Customization
   const [bgMode, setBgMode] = useState<'checker' | 'color' | 'image'>('checker');
   const [bgColor, setBgColor] = useState<string>('#0B0C10');
@@ -241,7 +391,9 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   // Professional Quality & De-Blacking Settings
   const [unmultiplyAlpha, setUnmultiplyAlpha] = useState<boolean>(true);
   const [alphaThreshold, setAlphaThreshold] = useState<number>(8);
-  const [compressionQuality, setCompressionQuality] = useState<number>(85);
+  const [compressionLevel, setCompressionLevel] = useState<number>(0);
+  const [exportStats, setExportStats] = useState<{original: number, compressed: number, savedPct: string} | null>(null);
+  const [svgaFormat, setSvgaFormat] = useState<'webp' | 'png' | 'jpeg'>('webp');
   const [resolutionScale, setResolutionScale] = useState<number>(1.0);
   const [targetFps, setTargetFps] = useState<number>(24);
 
@@ -381,12 +533,29 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
   // Export Progress State
   const [isExporting, setIsExporting] = useState<boolean>(false);
+
+  // Background Throttling Prevention
+  const [silentAudio] = useState(() => {
+    const audio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
+    audio.loop = true;
+    return audio;
+  });
+
+  useEffect(() => {
+    if (isExporting) {
+      silentAudio.play().catch(() => {});
+    } else {
+      silentAudio.pause();
+    }
+  }, [isExporting, silentAudio]);
   const [exportProgress, setExportProgress] = useState<number>(0);
   const [exportStatusText, setExportStatusText] = useState<string>('');
   const [exportedBlob, setExportedBlob] = useState<Blob | null>(null);
   const [exportedFileSize, setExportedFileSize] = useState<string>('');
   const [exportSuccess, setExportSuccess] = useState<boolean>(false);
   const cancelExportRef = useRef<boolean>(false);
+
+
 
   useEffect(() => {
     // Attempt to mute the VAP video element
@@ -407,6 +576,193 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     setTimeout(attemptMute, 1500);
     
   }, [muteOriginalAudio, fileUrl, isPlaybackMuted]);
+
+
+  // Preview Modal State
+  const [showLivePreview, setShowLivePreview] = useState(false);
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Render Preview Frame
+    // Animated Live Preview
+  useEffect(() => {
+    if (!showLivePreview || !previewCanvasRef.current || !fileUrl) return;
+    const canvas = previewCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let animId: number;
+    let isPlaying = true;
+    let webglRenderer: WebGLVapRenderer | null = null;
+    
+    const video = document.createElement('video');
+    video.muted = true;
+    video.crossOrigin = 'anonymous';
+    video.loop = true;
+    video.src = fileUrl;
+
+    const rgbCanvas = document.createElement('canvas');
+    const rgbCtx = rgbCanvas.getContext('2d', { willReadFrequently: true });
+    const alphaCanvas = document.createElement('canvas');
+    const alphaCtx = alphaCanvas.getContext('2d', { willReadFrequently: true });
+    
+    video.onloadeddata = () => {
+        video.play().catch(()=>{});
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        if (!vw || !vh) return;
+        
+        let cfgW = vapConfig?.info?.w || Math.round(vw / 2);
+        let cfgH = vapConfig?.info?.h || vh;
+        let rawVideoW = vapConfig?.info?.videoW || vw;
+        let rawVideoH = vapConfig?.info?.videoH || vh;
+        let rgbRect = vapConfig?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
+        let alphaRect = vapConfig?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+        
+        if (!vapConfig?.info?.rgbFrame && vh > vw && vw > 0) {
+          rgbRect = [0, 0, vw, Math.round(vh / 2)];
+          alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
+          cfgW = vw;
+          cfgH = Math.round(vh / 2);
+        }
+        
+        const scaleX = vw / (rawVideoW || vw);
+        const scaleY = vh / (rawVideoH || vh);
+        const srcRgbX = Math.round(rgbRect[0] * scaleX);
+        const srcRgbY = Math.round(rgbRect[1] * scaleY);
+        const srcRgbW = Math.round(rgbRect[2] * scaleX);
+        const srcRgbH = Math.round(rgbRect[3] * scaleY);
+        const srcAlphaX = Math.round(alphaRect[0] * scaleX);
+        const srcAlphaY = Math.round(alphaRect[1] * scaleY);
+        const srcAlphaW = Math.round(alphaRect[2] * scaleX);
+        const srcAlphaH = Math.round(alphaRect[3] * scaleY);
+
+        canvas.width = cfgW;
+        canvas.height = cfgH;
+        rgbCanvas.width = cfgW;
+        rgbCanvas.height = cfgH;
+        alphaCanvas.width = cfgW;
+        alphaCanvas.height = cfgH;
+
+        try { webglRenderer = new WebGLVapRenderer(cfgW, cfgH); } catch(e) {}
+        
+        const isStandardMP4 = exportTargetFormat === 'mp4';
+        
+        // Background Image caching
+        let bgImgEl: HTMLImageElement | null = null;
+        if (isStandardMP4 && bgMode === 'image' && bgImageUrl) {
+             bgImgEl = new Image();
+             bgImgEl.src = bgImageUrl;
+        }
+
+        let wmImgEl: HTMLImageElement | null = null;
+        if (enableWatermark && watermarkUrl) {
+            wmImgEl = new Image();
+            wmImgEl.src = watermarkUrl;
+        }
+
+        const renderLoop = () => {
+           if (!isPlaying) return;
+           
+           ctx.clearRect(0, 0, cfgW, cfgH);
+
+           if (exportTargetFormat === 'svga' || isStandardMP4) {
+                if (isStandardMP4) {
+                     if (bgMode === 'image' && bgImgEl && bgImgEl.complete) {
+                          ctx.drawImage(bgImgEl, 0, 0, cfgW, cfgH);
+                     } else if (bgMode === 'color') {
+                          ctx.fillStyle = bgColor;
+                          ctx.fillRect(0, 0, cfgW, cfgH);
+                     }
+                }
+                
+                if (webglRenderer) {
+                     const glCanvas = webglRenderer.render(video, [srcRgbX, srcRgbY, srcRgbW, srcRgbH], [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH], alphaThreshold, unmultiplyAlpha);
+                     ctx.drawImage(glCanvas, 0, 0, cfgW, cfgH);
+                } else if (rgbCtx && alphaCtx) {
+                     // Fallback CPU
+                     rgbCtx.clearRect(0, 0, cfgW, cfgH);
+                     rgbCtx.drawImage(video, srcRgbX, srcRgbY, srcRgbW, srcRgbH, 0, 0, cfgW, cfgH);
+                     alphaCtx.clearRect(0, 0, cfgW, cfgH);
+                     alphaCtx.drawImage(video, srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH, 0, 0, cfgW, cfgH);
+                     const rgbData = rgbCtx.getImageData(0, 0, cfgW, cfgH);
+                     const alphaData = alphaCtx.getImageData(0, 0, cfgW, cfgH);
+                     const compData = rgbCtx.createImageData(cfgW, cfgH);
+                     const dest = compData.data;
+                     const rgbPixels = rgbData.data;
+                     const alphaPixels = alphaData.data;
+                     for (let p = 0; p < cfgW * cfgH; p++) {
+                          const idx = p * 4;
+                          const rawAlpha = Math.round(0.299 * alphaPixels[idx] + 0.587 * alphaPixels[idx+1] + 0.114 * alphaPixels[idx+2]);
+                          if (rawAlpha <= alphaThreshold) {
+                              dest[idx+3] = 0;
+                          } else {
+                              let aVal = Math.min(255, Math.round(((rawAlpha - alphaThreshold) / (255 - alphaThreshold)) * 255));
+                              const aRatio = aVal / 255;
+                              let r = rgbPixels[idx], g = rgbPixels[idx+1], b = rgbPixels[idx+2];
+                              if (unmultiplyAlpha && aRatio > 0.02) {
+                                  r = Math.min(255, Math.max(0, Math.round(r / aRatio)));
+                                  g = Math.min(255, Math.max(0, Math.round(g / aRatio)));
+                                  b = Math.min(255, Math.max(0, Math.round(b / aRatio)));
+                              }
+                              dest[idx] = r; dest[idx+1] = g; dest[idx+2] = b; dest[idx+3] = aVal;
+                          }
+                     }
+                     rgbCtx.putImageData(compData, 0, 0);
+                     ctx.drawImage(rgbCanvas, 0, 0, cfgW, cfgH);
+                }
+           } else {
+                canvas.width = vw;
+                canvas.height = vh;
+                ctx.drawImage(video, 0, 0, vw, vh);
+           }
+           
+           if (enableWatermark && wmImgEl && wmImgEl.complete) {
+                const dur = Math.max(1, video.duration || 3);
+                const progress = (video.currentTime % dur) / dur;
+                const { x, y, side } = computeWatermarkPosition(progress, cfgW, cfgH, watermarkSize, watermarkMotionType, watermarkMotionAmount, watermarkSpeed, watermarkPosition);
+                drawSquareWatermarkToContext(ctx, wmImgEl, x, y, side, watermarkOpacity / 100, watermarkBorderRadius, watermarkBorder);
+           }
+           
+           animId = requestAnimationFrame(renderLoop);
+        };
+        
+        renderLoop();
+    };
+
+    return () => {
+        isPlaying = false;
+        video.pause();
+        video.src = '';
+        if (animId) cancelAnimationFrame(animId);
+    };
+  }, [showLivePreview, fileUrl, vapConfig, alphaThreshold, unmultiplyAlpha, bgMode, bgColor, bgImageUrl, exportTargetFormat, enableWatermark, watermarkUrl, watermarkSize, watermarkPosition]);
+
+  // Estimate File Size
+  const estimateFileSize = () => {
+    if (!sourceFile || videoDuration === 0) return 'غير محدد';
+    let originalBitrate = (sourceFile.size * 8) / videoDuration;
+    let bitrate;
+    const cLevel = compressionLevel / 100;
+    bitrate = originalBitrate * (1.5 - (cLevel * 1.4));
+    bitrate = Math.max(1000000, bitrate);
+    
+    let estimatedSizeInBytes = (bitrate * videoDuration) / 8;
+    const shouldIncludeAudio = ((audioFile || audioUrl) && !isAudioMuted) || !muteOriginalAudio;
+    if (shouldIncludeAudio) {
+      estimatedSizeInBytes += (128000 * videoDuration) / 8;
+    }
+    
+    if (exportTargetFormat === 'svga') {
+      estimatedSizeInBytes *= 0.85;
+    } else if (exportTargetFormat === 'mp4') {
+      estimatedSizeInBytes *= 1.1;
+    }
+    
+    if (estimatedSizeInBytes < 1024 * 1024) {
+      return (estimatedSizeInBytes / 1024).toFixed(1) + ' KB';
+    }
+    return (estimatedSizeInBytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
 
   // Extract VAP configuration from MP4 vapc box
   const extractVapConfig = async (url: string): Promise<VapConfig | null> => {
@@ -457,6 +813,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     setFileSize((f.size / (1024 * 1024)).toFixed(2) + ' MB');
     setExportSuccess(false);
     setExportedBlob(null);
+    setExportStats(null);
     setActiveViewMode('vap');
 
     const url = URL.createObjectURL(f);
@@ -883,12 +1240,18 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
   // 1. Export as Professional VAP MP4 (or Standard MP4)
   const handleExportVAP = async (isStandardMP4: boolean = false) => {
+      let webglRenderer: WebGLVapRenderer | null = null;
+      try {
+        webglRenderer = new WebGLVapRenderer(500, 500);
+      } catch (e) {}
+
     if (!fileUrl) return;
 
     setIsExporting(true);
     setExportProgress(0);
     setExportSuccess(false);
     setExportedBlob(null);
+    setExportStats(null);
     cancelExportRef.current = false;
 
     try {
@@ -974,15 +1337,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       }
       
       let bitrate;
-      if (compressionQuality === 100) {
-         bitrate = Math.round(originalBitrate * 1.5);
-      } else if (compressionQuality >= 85) {
-         const scale = 1.0 + ((compressionQuality - 85) / 15) * 0.4;
-         bitrate = Math.round(originalBitrate * scale);
-      } else {
-         const scale = (compressionQuality / 85);
-         bitrate = Math.round(originalBitrate * scale);
-      }
+      const cLevel = compressionLevel / 100;
+      bitrate = Math.round(originalBitrate * (1.5 - (cLevel * 1.4)));
       
       bitrate = Math.max(1000000, bitrate);
 
@@ -1126,7 +1482,22 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             alphaCtx.clearRect(0, 0, origW, origH);
             alphaCtx.drawImage(video, srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH, 0, 0, origW, origH);
 
-            const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
+                    if (webglRenderer) {
+           // Because origW/origH are defined later, we re-init if needed
+           if (webglRenderer.canvas.width !== origW) {
+              webglRenderer = new WebGLVapRenderer(origW, origH);
+           }
+           const glCanvas = webglRenderer.render(video, [srcRgbX, srcRgbY, srcRgbW, srcRgbH], [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH], alphaThreshold, unmultiplyAlpha);
+           rgbCtx.clearRect(0, 0, origW, origH);
+           rgbCtx.drawImage(glCanvas, 0, 0);
+        } else {
+
+          if (webglRenderer) {
+             const glCanvas = webglRenderer.render(video, [srcRgbX, srcRgbY, srcRgbW, srcRgbH], [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH], alphaThreshold, unmultiplyAlpha);
+             rgbCtx.clearRect(0, 0, cfgW, cfgH);
+             rgbCtx.drawImage(glCanvas, 0, 0, cfgW, cfgH);
+          } else {
+const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
             const alphaData = alphaCtx.getImageData(0, 0, origW, origH);
 
             const compData = rgbCtx.createImageData(origW, origH);
@@ -1173,6 +1544,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             }
 
             rgbCtx.putImageData(compData, 0, 0);
+          }
+        }
 
             // Draw blended animation on top of background
             ctx.drawImage(rgbCanvas, 0, 0, outW, outH);
@@ -1306,12 +1679,18 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
   // 2. Export as High-Quality, Clean SVGA 2.0 with Embedded Audio
   const handleExportSVGA = async () => {
+      let webglRenderer: WebGLVapRenderer | null = null;
+      try {
+        webglRenderer = new WebGLVapRenderer(videoDimensions.width || 500, videoDimensions.height || 500);
+      } catch (e) {}
+
     if (!fileUrl) return;
 
     setIsExporting(true);
     setExportProgress(0);
     setExportSuccess(false);
     setExportedBlob(null);
+    setExportStats(null);
     cancelExportRef.current = false;
 
     try {
@@ -1509,15 +1888,29 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
         const scaledImageData = exportCtx.getImageData(0, 0, outW, outH);
 
-        const cnum = compressionQuality >= 95 
-          ? 0 
-          : Math.max(16, Math.min(256, Math.round((compressionQuality / 100) * 256)));
-
-        const pngBuffer = UPNG.encode([scaledImageData.data.buffer], outW, outH, cnum);
-        const pngBytes = new Uint8Array(pngBuffer);
+        
+        const cLevel = compressionLevel / 100;
+        const qualityRatio = 1.0 - (cLevel * 0.9);
+        let imageBytes: Uint8Array;
+        
+        if (svgaFormat === 'webp' || svgaFormat === 'jpeg') {
+           const mime = svgaFormat === 'webp' ? 'image/webp' : 'image/jpeg';
+           const dataUrl = exportCanvas.toDataURL(mime, qualityRatio);
+           const bstr = atob(dataUrl.split(',')[1]);
+           let n = bstr.length;
+           const u8arr = new Uint8Array(n);
+           while(n--) { u8arr[n] = bstr.charCodeAt(n); }
+           imageBytes = u8arr;
+        } else {
+           const scaledImageData = exportCtx.getImageData(0, 0, outW, outH);
+           const cnum = compressionLevel === 0 ? 0 : Math.max(16, Math.min(256, Math.round(qualityRatio * 256)));
+           const pngBuffer = UPNG.encode([scaledImageData.data.buffer], outW, outH, cnum);
+           imageBytes = new Uint8Array(pngBuffer);
+        }
 
         const imgKey = `frame_${i}`;
-        imagesMap[imgKey] = pngBytes;
+        imagesMap[imgKey] = imageBytes;
+
 
         const spriteFrames = [];
         for (let fIdx = 0; fIdx < totalFrames; fIdx++) {
@@ -2480,44 +2873,120 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                 )}
               </div>
 
-              {/* Quality Slider */}
-              <div className="relative space-y-1.5 p-3.5 rounded-2xl bg-white/5 border border-white/5">
-                <div className="flex justify-between items-center text-xs font-bold text-slate-300">
-                  <div className="flex items-center gap-2">
-                    <span>مستوى الضغط والجودة (UPNG / MP4)</span>
+              
+              {/* SVGA Image Format */}
+              {exportTargetFormat === 'svga' && (
+                <div className="relative space-y-1.5 p-3.5 rounded-2xl bg-white/5 border border-white/5 mt-2">
+                  <div className="flex justify-between items-center text-xs font-bold text-slate-300">
+                    <span>صيغة الصور داخل ملف SVGA</span>
+                  </div>
+                  <div className="flex gap-2 mt-2">
                     <button 
-                      onMouseEnter={() => setActiveTooltip('quality')}
+                      onClick={() => setSvgaFormat('webp')} 
+                      className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${svgaFormat === 'webp' ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/20' : 'bg-black/40 text-slate-400 hover:text-white hover:bg-black/60'}`}
+                    >
+                      WebP (خفيف جداً)
+                    </button>
+                    <button 
+                      onClick={() => setSvgaFormat('png')} 
+                      className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${svgaFormat === 'png' ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/20' : 'bg-black/40 text-slate-400 hover:text-white hover:bg-black/60'}`}
+                    >
+                      PNG (دقة قصوى)
+                    </button>
+                    <button 
+                      onClick={() => setSvgaFormat('jpeg')} 
+                      className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${svgaFormat === 'jpeg' ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/20' : 'bg-black/40 text-slate-400 hover:text-white hover:bg-black/60'}`}
+                    >
+                      JPEG (بدون شفافية)
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Compression Slider */}
+              <div className="relative space-y-3 p-4 rounded-2xl bg-[#0f121a] border border-indigo-500/20 shadow-inner">
+                <div className="flex justify-between items-center text-xs font-black">
+                  <div className="flex items-center gap-2 text-indigo-400">
+                    <SlidersHorizontal className="w-4 h-4" />
+                    <span>ضغط الملف (Compression)</span>
+                    <button 
+                      onMouseEnter={() => setActiveTooltip('compression')}
                       onMouseLeave={() => setActiveTooltip(null)}
-                      className="text-slate-400 hover:text-emerald-400 transition-colors"
+                      className="text-slate-500 hover:text-indigo-400 transition-colors"
                     >
                       <HelpCircle className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                  <span className="text-emerald-400 font-bold">{compressionQuality}%</span>
-                </div>
-                <input 
-                  type="range" 
-                  min="20" 
-                  max="100" 
-                  step="5"
-                  value={compressionQuality}
-                  onChange={(e) => setCompressionQuality(Number(e.target.value))}
-                  className="w-full accent-emerald-500 h-1.5 bg-white/10 rounded-lg cursor-pointer mt-2"
-                />
-                <div className="flex justify-between text-[10px] text-slate-500 font-mono mt-1">
-                  <span>أصغر حجم (20%)</span>
-                  <span>مطابق للأصلي (85%)</span>
-                  <span>أعلى جودة (100%)</span>
+                  <span className="text-indigo-400 font-mono font-bold bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                    {compressionLevel}%
+                  </span>
                 </div>
 
-                {activeTooltip === 'quality' && (
-                  <div className="absolute top-full left-0 right-0 mt-2 p-3 bg-[#1A1D27] border border-emerald-500/30 rounded-xl shadow-xl z-50 animate-in fade-in zoom-in duration-200">
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="100" 
+                  step="1"
+                  value={compressionLevel}
+                  onChange={(e) => setCompressionLevel(Number(e.target.value))}
+                  className="w-full accent-indigo-500 h-2 bg-slate-800 rounded-lg cursor-pointer transition-all"
+                />
+
+                <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                  <span>0% (الأصلي)</span>
+                  <span>50% (متوازن)</span>
+                  <span>100% (أقصى ضغط)</span>
+                </div>
+
+                {/* Presets */}
+                <div className="grid grid-cols-5 gap-1.5 pt-1">
+                  {[
+                    { label: 'بدون ضغط', val: 0 },
+                    { label: 'خفيف', val: 25 },
+                    { label: 'متوازن', val: 50 },
+                    { label: 'قوي', val: 75 },
+                    { label: 'أقصى ضغط', val: 100 }
+                  ].map((p) => (
+                    <button
+                      key={p.val}
+                      onClick={() => setCompressionLevel(p.val)}
+                      className={`py-1 rounded-lg text-[9px] font-bold transition-all border ${
+                        compressionLevel === p.val 
+                          ? 'bg-indigo-600 text-white border-indigo-400 shadow-sm shadow-indigo-500/30' 
+                          : 'bg-white/5 text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/10'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Live Estimated Size Indicator */}
+                {fileSize && (
+                  <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400 font-bold flex items-center gap-1.5">
+                      <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                      الحجم التقريبي المتوقع:
+                    </span>
+                    <span className="text-emerald-400 font-mono font-bold">
+                      {(() => {
+                        const num = parseFloat(fileSize);
+                        if (isNaN(num)) return fileSize;
+                        const factor = 1 - (compressionLevel / 100) * 0.75;
+                        const unit = fileSize.replace(/[0-9.]/g, '').trim() || 'MB';
+                        return `~${(num * factor).toFixed(2)} ${unit}`;
+                      })()}
+                    </span>
+                  </div>
+                )}
+
+                {activeTooltip === 'compression' && (
+                  <div className="absolute top-full left-0 right-0 mt-2 p-3 bg-[#1A1D27] border border-indigo-500/30 rounded-xl shadow-xl z-50 animate-in fade-in zoom-in duration-200">
                     <p className="text-xs text-slate-300 leading-relaxed">
-                      <strong className="text-emerald-400 block mb-1">ما هو مستوى الضغط والجودة؟</strong>
-                      هذا الخيار يتحكم في العلاقة بين وضوح الصورة وحجم الملف النهائي عند استخراجه كـ SVGA أو VAP.
-                      <br/>- <strong className="text-red-400">إذا خفضته:</strong> سيتم تصغير مساحة الملف بشكل كبير جداً، ولكن ستنخفض جودة ألوان الصورة قليلاً.
-                      <br/>- <strong className="text-indigo-300">مطابق للأصلي (85%):</strong> سيتم مطابقة حجم وضغط الملف النهائي بنفس حجم ومواصفات الملف الأساسي المرفوع تماماً (وهذا هو الخيار الافتراضي الأفضل).
-                      <br/>- <strong className="text-emerald-400">إذا رفعته (100%):</strong> ستكون الجودة أقوى بكثير من الأصلي، مما قد يزيد من حجم الملف.
+                      <strong className="text-indigo-400 block mb-1">التحكم في نسبة ضغط الملف (0 - 100%):</strong>
+                      - <strong className="text-emerald-400">0%:</strong> بدون أي ضغط، الحفاظ على أعلى جودة وأعلى دقة ألوان ومطابقة كاملة للملف الأصلي.
+                      <br/>- <strong className="text-blue-400">1–99%:</strong> ضغط تدريجي ذكي يقلل تدفق البيانات وحجم الصور مع الحفاظ على نعومة الحركة.
+                      <br/>- <strong className="text-pink-400">100%:</strong> أقصى ضغط ممكن لتصغير حجم الملف لأقصى حد ملائم للبث المباشر.
                     </p>
                   </div>
                 )}
@@ -2608,6 +3077,24 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                     </span>
                   </div>
 
+                  
+            {exportStats && (
+              <div className="mt-4 p-4 bg-[#0a0d14] rounded-xl border border-white/5 flex gap-4 text-center divide-x divide-white/10 flex-row-reverse">
+                 <div className="flex-1 flex flex-col items-center justify-center">
+                    <span className="text-[10px] text-slate-500 font-bold mb-1">الحجم الأصلي</span>
+                    <span className="text-xs text-white font-mono font-bold">{(exportStats.original / 1024 / 1024).toFixed(2)} MB</span>
+                 </div>
+                 <div className="flex-1 flex flex-col items-center justify-center">
+                    <span className="text-[10px] text-slate-500 font-bold mb-1">الحجم النهائي</span>
+                    <span className="text-xs text-emerald-400 font-mono font-bold">{(exportStats.compressed / 1024 / 1024).toFixed(2)} MB</span>
+                 </div>
+                 <div className="flex-1 flex flex-col items-center justify-center">
+                    <span className="text-[10px] text-slate-500 font-bold mb-1">نسبة التوفير</span>
+                    <span className="text-xs text-indigo-400 font-mono font-bold bg-indigo-500/20 px-2 py-0.5 rounded border border-indigo-500/30">{exportStats.savedPct}%</span>
+                 </div>
+              </div>
+            )}
+
                   {!muteOriginalAudio && (
                     <div className="flex items-center gap-1.5 text-[11px] font-bold text-pink-300 bg-pink-500/10 px-3 py-1.5 rounded-xl border border-pink-500/20">
                       <Music className="w-3.5 h-3.5 text-pink-400" />
@@ -2634,25 +3121,45 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                   </button>
                 </div>
               ) : (
-                <button
-                  disabled={!fileUrl}
-                  onClick={handleStartExport}
-                  className={`w-full py-3.5 rounded-2xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-lg ${
-                    fileUrl
-                      ? exportTargetFormat === 'svga'
-                        ? 'bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-600 hover:from-emerald-500 hover:to-teal-400 text-white shadow-emerald-600/25 cursor-pointer hover:scale-[1.01]'
-                        : exportTargetFormat === 'vap'
-                        ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-600/25 cursor-pointer hover:scale-[1.01]'
-                        : 'bg-gradient-to-r from-purple-600 via-pink-600 to-indigo-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-purple-600/25 cursor-pointer hover:scale-[1.01]'
-                      : 'bg-white/5 text-slate-600 cursor-not-allowed border border-white/5'
-                  }`}
-                >
-                  <ArrowDownCircle className="w-4 h-4" />
-                  <span>
-                    تصدير {exportTargetFormat === 'svga' ? 'SVGA 2.0 نقي' : exportTargetFormat === 'vap' ? 'VAP (MP4) مع كود VAPC' : 'فيديو MP4 مدمج بالخلفية'} 
-                    {!muteOriginalAudio ? ' (مع الصوت الأصلي)' : ' (صامت)'}
-                  </span>
-                </button>
+                <div className="flex flex-col gap-3 mt-2">
+                  <div className="flex items-center justify-between text-[11px] px-1">
+                    <span className="text-slate-400 font-bold flex items-center gap-1.5"><Activity className="w-3.5 h-3.5"/> الحجم التقريبي المتوقع:</span>
+                    <span className="text-emerald-400 font-mono font-bold bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20 shadow-inner">
+                      {estimateFileSize()}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      disabled={!fileUrl}
+                      onClick={() => setShowLivePreview(true)}
+                      className="flex-1 py-3.5 bg-[#141824] hover:bg-[#1a1f2e] text-white rounded-2xl font-black text-xs transition-all border border-white/10 flex items-center justify-center gap-2 shadow-lg"
+                    >
+                      <Eye className="w-4 h-4 text-indigo-400" />
+                      معاينة الإخراج
+                    </button>
+                    <button
+                      disabled={!fileUrl}
+                      onClick={handleStartExport}
+                      className={`flex-[2] py-3.5 rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-2 shadow-lg ${
+                        fileUrl
+                          ? exportTargetFormat === 'svga'
+                            ? 'bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-600 hover:from-emerald-500 hover:to-teal-400 text-white shadow-emerald-600/25 cursor-pointer hover:scale-[1.01]'
+                            : exportTargetFormat === 'vap'
+                            ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-600/25 cursor-pointer hover:scale-[1.01]'
+                            : 'bg-gradient-to-r from-purple-600 via-pink-600 to-indigo-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-purple-600/25 cursor-pointer hover:scale-[1.01]'
+                          : 'bg-white/5 text-slate-600 cursor-not-allowed border border-white/5'
+                      }`}
+                    >
+                      <ArrowDownCircle className="w-4 h-4" />
+                      {exportTargetFormat === 'svga' 
+                        ? 'تصدير 2.0 SVGA نقي' 
+                        : exportTargetFormat === 'vap' 
+                        ? 'تصدير VAP مُعالج' 
+                        : 'تصدير MP4 نقي'}
+                    </button>
+                  </div>
+                </div>
+
               )}
             </div>
           </div>
@@ -2861,6 +3368,41 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
         </div>
       </div>
+
+      {/* Live Preview Modal */}
+      {showLivePreview && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4">
+          <div className="bg-[#0C0E14] border border-white/10 rounded-3xl w-full max-w-2xl overflow-hidden flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between p-5 border-b border-white/5 bg-[#141824]">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-500/20 rounded-xl text-indigo-400">
+                  <Eye className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-white font-black text-sm">معاينة الإخراج النهائي</h3>
+                  <p className="text-slate-400 text-[11px] font-medium mt-0.5">شكل الملف النهائي مع تأثيراتك</p>
+                </div>
+              </div>
+              <button onClick={() => setShowLivePreview(false)} className="p-2 bg-white/5 hover:bg-white/10 text-white rounded-xl transition-all">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 flex flex-col items-center justify-center min-h-[400px] relative overflow-hidden bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+CjxyZWN0IHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgZmlsbD0iIzIyMiI+PC9yZWN0Pgo8cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIGZpbGw9IiMzMzMiPjwvcmVjdD4KPHJlY3QgeD0iMTAiIHk9IjEwIiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIGZpbGw9IiMzMzMiPjwvcmVjdD4KPC9zdmc+')]">
+              <canvas 
+                ref={previewCanvasRef} 
+                className="max-h-[500px] max-w-full rounded-lg shadow-2xl border border-white/20"
+                style={{ 
+                  boxShadow: '0 20px 40px -10px rgba(0,0,0,0.8), 0 0 20px rgba(99, 102, 241, 0.15)'
+                }}
+              />
+              <p className="absolute bottom-4 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-lg text-xs font-bold text-white/80 border border-white/10 shadow-lg">
+                معاينة تقريبية (يتم تحديث الإطار الأول)
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
