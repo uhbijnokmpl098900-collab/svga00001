@@ -5,7 +5,8 @@ import {
   Gauge, ArrowDownCircle, AlertCircle, Loader2, Eye, ShieldCheck,
   Check, RefreshCcw, Music, Volume2, VolumeX, Trash2, Plus,
   FileAudio, Headphones, Film, HelpCircle, Video,
-  Stamp, Move, Square, Maximize2, SlidersHorizontal, Activity, Compass
+  Stamp, Move, Square, Maximize2, SlidersHorizontal, Activity, Compass,
+  Image as ImageIcon, Camera
 } from 'lucide-react';
 import { UserRecord } from '../types';
 // @ts-ignore
@@ -357,6 +358,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isPlaybackMuted, setIsPlaybackMuted] = useState<boolean>(false);
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
+  const [isCapturingSnapshot, setIsCapturingSnapshot] = useState<boolean>(false);
+  const [snapshotSuccess, setSnapshotSuccess] = useState<boolean>(false);
 
 
 
@@ -947,6 +950,128 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
        }
     }
   }, [isPlaying, audioUrl, isAudioMuted]);
+
+  // Handler to download transparent gift snapshot (PNG)
+  const handleDownloadGiftImage = async () => {
+    try {
+      setIsCapturingSnapshot(true);
+      let exportCanvas: HTMLCanvasElement | null = null;
+
+      if (activeViewMode === 'vap') {
+        const videoEl = containerRef.current?.querySelector('video') || (vapInstanceRef.current && vapInstanceRef.current.video);
+        if (videoEl && videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+          const vw = videoEl.videoWidth;
+          const vh = videoEl.videoHeight;
+          let cfgW = vapConfig?.info?.w || videoDimensions.width || Math.round(vw / 2);
+          let cfgH = vapConfig?.info?.h || videoDimensions.height || vh;
+          let rawVideoW = vapConfig?.info?.videoW || vw;
+          let rawVideoH = vapConfig?.info?.videoH || vh;
+          let rgbRect = vapConfig?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
+          let alphaRect = vapConfig?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+
+          if (!vapConfig?.info?.rgbFrame && vh > vw && vw > 0) {
+            rgbRect = [0, 0, vw, Math.round(vh / 2)];
+            alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
+            cfgW = vw;
+            cfgH = Math.round(vh / 2);
+          }
+
+          const scaleX = vw / (rawVideoW || vw);
+          const scaleY = vh / (rawVideoH || vh);
+          const srcRgbX = Math.round(rgbRect[0] * scaleX);
+          const srcRgbY = Math.round(rgbRect[1] * scaleY);
+          const srcRgbW = Math.round(rgbRect[2] * scaleX);
+          const srcRgbH = Math.round(rgbRect[3] * scaleY);
+          const srcAlphaX = Math.round(alphaRect[0] * scaleX);
+          const srcAlphaY = Math.round(alphaRect[1] * scaleY);
+          const srcAlphaW = Math.round(alphaRect[2] * scaleX);
+          const srcAlphaH = Math.round(alphaRect[3] * scaleY);
+
+          try {
+            const renderer = new WebGLVapRenderer(cfgW, cfgH);
+            renderer.render(
+              videoEl,
+              [srcRgbX, srcRgbY, srcRgbW, srcRgbH],
+              [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH],
+              alphaThreshold,
+              unmultiplyAlpha
+            );
+            exportCanvas = renderer.canvas;
+          } catch (renderErr) {
+            console.warn("WebGL renderer failed for snapshot, falling back to 2D canvas:", renderErr);
+          }
+        }
+        
+        if (!exportCanvas) {
+          // Fallback to existing canvas in container
+          const existingCanvas = containerRef.current?.querySelector('canvas');
+          if (existingCanvas) exportCanvas = existingCanvas;
+        }
+      } else if (activeViewMode === 'svga') {
+        const svgaCanvas = svgaContainerRef.current?.querySelector('canvas');
+        if (svgaCanvas) exportCanvas = svgaCanvas;
+      }
+
+      if (!exportCanvas) {
+        exportCanvas = document.querySelector('#anim-container canvas') as HTMLCanvasElement;
+      }
+
+      if (exportCanvas) {
+        const cleanName = fileName ? fileName.replace(/\.[^/.]+$/, "") : "gift_image";
+        
+        // Try toBlob first, with toDataURL fallback
+        try {
+          exportCanvas.toBlob((blob) => {
+            if (blob) {
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `${cleanName}_gift.png`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+              setSnapshotSuccess(true);
+              setTimeout(() => setSnapshotSuccess(false), 2500);
+            } else {
+              // Fallback to DataURL
+              const dataUrl = exportCanvas!.toDataURL('image/png');
+              const a = document.createElement('a');
+              a.href = dataUrl;
+              a.download = `${cleanName}_gift.png`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+
+              setSnapshotSuccess(true);
+              setTimeout(() => setSnapshotSuccess(false), 2500);
+            }
+            setIsCapturingSnapshot(false);
+          }, 'image/png');
+        } catch (e) {
+          const dataUrl = exportCanvas.toDataURL('image/png');
+          const a = document.createElement('a');
+          a.href = dataUrl;
+          a.download = `${cleanName}_gift.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+
+          setSnapshotSuccess(true);
+          setTimeout(() => setSnapshotSuccess(false), 2500);
+          setIsCapturingSnapshot(false);
+        }
+      } else {
+        alert("تعذر التقاط صورة الهدية حالياً. تأكد من تشغيل العرض.");
+        setIsCapturingSnapshot(false);
+      }
+    } catch (err) {
+      console.error("Error downloading gift snapshot image:", err);
+      alert("حدث خطأ أثناء تنزيل صورة الهدية.");
+      setIsCapturingSnapshot(false);
+    }
+  };
 
   const handleBgImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -3277,10 +3402,10 @@ const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
               </div>
 
               {/* Unified Playback Control Bar (Moved outside the canvas) */}
-              <div className="mt-6 flex flex-col sm:flex-row items-center gap-4 bg-[#141824] px-6 py-4 rounded-[2rem] border border-white/5 shadow-xl transition-all w-full max-w-3xl">
+              <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 bg-[#141824] px-6 py-4 rounded-[2rem] border border-white/5 shadow-xl transition-all w-full max-w-3xl">
                 
-                {/* Play/Pause & Mute Controls */}
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Play/Pause & Mute Controls */}
                   <button
                     onClick={handleTogglePlay}
                     className="w-12 h-12 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center transition-all shadow-lg hover:scale-105 shadow-indigo-600/20"
@@ -3300,12 +3425,10 @@ const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
                   >
                     {isPlaybackMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
                   </button>
-                </div>
 
-                <div className="hidden sm:block h-10 w-px bg-white/10 mx-2" />
-                
-                {/* Status Indicators */}
-                <div className="flex flex-1 flex-wrap items-center justify-center sm:justify-start gap-4">
+                  <div className="hidden sm:block h-10 w-px bg-white/10 mx-1" />
+                  
+                  {/* Status Indicators */}
                   <div className="flex items-center gap-2 bg-[#0C0E14] px-4 py-2 rounded-xl border border-white/5">
                     <span className={`w-2 h-2 rounded-full animate-pulse ${activeViewMode === 'vap' ? 'bg-indigo-400' : 'bg-emerald-400'}`} />
                     <span className={`text-xs font-bold ${activeViewMode === 'vap' ? 'text-indigo-400' : 'text-emerald-400'}`}>
@@ -3331,6 +3454,39 @@ const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
                     </div>
                   )}
                 </div>
+
+                {/* Download Gift Image Button (Red-circled spot) */}
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleDownloadGiftImage}
+                    disabled={isCapturingSnapshot}
+                    className={`flex items-center gap-2.5 px-5 py-2.5 rounded-2xl text-xs font-black transition-all shadow-lg active:scale-95 hover:scale-105 border cursor-pointer ${
+                      snapshotSuccess 
+                        ? 'bg-emerald-600 text-white border-emerald-400 shadow-emerald-600/30' 
+                        : 'bg-gradient-to-r from-rose-500 via-pink-600 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white border-white/20 shadow-pink-500/25'
+                    }`}
+                    title="تنزيل لقطة شفافة بدقة فائقة للهدية بصيغة PNG"
+                  >
+                    {isCapturingSnapshot ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                        <span>جاري الالتقاط...</span>
+                      </>
+                    ) : snapshotSuccess ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-white" />
+                        <span>تم تنزيل صورة الهدية!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="w-4 h-4 text-pink-200" />
+                        <span>تنزيل صورة للهدية</span>
+                        <Download className="w-3.5 h-3.5 opacity-90" />
+                      </>
+                    )}
+                  </button>
+                </div>
+
               </div>
               </>
             ) : (
