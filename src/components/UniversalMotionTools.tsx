@@ -6,7 +6,7 @@ import {
   Check, RefreshCcw, Music, Volume2, VolumeX, Trash2, Plus,
   FileAudio, Headphones, Film, HelpCircle, Video,
   Stamp, Move, Square, Maximize2, SlidersHorizontal, Activity, Compass,
-  Image as ImageIcon, Camera
+  Image as ImageIcon, Camera, Lock, Unlock
 } from 'lucide-react';
 import { UserRecord } from '../types';
 // @ts-ignore
@@ -328,7 +328,58 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   const [videoDuration, setVideoDuration] = useState<number>(0);
   const [vapConfig, setVapConfig] = useState<VapConfig | null>(null);
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number }>({ width: 750, height: 1334 });
+  const [customWidth, setCustomWidth] = useState<number>(750);
+  const [customHeight, setCustomHeight] = useState<number>(1334);
+  const [lockAspectRatio, setLockAspectRatio] = useState<boolean>(true);
+  const [aspectRatio, setAspectRatio] = useState<number>(750 / 1334);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Helper functions for changing dimensions independently
+  const handleWidthChange = (val: string | number) => {
+    if (typeof val === 'string') {
+      const parsed = val.replace(/[^0-9]/g, '');
+      setCustomWidth(parsed === '' ? 0 : parseInt(parsed, 10));
+    } else {
+      setCustomWidth(Math.max(0, Math.min(4096, Math.round(val))));
+    }
+  };
+
+  const handleHeightChange = (val: string | number) => {
+    if (typeof val === 'string') {
+      const parsed = val.replace(/[^0-9]/g, '');
+      setCustomHeight(parsed === '' ? 0 : parseInt(parsed, 10));
+    } else {
+      setCustomHeight(Math.max(0, Math.min(4096, Math.round(val))));
+    }
+  };
+
+  const handleBlurWidth = () => {
+    if (!customWidth || customWidth < 16) {
+      setCustomWidth(videoDimensions.width || 750);
+    }
+  };
+
+  const handleBlurHeight = () => {
+    if (!customHeight || customHeight < 16) {
+      setCustomHeight(videoDimensions.height || 1334);
+    }
+  };
+
+  const handlePresetScale = (scale: number) => {
+    const origW = videoDimensions.width || 750;
+    const origH = videoDimensions.height || 1334;
+    const targetW = Math.max(32, Math.round(origW * scale));
+    const targetH = Math.max(32, Math.round(origH * scale));
+    setCustomWidth(targetW);
+    setCustomHeight(targetH);
+  };
+
+  const handleResetDimensions = () => {
+    const origW = videoDimensions.width || 750;
+    const origH = videoDimensions.height || 1334;
+    setCustomWidth(origW);
+    setCustomHeight(origH);
+  };
 
   // Audio Studio State
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -846,6 +897,9 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     const fps = config?.info?.f || 24;
 
     setVideoDimensions({ width: w, height: h });
+    setCustomWidth(w);
+    setCustomHeight(h);
+    setAspectRatio(w / (h || 1));
     setTargetFps(fps);
 
     try {
@@ -987,6 +1041,9 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
           const srcAlphaW = Math.round(alphaRect[2] * scaleX);
           const srcAlphaH = Math.round(alphaRect[3] * scaleY);
 
+          const targetW = customWidth || cfgW;
+          const targetH = customHeight || cfgH;
+
           try {
             const renderer = new WebGLVapRenderer(cfgW, cfgH);
             renderer.render(
@@ -996,7 +1053,21 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
               alphaThreshold,
               unmultiplyAlpha
             );
-            exportCanvas = renderer.canvas;
+            
+            if (renderer.canvas.width !== targetW || renderer.canvas.height !== targetH) {
+              const resCanvas = document.createElement('canvas');
+              resCanvas.width = targetW;
+              resCanvas.height = targetH;
+              const resCtx = resCanvas.getContext('2d');
+              if (resCtx) {
+                resCtx.drawImage(renderer.canvas, 0, 0, targetW, targetH);
+                exportCanvas = resCanvas;
+              } else {
+                exportCanvas = renderer.canvas;
+              }
+            } else {
+              exportCanvas = renderer.canvas;
+            }
           } catch (renderErr) {
             console.warn("WebGL renderer failed for snapshot, falling back to 2D canvas:", renderErr);
           }
@@ -1418,11 +1489,18 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       const srcAlphaW = Math.round(alphaRect[2] * scaleX);
       const srcAlphaH = Math.round(alphaRect[3] * scaleY);
 
+      const makeEven = (n: number) => Math.max(2, n % 2 === 0 ? n : n + 1);
+
       const origW = cfgW;
       const origH = cfgH;
+      const desiredGiftW = customWidth || origW;
+      const desiredGiftH = customHeight || origH;
 
-      const outW = isStandardMP4 ? origW : vw;
-      const outH = isStandardMP4 ? origH : vh;
+      const scaleRatioW = desiredGiftW / (origW || 1);
+      const scaleRatioH = desiredGiftH / (origH || 1);
+
+      const outW = isStandardMP4 ? makeEven(desiredGiftW) : makeEven(Math.round(vw * scaleRatioW));
+      const outH = isStandardMP4 ? makeEven(desiredGiftH) : makeEven(Math.round(vh * scaleRatioH));
 
       let audioDataChunks: any[] = [];
       const hasCustomAudio = !!((audioFile || audioUrl) && !isAudioMuted);
@@ -1455,17 +1533,16 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       const totalPixels = outW * outH;
       const codec = totalPixels > 2228224 ? 'avc1.4d0033' : 'avc1.4d002a';
       
-      // Smart Bitrate Calculation to match original file size by default
+      // Smart Bitrate Calculation scaling with custom dimensions to reduce file size when resized
       let originalBitrate = 5000000;
       if (sourceFile && duration > 0) {
          originalBitrate = Math.round((sourceFile.size * 8) / duration);
       }
       
-      let bitrate;
+      const pixelScaleFactor = (outW * outH) / (vw * vh || 1);
       const cLevel = compressionLevel / 100;
-      bitrate = Math.round(originalBitrate * (1.5 - (cLevel * 1.4)));
-      
-      bitrate = Math.max(1000000, bitrate);
+      let bitrate = Math.round(originalBitrate * pixelScaleFactor * (1.5 - (cLevel * 1.4)));
+      bitrate = Math.max(300000, bitrate);
 
       // @ts-ignore
       const videoEncoder = new VideoEncoder({
@@ -1584,8 +1661,8 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         });
 
         if (!isStandardMP4) {
-          // Regular VAP: Draw full side-by-side / stacked VAP frame directly
-          ctx.drawImage(video, 0, 0, vw, vh);
+          // Regular VAP: Draw full side-by-side / stacked VAP frame directly onto canvas
+          ctx.drawImage(video, 0, 0, outW, outH);
         } else {
           // Standard MP4: Draw Background first for EVERY frame throughout the duration
           ctx.clearRect(0, 0, outW, outH);
@@ -1741,13 +1818,13 @@ const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
           info: {
             v: 2,
             f: totalFrames,
-            w: origW,
-            h: origH,
+            w: desiredGiftW,
+            h: desiredGiftH,
             fps: fps,
-            videoW: vw,
-            videoH: vh,
-            aFrame: alphaRect,
-            rgbFrame: rgbRect,
+            videoW: outW,
+            videoH: outH,
+            aFrame: [Math.round(alphaRect[0] * scaleRatioW), Math.round(alphaRect[1] * scaleRatioH), Math.round(alphaRect[2] * scaleRatioW), Math.round(alphaRect[3] * scaleRatioH)],
+            rgbFrame: [Math.round(rgbRect[0] * scaleRatioW), Math.round(rgbRect[1] * scaleRatioH), Math.round(rgbRect[2] * scaleRatioW), Math.round(rgbRect[3] * scaleRatioH)],
             isVapx: 0,
             codeTag: ["common"],
             orien: 0
@@ -1856,8 +1933,8 @@ const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
 
       const origW = cfgW;
       const origH = cfgH;
-      const outW = Math.max(1, Math.round(origW * resolutionScale));
-      const outH = Math.max(1, Math.round(origH * resolutionScale));
+      const outW = customWidth || Math.max(1, Math.round(origW * resolutionScale));
+      const outH = customHeight || Math.max(1, Math.round(origH * resolutionScale));
 
       const duration = video.duration || videoDuration || 3;
       const fps = targetFps || 24;
@@ -3097,7 +3174,10 @@ const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
                       {(() => {
                         const num = parseFloat(fileSize);
                         if (isNaN(num)) return fileSize;
-                        const factor = 1 - (compressionLevel / 100) * 0.75;
+                        const origP = (videoDimensions.width || 750) * (videoDimensions.height || 1334);
+                        const curP = (customWidth || 750) * (customHeight || 1334);
+                        const pRatio = Math.max(0.05, curP / (origP || 1));
+                        const factor = (1 - (compressionLevel / 100) * 0.75) * pRatio;
                         const unit = fileSize.replace(/[0-9.]/g, '').trim() || 'MB';
                         return `~${(num * factor).toFixed(2)} ${unit}`;
                       })()}
@@ -3116,6 +3196,149 @@ const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* 5. Dimensions, Resolution & File Size Scaling (أبعاد ومقاسات الهدية وحجم الملف) */}
+            <div className="p-5 border-b border-white/5 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Maximize2 className="w-3.5 h-3.5 text-indigo-400" />
+                  أبعاد ومقاسات الهدية (العرض والارتفاع)
+                </span>
+                {(() => {
+                  const origP = (videoDimensions.width || 750) * (videoDimensions.height || 1334);
+                  const curP = (customWidth || 750) * (customHeight || 1334);
+                  const pRatio = curP / (origP || 1);
+                  if (pRatio < 0.98) {
+                    const savePct = Math.max(1, Math.min(99, Math.round((1 - pRatio) * 100)));
+                    return (
+                      <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" />
+                        توفير ~{savePct}% من الحجم
+                      </span>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+
+              {/* Width and Height Input Controls - Completely Independent */}
+              <div className="grid grid-cols-2 gap-3 relative">
+                {/* Width Input */}
+                <div className="space-y-1.5 p-3 rounded-2xl bg-[#0f121a] border border-white/5 focus-within:border-indigo-500/50 transition-all">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                    <span className="flex items-center gap-1 text-slate-400">العرض (Width)</span>
+                    <span className="text-[10px] text-indigo-400 font-mono">px</span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <input 
+                      type="number"
+                      min="16"
+                      max="4096"
+                      value={customWidth === 0 ? '' : customWidth}
+                      onChange={(e) => handleWidthChange(e.target.value)}
+                      onBlur={handleBlurWidth}
+                      placeholder="العرض"
+                      className="w-full bg-white/5 text-white font-mono font-bold text-sm px-2.5 py-1.5 rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-center"
+                    />
+                  </div>
+                </div>
+
+                {/* Height Input */}
+                <div className="space-y-1.5 p-3 rounded-2xl bg-[#0f121a] border border-white/5 focus-within:border-indigo-500/50 transition-all">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                    <span className="flex items-center gap-1 text-slate-400">الارتفاع (Height)</span>
+                    <span className="text-[10px] text-indigo-400 font-mono">px</span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <input 
+                      type="number"
+                      min="16"
+                      max="4096"
+                      value={customHeight === 0 ? '' : customHeight}
+                      onChange={(e) => handleHeightChange(e.target.value)}
+                      onBlur={handleBlurHeight}
+                      placeholder="الارتفاع"
+                      className="w-full bg-white/5 text-white font-mono font-bold text-sm px-2.5 py-1.5 rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-center"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Independent Note & Reset */}
+              <div className="flex items-center justify-between gap-2 px-1">
+                <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                  تحكم حر ومنفصل تماماً لكل مقاس
+                </span>
+
+                {(customWidth !== videoDimensions.width || customHeight !== videoDimensions.height) && (
+                  <button
+                    onClick={handleResetDimensions}
+                    className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-amber-300 transition-colors font-bold cursor-pointer"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>استعادة الأصل ({videoDimensions.width}×{videoDimensions.height})</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Quick Scale Presets */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold">
+                  <span>تغيير المقاس بنسب سريعة:</span>
+                  <span className="font-mono text-indigo-400 text-xs">{customWidth} × {customHeight} px</span>
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { label: '100% (الأصل)', scale: 1.0 },
+                    { label: '75% (متوسط)', scale: 0.75 },
+                    { label: '50% (نصف الحجم)', scale: 0.5 },
+                    { label: '33% (مصغر)', scale: 0.33 },
+                  ].map((p) => {
+                    const isCurrent = Math.round(videoDimensions.width * p.scale) === customWidth;
+                    return (
+                      <button
+                        key={p.scale}
+                        onClick={() => handlePresetScale(p.scale)}
+                        className={`py-2 px-1 rounded-xl text-[10px] font-black transition-all border cursor-pointer ${
+                          isCurrent 
+                            ? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-600/30 scale-[1.02]' 
+                            : 'bg-white/5 text-slate-300 border-white/5 hover:bg-white/10 hover:text-white'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Live File Size Reduction Alert Box */}
+              {(() => {
+                const origP = (videoDimensions.width || 750) * (videoDimensions.height || 1334);
+                const curP = (customWidth || 750) * (customHeight || 1334);
+                const pRatio = curP / (origP || 1);
+                if (pRatio < 0.98) {
+                  const savePct = Math.max(1, Math.min(99, Math.round((1 - pRatio) * 100)));
+                  return (
+                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-between text-xs animate-in fade-in duration-200">
+                      <div className="flex items-center gap-2 text-emerald-300">
+                        <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <div>
+                          <span className="font-bold block">تم تقليص الأبعاد بنجاح!</span>
+                          <span className="text-[10px] text-emerald-400/80">سيتم حفظ المقاسات الجديدة ({customWidth}×{customHeight}) وتقليل حجم الملف تلقائياً عند التصدير.</span>
+                        </div>
+                      </div>
+                      <div className="text-left shrink-0 bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-1 rounded-xl">
+                        <span className="block text-[9px] text-emerald-400 font-bold">توفير بالحجم</span>
+                        <span className="text-xs font-mono font-black text-emerald-300">~{savePct}%</span>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
 
             {/* 5. Export Target Format Selector & Download Actions */}
@@ -3437,8 +3660,12 @@ const rgbData = rgbCtx.getImageData(0, 0, origW, origH);
                   </div>
                   
                   <div className="flex items-center gap-2 bg-[#0C0E14] px-4 py-2 rounded-xl border border-white/5">
-                    <span className="text-xs text-slate-300 font-mono">
-                      {videoDimensions.width} × {videoDimensions.height} px
+                    <span className="text-xs text-slate-300 font-mono flex items-center gap-1.5">
+                      <Maximize2 className="w-3.5 h-3.5 text-indigo-400" />
+                      {customWidth} × {customHeight} px
+                      {(customWidth !== videoDimensions.width || customHeight !== videoDimensions.height) && (
+                        <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">مخصص</span>
+                      )}
                     </span>
                   </div>
 
