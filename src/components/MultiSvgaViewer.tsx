@@ -71,15 +71,15 @@ const WatermarkOverlay: React.FC<{
       if (!container) return;
       
       const wmSize = Math.min(container.clientWidth, container.clientHeight) * (settings.size / 100);
-      const speed = settings.animationSpeed;
-      const pxPerFrame = speed * 0.5;
+      const speed = settings.animationSpeed || 5;
+      const pxPerFrame = speed * 0.8;
       
-      const maxX = container.clientWidth - wmSize;
-      const maxY = container.clientHeight - wmSize;
+      const maxX = Math.max(1, container.clientWidth - wmSize);
+      const maxY = Math.max(1, container.clientHeight - wmSize);
       
       if (maxX > 0 && maxY > 0) {
         const distX = frame * pxPerFrame;
-        const distY = frame * pxPerFrame;
+        const distY = frame * pxPerFrame * 0.75;
         
         const modX = distX % (maxX * 2);
         const modY = distY % (maxY * 2);
@@ -1029,12 +1029,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           const wmSize = Math.min(canvas.width, canvas.height) * (wmSettings.size / 100);
           let wx = 0, wy = 0;
           if (wmSettings.isAnimated) {
-            const speed = wmSettings.animationSpeed;
-            const pxPerFrame = speed * 2;
-            const maxX = canvas.width - wmSize;
-            const maxY = canvas.height - wmSize;
+            const speed = wmSettings.animationSpeed || 5;
+            const pxPerFrame = speed * 1.5;
+            const maxX = Math.max(1, canvas.width - wmSize);
+            const maxY = Math.max(1, canvas.height - wmSize);
             const distX = frame * pxPerFrame;
-            const distY = frame * pxPerFrame;
+            const distY = frame * pxPerFrame * 0.75;
             const modX = distX % (maxX * 2);
             const modY = distY % (maxY * 2);
             wx = modX > maxX ? (maxX * 2) - modX : modX;
@@ -1401,12 +1401,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             const wmSize = Math.min(finalWidth, finalHeight) * (wmSettings.size / 100);
             let wx = 0, wy = 0;
             if (wmSettings.isAnimated) {
-              const speed = wmSettings.animationSpeed;
-              const pxPerFrame = speed * 2;
-              const maxX = finalWidth - wmSize;
-              const maxY = finalHeight - wmSize;
+              const speed = wmSettings.animationSpeed || 5;
+              const pxPerFrame = speed * 1.5;
+              const maxX = Math.max(1, finalWidth - wmSize);
+              const maxY = Math.max(1, finalHeight - wmSize);
               const distX = frame * pxPerFrame;
-              const distY = frame * pxPerFrame;
+              const distY = frame * pxPerFrame * 0.75;
               const modX = distX % (maxX * 2);
               const modY = distY % (maxY * 2);
               wx = modX > maxX ? (maxX * 2) - modX : modX;

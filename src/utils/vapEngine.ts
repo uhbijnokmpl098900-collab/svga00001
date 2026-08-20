@@ -631,10 +631,23 @@ export const convertVapToMp4 = async (options: VapExportOptions): Promise<{ mp4B
       const wmSize = Math.min(outW, outH) * ((wmSettings.size || 15) / 100);
       let wx = 20;
       let wy = 20;
-      if (wmSettings.position === 'top-right') { wx = outW - wmSize - 20; wy = 20; }
-      else if (wmSettings.position === 'bottom-left') { wx = 20; wy = outH - wmSize - 20; }
-      else if (wmSettings.position === 'bottom-right') { wx = outW - wmSize - 20; wy = outH - wmSize - 20; }
-      else if (wmSettings.position === 'center') { wx = (outW - wmSize) / 2; wy = (outH - wmSize) / 2; }
+      if (wmSettings.isAnimated) {
+        const speed = wmSettings.animationSpeed || 5;
+        const pxPerFrame = speed * 1.5;
+        const maxX = Math.max(1, outW - wmSize);
+        const maxY = Math.max(1, outH - wmSize);
+        const distX = i * pxPerFrame;
+        const distY = i * pxPerFrame * 0.75;
+        const modX = distX % (maxX * 2);
+        const modY = distY % (maxY * 2);
+        wx = modX > maxX ? (maxX * 2) - modX : modX;
+        wy = modY > maxY ? (maxY * 2) - modY : modY;
+      } else {
+        if (wmSettings.position === 'top-right') { wx = outW - wmSize - 20; wy = 20; }
+        else if (wmSettings.position === 'bottom-left') { wx = 20; wy = outH - wmSize - 20; }
+        else if (wmSettings.position === 'bottom-right') { wx = outW - wmSize - 20; wy = outH - wmSize - 20; }
+        else if (wmSettings.position === 'center') { wx = (outW - wmSize) / 2; wy = (outH - wmSize) / 2; }
+      }
       ctx.globalAlpha = wmSettings.opacity || 0.5;
       ctx.drawImage(wmImgEl, wx, wy, wmSize, wmSize);
       ctx.globalAlpha = 1.0;
