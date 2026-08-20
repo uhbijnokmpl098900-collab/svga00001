@@ -19,29 +19,40 @@ export const VapPreviewCanvas = ({ videoUrl, isVapInput, startTime, endTime, isA
             if (!ctx) return;
 
             if (isVapInput) {
-                const w = Math.floor(video.videoWidth / 2);
-                const h = video.videoHeight;
+                const vw = video.videoWidth;
+                const vh = video.videoHeight;
+                const isVertical = vh > vw * 1.25;
+                const w = isVertical ? vw : Math.floor(vw / 2);
+                const h = isVertical ? Math.floor(vh / 2) : vh;
+
                 if (canvas.width !== w) canvas.width = w;
                 if (canvas.height !== h) canvas.height = h;
 
-                // Create a temporary canvas to read the split video
                 const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = video.videoWidth;
-                tempCanvas.height = video.videoHeight;
+                tempCanvas.width = vw;
+                tempCanvas.height = vh;
                 const tCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
                 if (!tCtx) return;
 
-                tCtx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-                const alphaData = tCtx.getImageData(0, 0, w, h).data;
-                const rgbData = tCtx.getImageData(w, 0, w, h).data;
+                tCtx.drawImage(video, 0, 0, vw, vh);
+                
+                const rgbX = 0;
+                const rgbY = 0;
+                const alphaX = isVertical ? 0 : w;
+                const alphaY = isVertical ? h : 0;
+
+                const rgbData = tCtx.getImageData(rgbX, rgbY, w, h).data;
+                const alphaData = tCtx.getImageData(alphaX, alphaY, w, h).data;
                 const combinedData = ctx.createImageData(w, h);
                 const d = combinedData.data;
 
                 for (let j = 0; j < d.length; j += 4) {
-                    d[j] = rgbData[j];
-                    d[j+1] = rgbData[j+1];
-                    d[j+2] = rgbData[j+2];
-                    d[j+3] = alphaData[j]; // red channel of alpha half
+                    const aVal = alphaData[j]; // red channel of alpha mask
+                    const alpha = aVal / 255;
+                    d[j] = alpha > 0.01 ? Math.min(255, Math.round(rgbData[j] / alpha)) : rgbData[j];
+                    d[j+1] = alpha > 0.01 ? Math.min(255, Math.round(rgbData[j+1] / alpha)) : rgbData[j+1];
+                    d[j+2] = alpha > 0.01 ? Math.min(255, Math.round(rgbData[j+2] / alpha)) : rgbData[j+2];
+                    d[j+3] = aVal;
                 }
                 ctx.putImageData(combinedData, 0, 0);
             } else {

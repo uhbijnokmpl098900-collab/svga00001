@@ -21,42 +21,98 @@ export interface VapConfig {
   [key: string]: any;
 }
 
-// Extract VAP configuration JSON from MP4 vapc box
+// Extract VAP / YYEVA configuration JSON from MP4 (vapc, yyea, yyev, udta boxes or raw JSON)
 export const extractVapConfigFromBlob = async (blob: Blob): Promise<VapConfig | null> => {
   try {
-    const chunkSize = Math.min(blob.size, 2 * 1024 * 1024); // Check last 2MB or full blob
+    const chunkSize = Math.min(blob.size, 4 * 1024 * 1024); // Check up to 4MB or full blob
     const start = Math.max(0, blob.size - chunkSize);
     const slice = blob.slice(start, blob.size);
     const buffer = await slice.arrayBuffer();
     const uint8 = new Uint8Array(buffer);
-    const vapcPattern = [118, 97, 112, 99]; // 'vapc' in ASCII
-    let offset = -1;
 
-    for (let i = 0; i <= uint8.length - 4; i++) {
-      if (
-        uint8[i] === vapcPattern[0] &&
-        uint8[i + 1] === vapcPattern[1] &&
-        uint8[i + 2] === vapcPattern[2] &&
-        uint8[i + 3] === vapcPattern[3]
-      ) {
-        offset = i;
-        break;
+    // Box tags: 'vapc', 'yyea', 'yyev', 'udta'
+    const boxTags = [
+      [118, 97, 112, 99], // 'vapc'
+      [121, 121, 101, 97], // 'yyea' (YYEVA)
+      [121, 121, 101, 118], // 'yyev' (YYEVA)
+    ];
+
+    let offset = -1;
+    for (const tag of boxTags) {
+      for (let i = 0; i <= uint8.length - 4; i++) {
+        if (
+          uint8[i] === tag[0] &&
+          uint8[i + 1] === tag[1] &&
+          uint8[i + 2] === tag[2] &&
+          uint8[i + 3] === tag[3]
+        ) {
+          offset = i;
+          break;
+        }
       }
+      if (offset !== -1) break;
     }
+
+    const parseAndNormalizeJson = (jsonStr: string): VapConfig | null => {
+      try {
+        const clean = jsonStr.replace(/\0/g, '');
+        const startIdx = clean.indexOf('{');
+        const endIdx = clean.lastIndexOf('}');
+        if (startIdx === -1 || endIdx === -1) return null;
+        const parsed = JSON.parse(clean.substring(startIdx, endIdx + 1));
+        
+        // Normalize YYEVA "descript" or standard "info"
+        const desc = parsed.descript || parsed.info || parsed;
+        const rgbFrame = desc.rgbFrame || [0, 0, desc.width || 750, desc.height || 1334];
+        const aFrame = desc.alphaFrame || desc.aFrame || [rgbFrame[2], 0, rgbFrame[2], rgbFrame[3]];
+        const w = desc.width || desc.w || rgbFrame[2] || 750;
+        const h = desc.height || desc.h || rgbFrame[3] || 1334;
+        const f = desc.fps || desc.f || 24;
+        const videoW = desc.videoWidth || desc.videoW || (rgbFrame[0] + rgbFrame[2] > aFrame[0] + aFrame[2] ? rgbFrame[0] + rgbFrame[2] : aFrame[0] + aFrame[2]);
+        const videoH = desc.videoHeight || desc.videoH || (rgbFrame[1] + rgbFrame[3] > aFrame[1] + aFrame[3] ? rgbFrame[1] + rgbFrame[3] : aFrame[1] + aFrame[3]);
+
+        return {
+          info: {
+            ...desc,
+            w,
+            h,
+            f,
+            fps: f,
+            videoW: videoW || w * 2,
+            videoH: videoH || h,
+            rgbFrame,
+            aFrame
+          },
+          ...parsed
+        };
+      } catch {
+        return null;
+      }
+    };
 
     if (offset !== -1) {
       const view = new DataView(buffer);
       const boxSize = offset >= 4 ? view.getUint32(offset - 4) : uint8.length - offset;
       const jsonBytes = uint8.slice(offset + 4, offset + 4 + Math.min(boxSize - 8, uint8.length - (offset + 4)));
       const jsonString = new TextDecoder('utf-8').decode(jsonBytes);
-      const startIdx = jsonString.indexOf('{');
-      const endIdx = jsonString.lastIndexOf('}');
-      if (startIdx !== -1 && endIdx !== -1) {
-        return JSON.parse(jsonString.substring(startIdx, endIdx + 1));
+      const res = parseAndNormalizeJson(jsonString);
+      if (res) return res;
+    }
+
+    // Fallback: search for embedded JSON with "rgbFrame" or "alphaFrame" in the buffer
+    const decoder = new TextDecoder('utf-8', { fatal: false });
+    const fullText = decoder.decode(uint8);
+    const rgbFrameIdx = fullText.indexOf('rgbFrame');
+    if (rgbFrameIdx !== -1) {
+      const startBrace = fullText.lastIndexOf('{', rgbFrameIdx);
+      if (startBrace !== -1) {
+        const potentialJson = fullText.substring(startBrace, Math.min(fullText.length, startBrace + 4096));
+        const res = parseAndNormalizeJson(potentialJson);
+        if (res) return res;
       }
     }
   } catch (e) {
-    console.warn('VAP config extraction notice:', e);
+    console.warn('VAP / YYEVA config extraction notice:', e);
   }
   return null;
 };
@@ -321,6 +377,7 @@ export interface VapExportOptions {
   targetWidth?: number;
   targetHeight?: number;
   exportResolution?: 'natural' | '720p' | '1080p';
+  exportQuality?: 'high' | 'medium' | 'low';
   exportDuration?: number;
   previewBg?: string | null;
   watermark?: string | null;
@@ -338,6 +395,7 @@ export const convertVapToMp4 = async (options: VapExportOptions): Promise<{ mp4B
     targetWidth,
     targetHeight,
     exportResolution = 'natural',
+    exportQuality = 'high',
     exportDuration,
     previewBg,
     watermark,
@@ -443,8 +501,11 @@ export const convertVapToMp4 = async (options: VapExportOptions): Promise<{ mp4B
 
   const totalPixels = outW * outH;
   const codec = totalPixels > 2228224 ? 'avc1.4d0033' : 'avc1.4d002a';
-  const minSafeBitrate = Math.max(1500000, Math.round(totalPixels * 2.5));
-  const bitrate = Math.min(25000000, Math.max(minSafeBitrate, 4000000));
+  let qualityMultiplier = 2.5;
+  if (exportQuality === 'medium') qualityMultiplier = 1.2;
+  if (exportQuality === 'low') qualityMultiplier = 0.6;
+  const minSafeBitrate = Math.max(800000, Math.round(totalPixels * qualityMultiplier));
+  const bitrate = Math.min(25000000, Math.max(minSafeBitrate, exportQuality === 'high' ? 4000000 : 1500000));
 
   // @ts-ignore
   const videoEncoder = new VideoEncoder({

@@ -343,6 +343,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [gridCols, setGridCols] = useState(3);
   const [forceMobileSize, setForceMobileSize] = useState(false);
   const [exportResolution, setExportResolution] = useState<'natural' | '720p' | '1080p'>('natural');
+  const [exportQuality, setExportQuality] = useState<'high' | 'medium' | 'low'>('medium');
   const [selectedPresetId, setSelectedPresetId] = useState<string>('auto');
   const [showPresetMenu, setShowPresetMenu] = useState(false);
   const [includePdfCatalog, setIncludePdfCatalog] = useState(false);
@@ -521,8 +522,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             try {
               vapConfig = await extractVapConfigFromBlob(item.file);
               if (vapConfig?.info) {
-                const w = vapConfig.info.w || 750;
-                const h = vapConfig.info.h || 1334;
+                const w = vapConfig.info.rgbFrame ? vapConfig.info.rgbFrame[2] : (vapConfig.info.w || 750);
+                const h = vapConfig.info.rgbFrame ? vapConfig.info.rgbFrame[3] : (vapConfig.info.h || 1334);
                 const f = vapConfig.info.f || 24;
                 dimensions = { width: w, height: h };
                 fps = f;
@@ -750,6 +751,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           targetWidth: finalWidth,
           targetHeight: finalHeight,
           exportResolution,
+          exportQuality,
           exportDuration: useNativeDuration ? undefined : exportDuration,
           previewBg,
           watermark,
@@ -868,16 +870,14 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             });
             const vw = vid.videoWidth || 750;
             const vh = vid.videoHeight || 1334;
-            let cfgW = vapConfig?.info?.w || Math.round(vw / 2);
-            let cfgH = vapConfig?.info?.h || vh;
             let rgbRect = vapConfig?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
             let alphaRect = vapConfig?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
             if (!vapConfig?.info?.rgbFrame && vh > vw && vw > 0) {
               rgbRect = [0, 0, vw, Math.round(vh / 2)];
               alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
-              cfgW = vw;
-              cfgH = Math.round(vh / 2);
             }
+            let cfgW = rgbRect[2];
+            let cfgH = rgbRect[3];
             const renderer = new WebGLVapRenderer(cfgW, cfgH);
             internalCanvas = renderer.canvas;
             player = { vid, renderer, rgbRect, alphaRect, cfgW, cfgH, duration: vid.duration || 3 };
@@ -1223,6 +1223,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             targetWidth: finalWidth,
             targetHeight: finalHeight,
             exportResolution,
+            exportQuality,
             exportDuration: useNativeDuration ? undefined : exportDuration,
             previewBg,
             watermark,
@@ -1568,6 +1569,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         targetWidth: finalWidth,
         targetHeight: finalHeight,
         exportResolution,
+        exportQuality,
         exportDuration: useNativeDuration ? undefined : exportDuration,
         previewBg,
         watermark,
@@ -1666,6 +1668,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           targetWidth: finalWidth,
           targetHeight: finalHeight,
           exportResolution,
+          exportQuality,
           exportDuration: useNativeDuration ? undefined : exportDuration,
           previewBg,
           watermark,
@@ -3105,9 +3108,21 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   onChange={(e) => setExportResolution(e.target.value as 'natural' | '720p' | '1080p')}
                   className="bg-transparent text-white font-black text-xs focus:outline-none"
                 >
-                  <option value="natural">طبيعي</option>
-                  <option value="720p">720p</option>
-                  <option value="1080p">1080p</option>
+                  <option value="natural" className="bg-slate-900 text-white">طبيعي</option>
+                  <option value="720p" className="bg-slate-900 text-white">720p</option>
+                  <option value="1080p" className="bg-slate-900 text-white">1080p</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2" title="التحكم في ضغط الفيديو وحجم الملف وسرعة التصدير">
+                <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest">حجم/ضغط الفيديو:</span>
+                <select 
+                  value={exportQuality}
+                  onChange={(e) => setExportQuality(e.target.value as 'high' | 'medium' | 'low')}
+                  className="bg-transparent text-white font-black text-xs focus:outline-none"
+                >
+                  <option value="medium" className="bg-slate-900 text-white">⚡ متوازن (موصى به - حجم مثالي وسرعة)</option>
+                  <option value="low" className="bg-slate-900 text-white">🚀 فائق الضغط (حجم أصغر - أسرع تصدير)</option>
+                  <option value="high" className="bg-slate-900 text-white">💎 أعلى جودة (حجم أصلي)</option>
                 </select>
               </div>
               <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2">
@@ -3701,17 +3716,15 @@ const SvgaPlayer: React.FC<{ item: any }> = ({ item }) => {
           if (isCanceled || !containerRef.current) return;
           const vw = video.videoWidth;
           const vh = video.videoHeight;
-          let cfgW = vapConfig?.info?.w || Math.round(vw / 2);
-          let cfgH = vapConfig?.info?.h || vh;
           let rgbRect = vapConfig?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
           let alphaRect = vapConfig?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
 
           if (!vapConfig?.info?.rgbFrame && vh > vw && vw > 0) {
             rgbRect = [0, 0, vw, Math.round(vh / 2)];
             alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
-            cfgW = vw;
-            cfgH = Math.round(vh / 2);
           }
+          let cfgW = rgbRect[2];
+          let cfgH = rgbRect[3];
 
           if (!item.dimensions) {
             item.dimensions = { width: cfgW, height: cfgH };
@@ -4067,17 +4080,15 @@ const SvgaCard: React.FC<{
             if (isCanceled || !containerRef.current) return;
             const vw = video.videoWidth;
             const vh = video.videoHeight;
-            let cfgW = vapConfig?.info?.w || Math.round(vw / 2);
-            let cfgH = vapConfig?.info?.h || vh;
             let rgbRect = vapConfig?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
             let alphaRect = vapConfig?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
 
             if (!vapConfig?.info?.rgbFrame && vh > vw && vw > 0) {
               rgbRect = [0, 0, vw, Math.round(vh / 2)];
               alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
-              cfgW = vw;
-              cfgH = Math.round(vh / 2);
             }
+            let cfgW = rgbRect[2];
+            let cfgH = rgbRect[3];
 
             if (!item.dimensions) {
               item.dimensions = { width: cfgW, height: cfgH };

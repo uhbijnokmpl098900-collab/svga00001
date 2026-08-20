@@ -39,7 +39,7 @@ import { logActivity } from './utils/logger';
 declare var SVGA: any;
 
 import { OnboardingModal } from './components/OnboardingModal';
-import { HelpCircle } from 'lucide-react';
+import { HelpCircle, BookOpen } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 const videoWidth = 1334;
@@ -724,13 +724,14 @@ const App: React.FC = () => {
         </main>
       </div>
 
+      <div className="fixed bottom-6 left-6 z-[100] flex flex-col-reverse gap-4">
       {/* WhatsApp Floating Button */}
       {settings?.whatsappNumber && (
         <a 
           href={`https://wa.me/${settings.whatsappNumber}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="fixed bottom-6 left-6 z-[100] w-14 h-14 bg-[#25D366] hover:bg-[#20bd5a] text-white rounded-full flex items-center justify-center shadow-lg shadow-[#25D366]/30 transition-all hover:scale-110 hover:-translate-y-1 group"
+          className="w-14 h-14 bg-[#25D366] hover:bg-[#20bd5a] text-white rounded-full flex items-center justify-center shadow-lg shadow-[#25D366]/30 transition-all hover:scale-110 hover:-translate-y-1 group"
           title="تواصل معنا عبر واتساب"
         >
           <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
@@ -742,11 +743,21 @@ const App: React.FC = () => {
       {/* Help Button */}
       <button 
         onClick={() => setShowOnboarding(true)}
-        className={`fixed ${settings?.whatsappNumber ? 'bottom-24' : 'bottom-6'} left-6 z-[100] w-14 h-14 bg-blue-600 hover:bg-blue-500 text-white rounded-full flex items-center justify-center shadow-lg shadow-blue-600/30 transition-all hover:scale-110 hover:-translate-y-1 group`}
+        className="w-14 h-14 bg-blue-600 hover:bg-blue-500 text-white rounded-full flex items-center justify-center shadow-lg shadow-blue-600/30 transition-all hover:scale-110 hover:-translate-y-1 group"
         title="شرح الموقع"
       >
         <HelpCircle className="w-8 h-8" />
       </button>
+
+      {/* Features Guide Button */}
+      <button 
+        onClick={() => setShowFeaturesGuide(true)}
+        className="w-14 h-14 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center shadow-lg shadow-indigo-600/30 transition-all hover:scale-110 hover:-translate-y-1 group"
+        title="دليل الميزات"
+      >
+        <BookOpen className="w-7 h-7" />
+      </button>
+    </div>
 
       {showBatchImage && (
         <BatchImageConverter
