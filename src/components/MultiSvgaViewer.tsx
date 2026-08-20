@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music , SquareCheck } from 'lucide-react';
+import { Layers, Play, Pause, RotateCcw, Trash2, Maximize2, Info, Upload, X, Download, Image as ImageIcon, ShieldCheck, Monitor, Smartphone, Loader2, Camera, Video, Film, FileVideo, Volume2, Music , SquareCheck, Gift, Sparkles, FileText } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { PresetBackground, UserRecord } from '../types';
@@ -13,6 +13,8 @@ import { createStreamingZip } from '../utils/streamZip';
 import { calculateSafeDimensions } from '../utils/dimensions';
 import { getPAG, convertPagToSvga } from '../utils/pagEngine';
 import { ensureMp3WithId3, extractAudioFromSvga } from '../utils/svgaAudio';
+import Vap from 'video-animation-player';
+import { extractVapConfigFromBlob, convertVapToMp4, WebGLVapRenderer, seekVideoToFrame, VapConfig } from '../utils/vapEngine';
 
 const decodeDataToBytes = (data: any): Uint8Array | null => {
   if (!data) return null;
@@ -184,9 +186,12 @@ export interface MultiSvgaItem {
   dimensions?: { width: number; height: number };
   fps?: number;
   frames?: number;
+  duration?: number;
   videoItem?: any;
   pagFile?: any;
-  type: "svga" | "pag";
+  vapConfig?: any;
+  hasAudio?: boolean;
+  type: "svga" | "pag" | "vap";
   presetId: string;
   folderName?: string;
   folderPath?: string;
@@ -333,14 +338,28 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   const [exportProgress, setExportProgress] = useState(0);
   const [loadProgress, setLoadProgress] = useState<{current: number, total: number} | null>(null);
   const isCanceled = useRef(false);
+  const [useNativeDuration, setUseNativeDuration] = useState(true);
   const [exportDuration, setExportDuration] = useState(10);
   const [gridCols, setGridCols] = useState(3);
   const [forceMobileSize, setForceMobileSize] = useState(false);
   const [exportResolution, setExportResolution] = useState<'natural' | '720p' | '1080p'>('natural');
   const [selectedPresetId, setSelectedPresetId] = useState<string>('auto');
   const [showPresetMenu, setShowPresetMenu] = useState(false);
+  const [includePdfCatalog, setIncludePdfCatalog] = useState(false);
   
   const selectedPreset = useMemo(() => DEVICE_PRESETS.find(p => p.id === selectedPresetId), [selectedPresetId]);
+
+  const [vapBatchProgress, setVapBatchProgress] = useState<{
+    isOpen: boolean;
+    total: number;
+    completed: number;
+    currentFileName: string;
+    currentFileIndex: number;
+    overallPercent: number;
+    currentPercent: number;
+    statusMessage: string;
+    fileStatuses: { id: string; name: string; status: 'pending' | 'processing' | 'done' | 'error'; errorMsg?: string }[];
+  } | null>(null);
 
   const [wmSettings, setWmSettings] = useState({
     position: 'bottom-right' as 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center',
@@ -414,30 +433,147 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
   }, []);
 
   const handleFiles = useCallback(async (fileObjects: {file: File, folderName?: string, folderPath?: string}[]) => {
-    const fileArray = fileObjects.filter(f => {
+    if (!fileObjects || fileObjects.length === 0) return;
+
+    // Expand any ZIP files first
+    const expandedList: {file: File, folderName?: string, folderPath?: string}[] = [];
+
+    for (const item of fileObjects) {
+      if (!item?.file) continue;
+      const lowerName = (item.file.name || '').toLowerCase();
+      if (lowerName.endsWith('.zip')) {
+        try {
+          const zip = await JSZip.loadAsync(item.file);
+          const entries = Object.keys(zip.files);
+          for (const filename of entries) {
+            const entry = zip.files[filename];
+            if (!entry.dir) {
+              const innerLower = filename.toLowerCase();
+              if (
+                filename.includes('__MACOSX') ||
+                filename.startsWith('.') ||
+                filename.includes('/.')
+              ) {
+                continue;
+              }
+              if (
+                innerLower.endsWith('.svga') ||
+                innerLower.endsWith('.pag') ||
+                innerLower.endsWith('.vap') ||
+                innerLower.endsWith('.mp4')
+              ) {
+                try {
+                  const blob = await entry.async('blob');
+                  const cleanName = filename.split('/').pop() || filename;
+                  if (cleanName.startsWith('._') || cleanName.startsWith('.')) continue;
+                  const pathParts = filename.split('/').filter(Boolean);
+                  const folderPath = pathParts.length > 1 ? pathParts.slice(0, -1).join('/') : item.folderPath;
+                  const folderName = pathParts.length > 1 ? pathParts[pathParts.length - 2] : (item.folderName || '');
+                  const extractedFile = new File([blob], cleanName, { type: blob.type || 'application/octet-stream' });
+                  expandedList.push({ file: extractedFile, folderName, folderPath });
+                } catch (zipErr) {
+                  console.warn("Could not extract entry from zip:", filename, zipErr);
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Could not extract ZIP file:", item.file.name, e);
+        }
+      } else {
+        const name = item.file.name || '';
+        if (!name.startsWith('._') && !name.startsWith('.') && !item.folderPath?.includes('__MACOSX')) {
+          expandedList.push(item);
+        }
+      }
+    }
+
+    const fileArray = expandedList.filter(f => {
+      if (!f?.file?.name) return false;
       const name = (f.file.name || '').toLowerCase();
-      return name.endsWith('.svga') || name.endsWith('.pag');
+      if (name.startsWith('._') || name.startsWith('.')) return false;
+      return name.endsWith('.svga') || name.endsWith('.pag') || name.endsWith('.vap') || name.endsWith('.mp4');
     });
     if (fileArray.length === 0) return;
     
     setLoadProgress({ current: 0, total: fileArray.length });
     isCanceled.current = false;
     
-    const BATCH_SIZE = 50;
+    const BATCH_SIZE = 25;
     for (let i = 0; i < fileArray.length; i += BATCH_SIZE) {
       if (isCanceled.current) break;
       const batch = fileArray.slice(i, i + BATCH_SIZE);
-      const newItems: MultiSvgaItem[] = batch.map((item) => ({
-        id: Math.random().toString(36).substr(2, 9),
-        file: item.file,
-        url: URL.createObjectURL(item.file),
-        name: item.file.name,
-        size: item.file.size,
-        type: item.file.name.toLowerCase().endsWith('.pag') ? 'pag' : 'svga',
-        presetId: 'auto',
-        folderName: item.folderName,
-        folderPath: item.folderPath
-      }));
+      const newItems: MultiSvgaItem[] = (await Promise.all(batch.map(async (item) => {
+        try {
+          const lowerName = item.file.name.toLowerCase();
+          const isPag = lowerName.endsWith('.pag');
+          const isVap = lowerName.endsWith('.vap') || lowerName.endsWith('.mp4');
+          const itemType: 'svga' | 'pag' | 'vap' = isPag ? 'pag' : (isVap ? 'vap' : 'svga');
+          const url = URL.createObjectURL(item.file);
+          
+          let vapConfig: any = null;
+          let dimensions: { width: number; height: number } | undefined = undefined;
+          let fps: number | undefined = undefined;
+          let frames: number | undefined = undefined;
+          let duration: number | undefined = undefined;
+
+          if (itemType === 'vap') {
+            try {
+              vapConfig = await extractVapConfigFromBlob(item.file);
+              if (vapConfig?.info) {
+                const w = vapConfig.info.w || 750;
+                const h = vapConfig.info.h || 1334;
+                const f = vapConfig.info.f || 24;
+                dimensions = { width: w, height: h };
+                fps = f;
+              }
+            } catch (e) {
+              console.warn("VAP config extraction failed in handleFiles", e);
+            }
+
+            try {
+              const tempVid = document.createElement('video');
+              tempVid.preload = 'metadata';
+              tempVid.src = url;
+              await new Promise<void>((res) => {
+                tempVid.onloadedmetadata = () => res();
+                tempVid.onerror = () => res();
+                setTimeout(res, 800);
+              });
+              duration = tempVid.duration || 3;
+              if (!dimensions && tempVid.videoWidth > 0) {
+                const vw = tempVid.videoWidth;
+                const vh = tempVid.videoHeight;
+                dimensions = { width: Math.round(vw / 2), height: vh };
+              }
+              if (!fps) fps = 24;
+              frames = Math.floor(duration * fps);
+            } catch (e) {
+              console.warn("Video metadata extraction failed", e);
+            }
+          }
+
+          return {
+            id: Math.random().toString(36).substr(2, 9),
+            file: item.file,
+            url,
+            name: item.file.name,
+            size: item.file.size,
+            type: itemType,
+            presetId: 'auto',
+            folderName: item.folderName,
+            folderPath: item.folderPath,
+            vapConfig,
+            dimensions,
+            fps,
+            frames,
+            duration
+          } as MultiSvgaItem;
+        } catch (err) {
+          console.error("Error processing item in batch:", item.file?.name, err);
+          return null;
+        }
+      }))).filter(Boolean) as MultiSvgaItem[];
       
       setItems(prev => [...prev, ...newItems]);
       setLoadProgress({ current: Math.min(i + BATCH_SIZE, fileArray.length), total: fileArray.length });
@@ -448,18 +584,35 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
   const traverseFileTree = async (item: any, path: string = '', folderName: string = ''): Promise<{file: File, folderName?: string, folderPath?: string}[]> => {
     return new Promise((resolve) => {
-      if (item.isFile) {
-        item.file((file: File) => {
-          resolve([{ file, folderName, folderPath: path }]);
-        });
-      } else if (item.isDirectory) {
-        const dirReader = item.createReader();
-        dirReader.readEntries(async (entries: any[]) => {
-          const promises = entries.map(entry => traverseFileTree(entry, path + item.name + '/', folderName || item.name));
-          const results = await Promise.all(promises);
-          resolve(results.flat());
-        });
-      } else {
+      try {
+        if (!item) return resolve([]);
+        if (item.isFile) {
+          item.file((file: File) => {
+            resolve([{ file, folderName, folderPath: path }]);
+          }, (err: any) => {
+            console.warn("Error reading file entry:", err);
+            resolve([]);
+          });
+        } else if (item.isDirectory) {
+          const dirReader = item.createReader();
+          dirReader.readEntries(async (entries: any[]) => {
+            try {
+              const promises = entries.map(entry => traverseFileTree(entry, path + item.name + '/', folderName || item.name));
+              const results = await Promise.all(promises);
+              resolve(results.flat());
+            } catch (dirErr) {
+              console.warn("Error traversing subfolder:", dirErr);
+              resolve([]);
+            }
+          }, (err: any) => {
+            console.warn("Error reading directory:", err);
+            resolve([]);
+          });
+        } else {
+          resolve([]);
+        }
+      } catch (e) {
+        console.warn("traverseFileTree exception:", e);
         resolve([]);
       }
     });
@@ -588,6 +741,35 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       const finalWidth = Math.round(canvasWidth / 2) * 2;
       const finalHeight = Math.round(canvasHeight / 2) * 2;
 
+      if (activeItems.length === 1 && activeItems[0].type === "vap") {
+        const item = activeItems[0];
+        const result = await convertVapToMp4({
+          file: item.file,
+          url: item.url,
+          vapConfig: item.vapConfig,
+          targetWidth: finalWidth,
+          targetHeight: finalHeight,
+          exportResolution,
+          exportDuration: useNativeDuration ? undefined : exportDuration,
+          previewBg,
+          watermark,
+          wmSettings,
+          onProgress: (p) => setExportProgress(p)
+        });
+        const cleanName = item.name.replace(/\.[^/.]+$/, "");
+        const blob = new Blob([result.buffer], { type: "video/mp4" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${cleanName}.mp4`;
+        a.click();
+        URL.revokeObjectURL(url);
+        document.body.removeChild(renderContainer);
+        setIsExporting(false);
+        setExportProgress(0);
+        return;
+      }
+
       const canvas = document.createElement("canvas");
       canvas.width = finalWidth;
       canvas.height = finalHeight;
@@ -597,10 +779,13 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       activeItems.forEach(item => {
         const frames = item.frames || 1;
         const fps = item.fps || 30;
-        const duration = frames / fps;
+        let duration = frames / fps;
+        if (item.duration) duration = item.duration;
         maxFrames = Math.max(maxFrames, duration * targetFps);
       });
-      const totalFrames = exportDuration ? exportDuration * targetFps : Math.min(maxFrames, 15 * targetFps);
+      const totalFrames = (!useNativeDuration && exportDuration)
+        ? Math.round(exportDuration * targetFps)
+        : Math.max(1, Math.round(maxFrames));
 
       let bgImg: HTMLImageElement | null = null;
       if (previewBg) {
@@ -668,7 +853,35 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
         let player, internalCanvas;
         try {
-          if (item.type === "pag") {
+          if (item.type === "vap") {
+            let vapConfig = item.vapConfig;
+            if (!vapConfig) {
+              try { vapConfig = await extractVapConfigFromBlob(item.file); item.vapConfig = vapConfig; } catch (e) {}
+            }
+            const vid = document.createElement("video");
+            vid.crossOrigin = "anonymous";
+            vid.muted = true;
+            vid.src = item.url;
+            await new Promise<void>((res) => {
+              vid.onloadeddata = () => res();
+              setTimeout(res, 800);
+            });
+            const vw = vid.videoWidth || 750;
+            const vh = vid.videoHeight || 1334;
+            let cfgW = vapConfig?.info?.w || Math.round(vw / 2);
+            let cfgH = vapConfig?.info?.h || vh;
+            let rgbRect = vapConfig?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
+            let alphaRect = vapConfig?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+            if (!vapConfig?.info?.rgbFrame && vh > vw && vw > 0) {
+              rgbRect = [0, 0, vw, Math.round(vh / 2)];
+              alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
+              cfgW = vw;
+              cfgH = Math.round(vh / 2);
+            }
+            const renderer = new WebGLVapRenderer(cfgW, cfgH);
+            internalCanvas = renderer.canvas;
+            player = { vid, renderer, rgbRect, alphaRect, cfgW, cfgH, duration: vid.duration || 3 };
+          } else if (item.type === "pag") {
             const PAG = await getPAG();
             let pagFile = item.pagFile;
             if (!pagFile) {
@@ -712,7 +925,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       await new Promise(resolve => setTimeout(resolve, 1500));
       for (let i = 0; i < offscreenPlayers.length; i++) {
         const { player, item } = offscreenPlayers[i];
-        if (item.type === "pag") {
+        if (item.type === "vap") {
+          // Ready
+        } else if (item.type === "pag") {
           player.setProgress(0);
           await player.flush();
         } else {
@@ -768,7 +983,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           }
 
           const elapsedSeconds = frame / targetFps;
-          if (item.type === "pag") {
+          if (item.type === "vap") {
+            const vidDur = player.duration || 3;
+            const targetTime = Math.min((elapsedSeconds % vidDur), Math.max(0, vidDur - 0.01));
+            await seekVideoToFrame(player.vid, targetTime);
+            player.renderer.render(player.vid, player.rgbRect, player.alphaRect, 10, true);
+          } else if (item.type === "pag") {
             const durationSec = (item.pagFile?.duration() / 1000000) || 1;
             try {
               player.setProgress((elapsedSeconds % durationSec) / durationSec);
@@ -995,6 +1215,42 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         const finalWidth = Math.round(itemW / 2) * 2;
         const finalHeight = Math.round(itemH / 2) * 2;
 
+        if (item.type === "vap") {
+          const result = await convertVapToMp4({
+            file: item.file,
+            url: item.url,
+            vapConfig: item.vapConfig,
+            targetWidth: finalWidth,
+            targetHeight: finalHeight,
+            exportResolution,
+            exportDuration: useNativeDuration ? undefined : exportDuration,
+            previewBg,
+            watermark,
+            wmSettings,
+            onProgress: (p) => {
+              const currentOverall = Math.round(((completedCount + p / 100) / list.length) * 100);
+              setExportProgress(Math.min(100, currentOverall));
+            }
+          });
+
+          const cleanName = uniqueNames[item.id];
+          const folderPrefix = item.folderPath ? `${item.folderPath}/` : '';
+          const mp4Filename = `${folderPrefix}${cleanName}.mp4`;
+
+          if (streamZip) {
+            streamZip.addFile(mp4Filename, new Uint8Array(result.buffer));
+          } else {
+            const blob = new Blob([result.buffer], { type: "video/mp4" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${cleanName}.mp4`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }
+          return;
+        }
+
         const canvas = document.createElement("canvas");
         canvas.width = finalWidth;
         canvas.height = finalHeight;
@@ -1002,8 +1258,13 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
 
         const itemFrames = item.frames || 1;
         const itemFps = item.fps || 30;
-        const durationSec = itemFrames / itemFps;
-        const totalFrames = exportDuration ? exportDuration * targetFps : Math.min(Math.ceil(durationSec * targetFps), 15 * targetFps);
+        let durationSec = itemFrames / itemFps;
+        if (item.duration) {
+          durationSec = item.duration;
+        }
+        const totalFrames = (!useNativeDuration && exportDuration)
+          ? Math.round(exportDuration * targetFps)
+          : Math.max(1, Math.round(durationSec * targetFps));
 
         const muxer = new Muxer({
           target: new ArrayBufferTarget(),
@@ -1277,6 +1538,336 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       setExportProgress(0);
     }
   };
+
+  const handleExportSingleVap = async (item: MultiSvgaItem) => {
+    const { allowed } = await checkAccess("VAP Export MP4");
+    if (!allowed) {
+      if (onSubscriptionRequired) onSubscriptionRequired();
+      return;
+    }
+
+    setIsExporting(true);
+    setExportProgress(0);
+    if (currentUser) {
+      logActivity(currentUser, 'export', `Single VAP to MP4 Export: ${item.name}`);
+    }
+
+    try {
+      let finalWidth = item.dimensions?.width || 750;
+      let finalHeight = item.dimensions?.height || 1334;
+      const preset = DEVICE_PRESETS.find(p => p.id === item.presetId);
+      if (preset) {
+        finalWidth = preset.width;
+        finalHeight = preset.height;
+      }
+
+      const result = await convertVapToMp4({
+        file: item.file,
+        url: item.url,
+        vapConfig: item.vapConfig,
+        targetWidth: finalWidth,
+        targetHeight: finalHeight,
+        exportResolution,
+        exportDuration: useNativeDuration ? undefined : exportDuration,
+        previewBg,
+        watermark,
+        wmSettings,
+        onProgress: (pct) => setExportProgress(pct)
+      });
+
+      const url = URL.createObjectURL(result.mp4Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = item.name.replace(/\.[^/.]+$/, "") + '.mp4';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error("Single VAP export error:", err);
+      alert("حدث خطأ أثناء تصدير ملف VAP: " + (err.message || 'خطأ غير متوقع'));
+    } finally {
+      setIsExporting(false);
+      setExportProgress(0);
+    }
+  };
+
+  const handleExportAllVapToMp4 = async () => {
+    const activeItems = getActiveItems();
+    const vapItems = activeItems.filter(i => i.type === 'vap');
+    const targetList = vapItems.length > 0 ? vapItems : activeItems;
+
+    if (targetList.length === 0) {
+      alert('لا توجد ملفات VAP متاحة للتصدير.');
+      return;
+    }
+
+    const { allowed } = await checkAccess("VAP Batch Export");
+    if (!allowed) {
+      if (onSubscriptionRequired) onSubscriptionRequired();
+      return;
+    }
+
+    const initialStatuses = targetList.map(item => ({
+      id: item.id,
+      name: item.name,
+      status: 'pending' as 'pending' | 'processing' | 'done' | 'error',
+    }));
+
+    setVapBatchProgress({
+      isOpen: true,
+      total: targetList.length,
+      completed: 0,
+      currentFileName: targetList[0]?.name || '',
+      currentFileIndex: 1,
+      overallPercent: 0,
+      currentPercent: 0,
+      statusMessage: 'جاري بدء التصدير المتوازي فائق السرعة لملفات VAP...',
+      fileStatuses: initialStatuses,
+    });
+
+    if (currentUser) {
+      logActivity(currentUser, 'export', `Batch VAP to MP4 Export: ${targetList.length} files`);
+    }
+
+    const successfulBlobs: { name: string; blob: Blob; buffer: ArrayBuffer }[] = [];
+    let completedCount = 0;
+
+    // Parallel Concurrency Pool (3 simultaneous exports for maximum speed without overloading)
+    const CONCURRENCY = Math.min(3, targetList.length);
+    let currentIndex = 0;
+
+    const processItem = async (item: MultiSvgaItem, index: number) => {
+      setVapBatchProgress(prev => {
+        if (!prev) return null;
+        const updatedStatuses = prev.fileStatuses.map(s =>
+          s.id === item.id ? { ...s, status: 'processing' as const } : s
+        );
+        return {
+          ...prev,
+          currentFileName: item.name,
+          currentFileIndex: index + 1,
+          statusMessage: `جاري تحويل ومعالجة: ${item.name}`,
+          fileStatuses: updatedStatuses,
+        };
+      });
+
+      try {
+        let finalWidth = item.dimensions?.width || 750;
+        let finalHeight = item.dimensions?.height || 1334;
+        const preset = DEVICE_PRESETS.find(p => p.id === item.presetId);
+        if (preset) {
+          finalWidth = preset.width;
+          finalHeight = preset.height;
+        }
+
+        const result = await convertVapToMp4({
+          file: item.file,
+          url: item.url,
+          vapConfig: item.vapConfig,
+          targetWidth: finalWidth,
+          targetHeight: finalHeight,
+          exportResolution,
+          exportDuration: useNativeDuration ? undefined : exportDuration,
+          previewBg,
+          watermark,
+          wmSettings,
+          onProgress: (pct) => {
+            setVapBatchProgress(prev => {
+              if (!prev) return null;
+              const overall = Math.min(99, Math.round(((completedCount + pct / 100) / targetList.length) * 100));
+              return {
+                ...prev,
+                currentPercent: pct,
+                overallPercent: overall,
+              };
+            });
+          }
+        });
+
+        successfulBlobs.push({
+          name: item.name.replace(/\.[^/.]+$/, "") + '.mp4',
+          blob: result.mp4Blob,
+          buffer: result.buffer,
+        });
+
+        completedCount++;
+
+        setVapBatchProgress(prev => {
+          if (!prev) return null;
+          const updatedStatuses = prev.fileStatuses.map(s =>
+            s.id === item.id ? { ...s, status: 'done' as const } : s
+          );
+          const overall = Math.round((completedCount / targetList.length) * 100);
+          return {
+            ...prev,
+            completed: completedCount,
+            overallPercent: overall,
+            fileStatuses: updatedStatuses,
+            statusMessage: `اكتمل ${completedCount} من ${targetList.length} ملف`,
+          };
+        });
+      } catch (err: any) {
+        console.error(`Error converting ${item.name}:`, err);
+        completedCount++;
+        setVapBatchProgress(prev => {
+          if (!prev) return null;
+          const updatedStatuses = prev.fileStatuses.map(s =>
+            s.id === item.id ? { ...s, status: 'error' as const, errorMsg: err?.message || 'فشل التحويل' } : s
+          );
+          return {
+            ...prev,
+            completed: completedCount,
+            fileStatuses: updatedStatuses,
+          };
+        });
+      }
+    };
+
+    // Run parallel workers
+    const workers = Array.from({ length: CONCURRENCY }, async () => {
+      while (currentIndex < targetList.length) {
+        const itemIdx = currentIndex++;
+        const item = targetList[itemIdx];
+        if (item) {
+          await processItem(item, itemIdx);
+        }
+      }
+    });
+
+    await Promise.all(workers);
+
+    if (successfulBlobs.length === 1) {
+      const item = successfulBlobs[0];
+      const url = URL.createObjectURL(item.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = item.name;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else if (successfulBlobs.length > 1) {
+      setVapBatchProgress(prev => prev ? { ...prev, statusMessage: 'جاري إنشاء حزمة التنزيل السريعة (ZIP)...' } : null);
+      try {
+        const streamZip = await createStreamingZip(`VAP_MP4_Videos_${Date.now()}.zip`);
+        for (const sb of successfulBlobs) {
+          streamZip.addFile(sb.name, new Uint8Array(sb.buffer));
+        }
+        await streamZip.close();
+      } catch (e) {
+        const zip = new JSZip();
+        for (const sb of successfulBlobs) {
+          zip.file(sb.name, sb.blob);
+        }
+        // Use STORE (level 0) for instant zip creation without re-compressing MP4s
+        const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `VAP_MP4_Videos_${Date.now()}.zip`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    setVapBatchProgress(prev => prev ? {
+      ...prev,
+      overallPercent: 100,
+      currentPercent: 100,
+      statusMessage: `تم التصدير والتنزيل بنجاح! اكتمل ${successfulBlobs.length} من ${targetList.length} ملف.`
+    } : null);
+  };
+
+  const handleDownloadAllVapPng = async () => {
+    const activeItems = getActiveItems();
+    const vapItems = activeItems.filter(i => i.type === 'vap');
+    const targetList = vapItems.length > 0 ? vapItems : activeItems;
+
+    if (targetList.length === 0) {
+      alert('لا توجد ملفات VAP متاحة لتنزيل الصور.');
+      return;
+    }
+
+    const { allowed } = await checkAccess("VAP PNG Export");
+    if (!allowed) {
+      if (onSubscriptionRequired) onSubscriptionRequired();
+      return;
+    }
+
+    setIsZipping(true);
+    setExportProgress(0);
+    if (currentUser) {
+      logActivity(currentUser, 'export', `VAP to PNG Export: ${targetList.length} files`);
+    }
+
+    try {
+      if (targetList.length === 1) {
+        const item = targetList[0];
+        const blob = await captureFrame(item, 0);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const cleanName = item.name.replace(/\.[^/.]+$/, '');
+        a.download = `${cleanName}.png`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        let streamZip: any = null;
+        try {
+          streamZip = await createStreamingZip(`VAP_PNG_Images_${Date.now()}.zip`);
+        } catch (e) {
+          streamZip = null;
+        }
+
+        const BATCH_SIZE = 6;
+        let completed = 0;
+        const capturedFiles: { name: string; blob: Blob }[] = [];
+
+        for (let i = 0; i < targetList.length; i += BATCH_SIZE) {
+          const batch = targetList.slice(i, i + BATCH_SIZE);
+          await Promise.all(batch.map(async (item) => {
+            let folderPrefix = "";
+            if (item.folderPath) {
+              folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
+            }
+            const cleanName = item.name.replace(/\.[^/.]+$/, '');
+            const filename = `${folderPrefix}${cleanName}.png`;
+            const blob = await captureFrame(item, 0);
+
+            if (streamZip) {
+              const arrayBuffer = await blob.arrayBuffer();
+              streamZip.addFile(filename, new Uint8Array(arrayBuffer));
+            } else {
+              capturedFiles.push({ name: filename, blob });
+            }
+
+            completed++;
+            setExportProgress(Math.round((completed / targetList.length) * 100));
+          }));
+        }
+
+        if (streamZip) {
+          await streamZip.close();
+        } else {
+          const zip = new JSZip();
+          for (const cf of capturedFiles) {
+            zip.file(cf.name, cf.blob);
+          }
+          const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+          const url = URL.createObjectURL(zipBlob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `VAP_PNG_Images_${Date.now()}.zip`;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+      }
+    } catch (err: any) {
+      console.error("VAP PNG export error:", err);
+      alert("حدث خطأ أثناء تنزيل صور VAP: " + (err.message || 'خطأ غير متوقع'));
+    } finally {
+      setIsZipping(false);
+      setExportProgress(0);
+    }
+  };
+
   const parseSvgaIfNeeded = async (item: MultiSvgaItem): Promise<any> => {
     // ensure videoItem is valid and has images before returning early
     if (item.videoItem && item.videoItem.images) return item.videoItem;
@@ -1350,10 +1941,12 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         }
         
         let targetProgress = 0.5;
-        if (item.frames) {
-           let framesToJump = frameIndex;
-           if (frameIndex === 0) framesToJump = Math.floor(item.frames / 2);
-           targetProgress = framesToJump / item.frames;
+        if (frameIndex === -1) {
+          targetProgress = 0.5;
+        } else if (item.frames && frameIndex > 0) {
+          targetProgress = Math.min(1, frameIndex / item.frames);
+        } else if (frameIndex === 0) {
+          targetProgress = 0.5;
         }
         
         pagPlayer.setProgress(targetProgress);
@@ -1373,6 +1966,60 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       } finally {
         document.body.removeChild(tmpCanvas);
       }
+    } else if (item.type === 'vap') {
+      const config = item.vapConfig || (await extractVapConfigFromBlob(item.file));
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.muted = true;
+      video.src = item.url;
+      await new Promise<void>((resolve) => {
+        video.onloadeddata = () => resolve();
+        setTimeout(resolve, 1500);
+      });
+      const vw = video.videoWidth || 750;
+      const vh = video.videoHeight || 1334;
+      let cfgW = config?.info?.w || Math.round(vw / 2);
+      let cfgH = config?.info?.h || vh;
+      let rgbRect = config?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
+      let alphaRect = config?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+      if (!config?.info?.rgbFrame && vh > vw && vw > 0) {
+        rgbRect = [0, 0, vw, Math.round(vh / 2)];
+        alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
+        cfgW = vw;
+        cfgH = Math.round(vh / 2);
+      }
+      const rawVideoW = config?.info?.videoW || vw;
+      const rawVideoH = config?.info?.videoH || vh;
+      const scaleX = vw / (rawVideoW || vw);
+      const scaleY = vh / (rawVideoH || vh);
+      const srcRgbX = Math.round(rgbRect[0] * scaleX);
+      const srcRgbY = Math.round(rgbRect[1] * scaleY);
+      const srcRgbW = Math.round(rgbRect[2] * scaleX);
+      const srcRgbH = Math.round(rgbRect[3] * scaleY);
+      const srcAlphaX = Math.round(alphaRect[0] * scaleX);
+      const srcAlphaY = Math.round(alphaRect[1] * scaleY);
+      const srcAlphaW = Math.round(alphaRect[2] * scaleX);
+      const srcAlphaH = Math.round(alphaRect[3] * scaleY);
+
+      let targetTime = Math.min((video.duration || 3) * 0.45, Math.max(0, (video.duration || 3) - 0.05));
+      if (frameIndex > 0 && item.frames) {
+        targetTime = Math.min((frameIndex / item.frames) * (video.duration || 3), Math.max(0, (video.duration || 3) - 0.05));
+      }
+      video.currentTime = targetTime;
+      await seekVideoToFrame(video, video.currentTime);
+
+      try {
+        const webgl = new WebGLVapRenderer(cfgW, cfgH);
+        const glCanvas = webgl.render(video, [srcRgbX, srcRgbY, srcRgbW, srcRgbH], [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH], 10, true);
+        const scale = Math.min(dw / cfgW, dh / cfgH);
+        const finalW = cfgW * scale;
+        const finalH = cfgH * scale;
+        const x = (dw - finalW) / 2;
+        const y = (dh - finalH) / 2;
+        ctx.drawImage(glCanvas, x, y, finalW, finalH);
+      } catch (e) {
+        ctx.drawImage(video, srcRgbX, srcRgbY, srcRgbW, srcRgbH, 0, 0, dw, dh);
+      }
     } else {
       const videoItem = await parseSvgaIfNeeded(item);
       if (!item.dimensions) item.dimensions = { width: 500, height: 500 };
@@ -1381,9 +2028,8 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       div.style.width = `${item.dimensions.width}px`;
       div.style.height = `${item.dimensions.height}px`;
       div.style.position = 'fixed';
-      div.style.left = '0px';
+      div.style.left = '-10000px';
       div.style.top = '0px';
-      div.style.opacity = '0.001';
       div.style.pointerEvents = 'none';
       div.style.backgroundColor = 'transparent';
       document.body.appendChild(div);
@@ -1392,46 +2038,18 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
       try {
         player = new SVGA.Player(div);
         player.clearsAfterStop = false;
+        player.setVideoItem(videoItem);
+        player.setContentMode('AspectFit');
         
-        const attemptRender = async (targetFrame: number) => {
-            return new Promise<void>((resolve, reject) => {
-              try {
-                  player.setVideoItem(videoItem);
-                  player.setContentMode('AspectFit'); 
-                  
-                  let resolved = false;
-                  const doResolve = () => {
-                    if (!resolved) { resolved = true; resolve(); }
-                  };
-        
-                  player.onFrame = (frame: number) => {
-                      if (frame === targetFrame) {
-                           setTimeout(doResolve, 50);
-                           player.pauseAnimation();
-                      }
-                  };
-                  
-                  player.stepToFrame(targetFrame, true); 
-                  setTimeout(doResolve, 500);
-              } catch(err) {
-                  reject(err);
-              }
-            });
-        };
-
-        let framesToJump = 0;
+        let framesToJump = Math.floor((item.frames || 30) * 0.48);
         if (frameIndex > 0) {
           framesToJump = Math.min(frameIndex, (item.frames || 1) - 1);
+        } else if (frameIndex === 0) {
+          framesToJump = Math.floor((item.frames || 30) * 0.48);
         }
 
-        try {
-            await attemptRender(framesToJump);
-        } catch (e) {
-            console.warn("Failed to render frame", framesToJump, "falling back to frame 0", e);
-            if (framesToJump !== 0) {
-                await attemptRender(0);
-            }
-        }
+        player.stepToFrame(framesToJump, false);
+        await new Promise(r => setTimeout(r, 40));
         
         const svgaCanvas = div.querySelector('canvas');
         if (svgaCanvas) {
@@ -1454,7 +2072,9 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
         if (player) {
           try { player.clear(); } catch(e) {}
         }
-        document.body.removeChild(div);
+        if (div.parentNode) {
+          document.body.removeChild(div);
+        }
       }
     }
 
@@ -1544,22 +2164,24 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     }
 
     try {
-        for (let i = 0; i < activeItems.length; i++) {
-          const item = activeItems[i];
-          let folderPrefix = "";
-          if (item.folderPath) {
-            folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
-          }
-    
-          const blob = await captureFrame(item, Math.floor(item.frames / 2));
-          const arrayBuffer = await blob.arrayBuffer();
-          const baseName = uniqueNames[item.id];
-          
-          zipStream.addFile(`${folderPrefix}${baseName}.png`, new Uint8Array(arrayBuffer));
-          setExportProgress(Math.round(((i + 1) / activeItems.length) * 100));
-          
-          // Allow GC
-          await new Promise(resolve => setTimeout(resolve, 5));
+        const BATCH_SIZE = 6;
+        let completed = 0;
+        for (let i = 0; i < activeItems.length; i += BATCH_SIZE) {
+          const batch = activeItems.slice(i, i + BATCH_SIZE);
+          await Promise.all(batch.map(async (item) => {
+            let folderPrefix = "";
+            if (item.folderPath) {
+              folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
+            }
+      
+            const blob = await captureFrame(item, Math.floor(item.frames / 2));
+            const arrayBuffer = await blob.arrayBuffer();
+            const baseName = uniqueNames[item.id];
+            
+            zipStream.addFile(`${folderPrefix}${baseName}.png`, new Uint8Array(arrayBuffer));
+            completed++;
+            setExportProgress(Math.round((completed / activeItems.length) * 100));
+          }));
         }
         await zipStream.close();
     } catch (e) {
@@ -1616,35 +2238,45 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     }
 
     try {
-        for (let i = 0; i < activeItems.length; i++) {
-          const item = activeItems[i];
-          let folderPrefix = "";
-          if (item.folderPath) {
-            folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
-          }
-    
-          const baseName = uniqueNames[item.id];
-    
-          if (item.type === "pag") {
-            const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / activeItems.length) * 100)) });
-            const arrayBuffer = await result.svgaBlob.arrayBuffer();
-            zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
-          } else {
-            const arrayBuffer = await item.file.arrayBuffer();
-            zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
-          }
+        const BATCH_SIZE = 4;
+        let completed = 0;
+        for (let i = 0; i < activeItems.length; i += BATCH_SIZE) {
+          const batch = activeItems.slice(i, i + BATCH_SIZE);
+          await Promise.all(batch.map(async (item) => {
+            let folderPrefix = "";
+            if (item.folderPath) {
+              folderPrefix = item.folderPath.split('/').filter(Boolean).join('/') + "/";
+            }
+      
+            const baseName = uniqueNames[item.id];
+            const ext = item.type === 'vap' ? (item.name.endsWith('.mp4') ? 'mp4' : 'vap') : (item.type === 'pag' ? 'pag' : 'svga');
+      
+            if (item.type === "pag") {
+              try {
+                const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100 });
+                const arrayBuffer = await result.svgaBlob.arrayBuffer();
+                zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
+              } catch (e) {
+                const arrayBuffer = await item.file.arrayBuffer();
+                zipStream.addFile(`${folderPrefix}${baseName}.${ext}`, new Uint8Array(arrayBuffer));
+              }
+            } else {
+              const arrayBuffer = await item.file.arrayBuffer();
+              zipStream.addFile(`${folderPrefix}${baseName}.${ext}`, new Uint8Array(arrayBuffer));
+            }
 
-          // ADD IMAGES AS REQUESTED
-          try {
-             const blob = await captureFrame(item, 0);
-             const pngArrayBuffer = await blob.arrayBuffer();
-             zipStream.addFile(`${folderPrefix}${baseName}.png`, new Uint8Array(pngArrayBuffer));
-          } catch(err) {
-             console.error("Failed to capture PNG for", item.name, err);
-          }
+            // ADD IMAGES AS REQUESTED WITH BEST FRAME
+            try {
+               const blob = await captureBestGiftFrame(item);
+               const pngArrayBuffer = await blob.arrayBuffer();
+               zipStream.addFile(`${folderPrefix}${baseName}.png`, new Uint8Array(pngArrayBuffer));
+            } catch(err) {
+               console.error("Failed to capture PNG for", item.name, err);
+            }
 
-          setExportProgress(Math.round(((i + 1) / activeItems.length) * 100));
-          await new Promise(resolve => setTimeout(resolve, 5));
+            completed++;
+            setExportProgress(Math.round((completed / activeItems.length) * 100));
+          }));
         }
         await zipStream.close();
     } catch (e) {
@@ -1679,7 +2311,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     
     let zipStream;
     try {
-        zipStream = await createStreamingZip(`SVGA_Full_Package_${Date.now()}.zip`);
+        zipStream = await createStreamingZip(`Files_Full_Package_${Date.now()}.zip`);
     } catch (e: any) {
         if (e.message === "USER_ABORT") return;
         console.error(e);
@@ -1708,19 +2340,25 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
           }
     
           const baseName = uniqueNames[item.id];
+          const ext = item.type === 'vap' ? (item.name.endsWith('.mp4') ? 'mp4' : 'vap') : (item.type === 'pag' ? 'pag' : 'svga');
     
-          // 1. Add SVGA file
+          // 1. Add file (SVGA, VAP, or PAG)
           if (item.type === "pag") {
-            const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / activeItems.length) * 100)) });
-            const arrayBuffer = await result.svgaBlob.arrayBuffer();
-            zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
+            try {
+              const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100, onProgress: (p) => setExportProgress(Math.round(((i + p/100) / activeItems.length) * 100)) });
+              const arrayBuffer = await result.svgaBlob.arrayBuffer();
+              zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
+            } catch (e) {
+              const arrayBuffer = await item.file.arrayBuffer();
+              zipStream.addFile(`${folderPrefix}${baseName}.${ext}`, new Uint8Array(arrayBuffer));
+            }
           } else {
             const arrayBuffer = await item.file.arrayBuffer();
-            zipStream.addFile(`${folderPrefix}${baseName}.svga`, new Uint8Array(arrayBuffer));
+            zipStream.addFile(`${folderPrefix}${baseName}.${ext}`, new Uint8Array(arrayBuffer));
           }
     
-          // 2. Add PNG capture
-          const blob = await captureFrame(item, Math.floor(item.frames / 2));
+          // 2. Add PNG capture with best quality frame
+          const blob = await captureBestGiftFrame(item);
           const pngArrayBuffer = await blob.arrayBuffer();
           const pngUint8 = new Uint8Array(pngArrayBuffer);
           zipStream.addFile(`${folderPrefix}${baseName}.png`, pngUint8);
@@ -1768,7 +2406,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${item.name.replace('.svga', '')}.png`;
+    a.download = `${item.name.replace(/\.[^/.]+$/, '')}.png`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -1800,6 +2438,504 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
     a.download = downloadName;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const evaluateFrameQuality = (canvas: HTMLCanvasElement): number => {
+    try {
+      const w = canvas.width;
+      const h = canvas.height;
+      if (!w || !h) return 0;
+
+      const sw = Math.min(160, w);
+      const sh = Math.min(160, h);
+      const sampleCanvas = document.createElement('canvas');
+      sampleCanvas.width = sw;
+      sampleCanvas.height = sh;
+      const sCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+      if (!sCtx) return 0;
+
+      sCtx.drawImage(canvas, 0, 0, sw, sh);
+      const imgData = sCtx.getImageData(0, 0, sw, sh);
+      const data = imgData.data;
+
+      let visiblePixels = 0;
+      let centerWeightedCount = 0;
+      let minX = sw, maxX = 0, minY = sh, maxY = 0;
+      let sumR = 0, sumG = 0, sumB = 0;
+      const cx = sw / 2;
+      const cy = sh / 2;
+      const maxRadius = Math.sqrt(cx * cx + cy * cy) || 1;
+
+      for (let y = 0; y < sh; y++) {
+        for (let x = 0; x < sw; x++) {
+          const idx = (y * sw + x) * 4;
+          const a = data[idx + 3];
+          if (a > 30) {
+            visiblePixels++;
+            const r = data[idx];
+            const g = data[idx + 1];
+            const b = data[idx + 2];
+            sumR += r;
+            sumG += g;
+            sumB += b;
+
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+
+            const dist = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
+            const centerWeight = Math.max(0.2, 1.0 - (dist / maxRadius) * 0.8);
+            centerWeightedCount += centerWeight;
+          }
+        }
+      }
+
+      if (visiblePixels < 25) return 0;
+
+      const totalPixels = sw * sh;
+      const density = centerWeightedCount / totalPixels;
+      const boxW = Math.max(1, maxX - minX);
+      const boxH = Math.max(1, maxY - minY);
+      const boxCoverage = (boxW * boxH) / totalPixels;
+
+      // Penalize pure white flash/flare frame
+      const avgR = sumR / visiblePixels;
+      const avgG = sumG / visiblePixels;
+      const avgB = sumB / visiblePixels;
+      const isFlash = (avgR > 245 && avgG > 245 && avgB > 245);
+      const flashMultiplier = isFlash ? 0.15 : 1.0;
+
+      return (density * 0.6 + boxCoverage * 0.4) * flashMultiplier;
+    } catch (e) {
+      return 1;
+    }
+  };
+
+  const captureBestGiftFrame = async (item: MultiSvgaItem): Promise<Blob> => {
+    let dw = selectedPreset ? selectedPreset.width : (item.dimensions?.width || 500);
+    let dh = selectedPreset ? selectedPreset.height : (item.dimensions?.height || 500);
+
+    if (item.type === 'svga') {
+      const videoItem = await parseSvgaIfNeeded(item);
+      const totalFrames = Math.max(1, item.frames || videoItem.frames || 30);
+      const candidateRatios = [0.15, 0.25, 0.35, 0.45, 0.52, 0.60, 0.70, 0.80];
+      const candidateFrames = Array.from(new Set(
+        candidateRatios.map(r => Math.max(0, Math.min(totalFrames - 1, Math.floor(r * totalFrames))))
+      ));
+
+      const div = document.createElement('div');
+      div.style.width = `${item.dimensions?.width || 500}px`;
+      div.style.height = `${item.dimensions?.height || 500}px`;
+      div.style.position = 'fixed';
+      div.style.left = '-10000px';
+      div.style.top = '0px';
+      div.style.pointerEvents = 'none';
+      div.style.backgroundColor = 'transparent';
+      document.body.appendChild(div);
+
+      let player: any;
+      let bestFrameIndex = candidateFrames[Math.floor(candidateFrames.length / 2)] || 0;
+      let bestScore = -1;
+
+      try {
+        player = new SVGA.Player(div);
+        player.clearsAfterStop = false;
+        player.setVideoItem(videoItem);
+        player.setContentMode('AspectFit');
+
+        for (const frameIdx of candidateFrames) {
+          player.stepToFrame(frameIdx, false);
+          await new Promise(r => setTimeout(r, 20));
+          const svgaCanvas = div.querySelector('canvas');
+          if (svgaCanvas) {
+            const score = evaluateFrameQuality(svgaCanvas);
+            if (score > bestScore) {
+              bestScore = score;
+              bestFrameIndex = frameIdx;
+            }
+          }
+        }
+
+        // Render the chosen clearest, fullest gift frame
+        player.stepToFrame(bestFrameIndex, false);
+        await new Promise(r => setTimeout(r, 30));
+        const winningCanvas = div.querySelector('canvas');
+
+        const finalCanvas = document.createElement('canvas');
+        finalCanvas.width = dw;
+        finalCanvas.height = dh;
+        const fCtx = finalCanvas.getContext('2d', { alpha: true })!;
+
+        if (winningCanvas) {
+          const sw = item.dimensions?.width || 500;
+          const sh = item.dimensions?.height || 500;
+          const scale = Math.min(dw / sw, dh / sh);
+          const finalW = sw * scale;
+          const finalH = sh * scale;
+          const x = (dw - finalW) / 2;
+          const y = (dh - finalH) / 2;
+          fCtx.drawImage(winningCanvas, x, y, finalW, finalH);
+        }
+
+        return await new Promise<Blob>((resolve) => finalCanvas.toBlob((b) => resolve(b || new Blob()), 'image/png', 1.0));
+      } finally {
+        if (player) {
+          try { player.clear(); } catch(e) {}
+        }
+        if (div.parentNode) document.body.removeChild(div);
+      }
+    } else if (item.type === 'vap') {
+      const config = item.vapConfig || (await extractVapConfigFromBlob(item.file));
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.muted = true;
+      video.playsInline = true;
+      video.src = item.url;
+
+      await new Promise<void>((resolve) => {
+        video.onloadeddata = () => resolve();
+        video.oncanplay = () => resolve();
+        setTimeout(resolve, 2000);
+      });
+
+      const vw = video.videoWidth || 750;
+      const vh = video.videoHeight || 1334;
+      let cfgW = config?.info?.w || Math.round(vw / 2);
+      let cfgH = config?.info?.h || vh;
+      let rgbRect = config?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
+      let alphaRect = config?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+      if (!config?.info?.rgbFrame && vh > vw && vw > 0) {
+        rgbRect = [0, 0, vw, Math.round(vh / 2)];
+        alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
+        cfgW = vw;
+        cfgH = Math.round(vh / 2);
+      }
+      const rawVideoW = config?.info?.videoW || vw;
+      const rawVideoH = config?.info?.videoH || vh;
+      const scaleX = vw / (rawVideoW || vw);
+      const scaleY = vh / (rawVideoH || vh);
+      const srcRgbX = Math.round(rgbRect[0] * scaleX);
+      const srcRgbY = Math.round(rgbRect[1] * scaleY);
+      const srcRgbW = Math.round(rgbRect[2] * scaleX);
+      const srcRgbH = Math.round(rgbRect[3] * scaleY);
+      const srcAlphaX = Math.round(alphaRect[0] * scaleX);
+      const srcAlphaY = Math.round(alphaRect[1] * scaleY);
+      const srcAlphaW = Math.round(alphaRect[2] * scaleX);
+      const srcAlphaH = Math.round(alphaRect[3] * scaleY);
+
+      const dur = video.duration || 3;
+      const candidateRatios = [0.20, 0.35, 0.48, 0.58, 0.68, 0.78];
+      const candidateTimes = candidateRatios.map(r => Math.max(0.1, Math.min(dur - 0.05, r * dur)));
+
+      let bestScore = -1;
+      let bestTime = candidateTimes[Math.floor(candidateTimes.length / 2)] || (dur * 0.48);
+      const webgl = new WebGLVapRenderer(cfgW, cfgH);
+
+      for (const t of candidateTimes) {
+        video.currentTime = t;
+        await new Promise<void>((res) => {
+          const onSeek = () => {
+            video.removeEventListener('seeked', onSeek);
+            res();
+          };
+          video.addEventListener('seeked', onSeek, { once: true });
+          setTimeout(onSeek, 200);
+        });
+
+        try {
+          const glCanvas = webgl.render(video, [srcRgbX, srcRgbY, srcRgbW, srcRgbH], [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH], 10, true);
+          const score = evaluateFrameQuality(glCanvas);
+          if (score > bestScore) {
+            bestScore = score;
+            bestTime = t;
+          }
+        } catch (e) {}
+      }
+
+      // Render winning frame
+      video.currentTime = bestTime;
+      await new Promise<void>((res) => {
+        const onSeek = () => {
+          video.removeEventListener('seeked', onSeek);
+          res();
+        };
+        video.addEventListener('seeked', onSeek, { once: true });
+        setTimeout(onSeek, 250);
+      });
+
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = dw;
+      finalCanvas.height = dh;
+      const fCtx = finalCanvas.getContext('2d', { alpha: true })!;
+
+      try {
+        const glCanvas = webgl.render(video, [srcRgbX, srcRgbY, srcRgbW, srcRgbH], [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH], 10, true);
+        const scale = Math.min(dw / cfgW, dh / cfgH);
+        const finalW = cfgW * scale;
+        const finalH = cfgH * scale;
+        const x = (dw - finalW) / 2;
+        const y = (dh - finalH) / 2;
+        fCtx.drawImage(glCanvas, x, y, finalW, finalH);
+      } catch (e) {
+        fCtx.drawImage(video, srcRgbX, srcRgbY, srcRgbW, srcRgbH, 0, 0, dw, dh);
+      }
+
+      return await new Promise<Blob>((resolve) => finalCanvas.toBlob((b) => resolve(b || new Blob()), 'image/png', 1.0));
+    } else if (item.type === 'pag') {
+      const PAG = await getPAG();
+      let pagFile = item.pagFile;
+      if (!pagFile) {
+        pagFile = await PAG.PAGFile.load(await item.file.arrayBuffer());
+      }
+      const pw = item.dimensions?.width || pagFile.width();
+      const ph = item.dimensions?.height || pagFile.height();
+
+      const tmpCanvas = document.createElement("canvas");
+      tmpCanvas.id = "pag_best_" + Math.random().toString(36).substring(2, 9);
+      tmpCanvas.width = pw;
+      tmpCanvas.height = ph;
+      tmpCanvas.style.position = 'fixed';
+      tmpCanvas.style.left = '-10000px';
+      tmpCanvas.style.top = '0px';
+      tmpCanvas.style.pointerEvents = 'none';
+      document.body.appendChild(tmpCanvas);
+
+      try {
+        const pagPlayer = await PAG.PAGPlayer.create();
+        pagPlayer.setComposition(pagFile);
+        const pagSurface = PAG.PAGSurface.fromCanvas('#' + tmpCanvas.id);
+        if (pagSurface) {
+          pagPlayer.setSurface(pagSurface);
+        }
+
+        const candidateProgresses = [0.20, 0.35, 0.48, 0.58, 0.68, 0.78];
+        let bestProgress = 0.5;
+        let bestScore = -1;
+
+        for (const prog of candidateProgresses) {
+          pagPlayer.setProgress(prog);
+          await pagPlayer.flush();
+          const score = evaluateFrameQuality(tmpCanvas);
+          if (score > bestScore) {
+            bestScore = score;
+            bestProgress = prog;
+          }
+        }
+
+        pagPlayer.setProgress(bestProgress);
+        await pagPlayer.flush();
+
+        const finalCanvas = document.createElement('canvas');
+        finalCanvas.width = dw;
+        finalCanvas.height = dh;
+        const fCtx = finalCanvas.getContext('2d', { alpha: true })!;
+
+        const scale = Math.min(dw / pw, dh / ph);
+        const finalW = pw * scale;
+        const finalH = ph * scale;
+        const x = (dw - finalW) / 2;
+        const y = (dh - finalH) / 2;
+        fCtx.drawImage(tmpCanvas, x, y, finalW, finalH);
+
+        try { pagPlayer.destroy?.(); } catch (e) {}
+        try { pagSurface?.destroy?.(); } catch (e) {}
+
+        return await new Promise<Blob>((resolve) => finalCanvas.toBlob((b) => resolve(b || new Blob()), 'image/png', 1.0));
+      } finally {
+        if (tmpCanvas.parentNode) document.body.removeChild(tmpCanvas);
+      }
+    }
+
+    return await captureFrame(item, 0);
+  };
+
+  const handleDownloadSingleGiftBundle = async (item: MultiSvgaItem) => {
+    const { allowed } = await checkAccess("Gift Bundle Export");
+    if (!allowed) {
+      if (onSubscriptionRequired) onSubscriptionRequired();
+      return;
+    }
+
+    setIsZipping(true);
+    if (currentUser) {
+      logActivity(currentUser, 'export', `Gift Bundle Export: ${item.name}`);
+    }
+
+    try {
+      const cleanName = item.name.replace(/\.[^/.]+$/, '');
+      const zip = new JSZip();
+
+      // 1. Add original file
+      const fileBuffer = await item.file.arrayBuffer();
+      const ext = item.type === 'vap' ? (item.name.endsWith('.mp4') ? 'mp4' : 'vap') : (item.type === 'pag' ? 'pag' : 'svga');
+      zip.file(`${cleanName}.${ext}`, fileBuffer);
+
+      // If PAG, also optionally include converted SVGA for convenience
+      if (item.type === 'pag') {
+        try {
+          const result = await convertPagToSvga(item.file, { targetFps: item.fps || 30, compressionQuality: 100 });
+          const svgaBuffer = await result.svgaBlob.arrayBuffer();
+          zip.file(`${cleanName}.svga`, svgaBuffer);
+        } catch (e) {
+          console.warn("Could not bundle converted SVGA for PAG", e);
+        }
+      }
+
+      // 2. Add best/clearest frame image PNG with transparent background
+      const bestImgBlob = await captureBestGiftFrame(item);
+      const imgBuffer = await bestImgBlob.arrayBuffer();
+      zip.file(`${cleanName}_Cover.png`, imgBuffer);
+
+      // 3. Generate and download zip
+      const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${cleanName}_Gift_Bundle.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error("Gift Bundle download failed:", err);
+      alert("حدث خطأ أثناء إنشاء حزمة الهدية: " + (err.message || 'خطأ غير معروف'));
+    } finally {
+      setIsZipping(false);
+    }
+  };
+
+  const handleDownloadAllGiftBundles = async () => {
+    const activeItems = getActiveItems();
+    if (activeItems.length === 0) {
+      alert("لا توجد ملفات هدايا محددة.");
+      return;
+    }
+
+    const { allowed } = await checkAccess("Gift Bundle Export");
+    if (!allowed) {
+      if (onSubscriptionRequired) onSubscriptionRequired();
+      return;
+    }
+
+    setIsZipping(true);
+    setExportProgress(0);
+    if (currentUser) {
+      logActivity(currentUser, 'export', `All Gift Bundles Export: ${activeItems.length} items`);
+    }
+
+    const nameCounts: Record<string, number> = {};
+    const uniqueNames: Record<string, string> = {};
+    activeItems.forEach(item => {
+      const cleanName = item.name.replace(/\.[^/.]+$/, '');
+      if (nameCounts[cleanName]) {
+        nameCounts[cleanName]++;
+        uniqueNames[item.id] = `${cleanName}_${nameCounts[cleanName]}`;
+      } else {
+        nameCounts[cleanName] = 1;
+        uniqueNames[item.id] = cleanName;
+      }
+    });
+
+    try {
+      let streamZip: any = null;
+      try {
+        streamZip = await createStreamingZip(`Gift_Bundles_${Date.now()}.zip`);
+      } catch (e) {
+        streamZip = null;
+      }
+
+      const BATCH_SIZE = 4;
+      let completed = 0;
+      const capturedFiles: { name: string; blob: Blob | ArrayBuffer }[] = [];
+      const pdfImages: { name: string; bytes: Uint8Array; width: number; height: number }[] = [];
+
+      for (let i = 0; i < activeItems.length; i += BATCH_SIZE) {
+        const batch = activeItems.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch.map(async (item) => {
+          const baseName = uniqueNames[item.id] || item.name.replace(/\.[^/.]+$/, '');
+
+          // 1. Add file directly without nested subfolders
+          const fileBuffer = await item.file.arrayBuffer();
+          const ext = item.type === 'vap' ? (item.name.endsWith('.mp4') ? 'mp4' : 'vap') : (item.type === 'pag' ? 'pag' : 'svga');
+          const fileEntryName = `${baseName}.${ext}`;
+
+          // 2. Add best frame image directly
+          const bestImgBlob = await captureBestGiftFrame(item);
+          const imgEntryName = `${baseName}_Cover.png`;
+          const imgBuffer = await bestImgBlob.arrayBuffer();
+          const imgBytes = new Uint8Array(imgBuffer);
+
+          if (includePdfCatalog) {
+            let dw = selectedPreset ? selectedPreset.width : (item.dimensions?.width || 500);
+            let dh = selectedPreset ? selectedPreset.height : (item.dimensions?.height || 500);
+            pdfImages.push({ name: baseName, bytes: imgBytes, width: dw, height: dh });
+          }
+
+          if (streamZip) {
+            streamZip.addFile(fileEntryName, new Uint8Array(fileBuffer));
+            streamZip.addFile(imgEntryName, imgBytes);
+          } else {
+            capturedFiles.push({ name: fileEntryName, blob: fileBuffer });
+            capturedFiles.push({ name: imgEntryName, blob: bestImgBlob });
+          }
+
+          completed++;
+          setExportProgress(Math.round((completed / activeItems.length) * 100));
+        }));
+      }
+
+      // If user enabled PDF Catalog option: create ONE unified PDF file containing all gifts
+      if (includePdfCatalog && pdfImages.length > 0) {
+        const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' });
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+        let isFirst = true;
+
+        for (const imgObj of pdfImages) {
+          if (!isFirst) {
+            pdf.addPage();
+          }
+          const ratio = Math.min(pdfWidth / imgObj.width, pdfHeight / imgObj.height);
+          const finalWidth = imgObj.width * ratio;
+          const finalHeight = imgObj.height * ratio;
+          const x = (pdfWidth - finalWidth) / 2;
+          const y = (pdfHeight - finalHeight) / 2;
+
+          pdf.addImage(imgObj.bytes, 'PNG', x, y, finalWidth, finalHeight);
+          isFirst = false;
+        }
+
+        const pdfArrayBuffer = pdf.output('arraybuffer');
+        const pdfBytes = new Uint8Array(pdfArrayBuffer as ArrayBuffer);
+
+        if (streamZip) {
+          streamZip.addFile(`Gifts_Catalog.pdf`, pdfBytes);
+        } else {
+          capturedFiles.push({ name: `Gifts_Catalog.pdf`, blob: pdfBytes });
+        }
+      }
+
+      if (streamZip) {
+        await streamZip.close();
+      } else {
+        const zip = new JSZip();
+        for (const cf of capturedFiles) {
+          zip.file(cf.name, cf.blob);
+        }
+        const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Gift_Bundles_${Date.now()}.zip`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (err: any) {
+      console.error("Batch Gift Bundle export failed:", err);
+      alert("حدث خطأ أثناء تصدير حزم الهدايا: " + (err.message || 'خطأ غير متوقع'));
+    } finally {
+      setIsZipping(false);
+      setExportProgress(0);
+    }
   };
 
 
@@ -1975,31 +3111,93 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 </select>
               </div>
               <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2">
-                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">مدة الفيديو (ثواني):</span>
-                <input 
-                  type="number" 
-                  min="1" 
-                  max="60"
-                  value={exportDuration}
-                  onChange={(e) => setExportDuration(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-16 bg-transparent text-white font-black text-sm focus:outline-none text-center"
-                />
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    checked={useNativeDuration}
+                    onChange={(e) => setUseNativeDuration(e.target.checked)}
+                    className="w-4 h-4 accent-indigo-500"
+                  />
+                  <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">تصدير بالمدة الأصلية لكل ملف</span>
+                </label>
               </div>
+              {!useNativeDuration && (
+                <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2">
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">مدة مخصصة (ثواني):</span>
+                  <input 
+                    type="number" 
+                    min="1" 
+                    max="60"
+                    value={exportDuration}
+                    onChange={(e) => setExportDuration(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-16 bg-transparent text-white font-black text-sm focus:outline-none text-center"
+                  />
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={handleDownloadAllGiftBundles}
+                  disabled={isZipping || isExporting}
+                  className="relative overflow-hidden group px-6 py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-2xl shadow-lg shadow-red-600/30 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50 border border-red-400/30"
+                  title="تنزيل جميع ملفات الهدايا مع أفضل صورة كادر واضحة للهدية في ملف مضغوط ZIP واحد"
+                >
+                  {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Gift className="w-4 h-4 text-red-200" />}
+                  <span>{isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل حزم الهدايا (الملف + أحلى صورة)'}</span>
+                  <span className="px-2 py-0.5 rounded-md bg-white/20 text-[10px] font-black uppercase tracking-wider">ZIP</span>
+                </button>
+
+                <div 
+                  className={`flex items-center gap-2 px-3.5 py-3 rounded-2xl border transition-all cursor-pointer select-none ${
+                    includePdfCatalog 
+                      ? 'bg-rose-500/20 border-rose-500/50 text-rose-300 shadow-lg shadow-rose-500/20' 
+                      : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                  }`}
+                  onClick={() => setIncludePdfCatalog(!includePdfCatalog)}
+                  title="عند التفعيل: سيتم إضافة ملف PDF واحد يجمع كل صور الهدايا مع ملفات الـ ZIP"
+                >
+                  <input 
+                    type="checkbox" 
+                    id="include-pdf-catalog-toggle"
+                    checked={includePdfCatalog}
+                    onChange={(e) => setIncludePdfCatalog(e.target.checked)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-4 h-4 accent-rose-500 rounded cursor-pointer"
+                  />
+                  <label htmlFor="include-pdf-catalog-toggle" className="text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                    <FileText className={`w-4 h-4 ${includePdfCatalog ? 'text-rose-400' : 'text-slate-400'}`} />
+                    <span>تضمين كتالوج PDF موحد</span>
+                  </label>
+                </div>
+              </div>
+
               <button 
                 onClick={handleDownloadAllCombined}
                 disabled={isZipping || isExporting}
                 className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-600/20 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
+                title="تنزيل جميع الملفات المرفوعة (SVGA و VAP) مع الصور وكتالوج PDF في ملف مضغوط واحد"
               >
                 {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل الكل (SVGA + صور + PDF)'}
+                {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل الكل (الملفات + صور + PDF)'}
               </button>
               <button 
                 onClick={handleDownloadAllSvga}
                 disabled={isZipping || isExporting}
                 className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl shadow-lg shadow-blue-600/20 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
+                title="تنزيل جميع الملفات المرفوعة (SVGA و VAP و PAG) مع صورها في ملف مضغوط واحد"
               >
                 {isZipping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل كل ملفات SVGA (ZIP)'}
+                {isZipping ? `جاري التحضير ${exportProgress}%` : 'تنزيل كل الملفات المرفوعة (ZIP)'}
+              </button>
+
+              <button 
+                onClick={handleExportAllVapToMp4}
+                disabled={isExporting || isZipping || vapBatchProgress?.isOpen}
+                className="relative overflow-hidden group px-6 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-2xl shadow-lg shadow-indigo-600/30 font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50 border border-indigo-400/30"
+                title="تصدير سريع لجميع ملفات VAP إلى فيديو MP4 عالي الجودة مع الصوت وقناة الشفافية"
+              >
+                {vapBatchProgress?.isOpen ? <Loader2 className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4 text-indigo-200" />}
+                <span>{vapBatchProgress?.isOpen ? `VAP (${vapBatchProgress.overallPercent}%)` : 'VAP → MP4 (فائق السرعة بالصوت)'}</span>
+                <span className="px-2 py-0.5 rounded-md bg-white/20 text-[10px] font-black uppercase tracking-wider">VAP</span>
               </button>
 
               <button 
@@ -2014,7 +3212,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
               <button 
                 onClick={handleExportGrid}
                 disabled={isExporting || isZipping}
-                className="relative overflow-hidden group px-8 py-3 bg-red-600/20 border border-red-500/30 rounded-full text-red-400 font-black text-xs uppercase tracking-[0.2em] hover:bg-red-600/30 transition-all flex items-center gap-3 disabled:opacity-50"
+                className="relative overflow-hidden group px-8 py-3 bg-slate-800/60 border border-slate-700/60 rounded-2xl text-slate-300 font-bold text-xs uppercase tracking-wider hover:bg-slate-700/60 transition-all flex items-center gap-3 disabled:opacity-50"
               >
                 <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
                 {isExporting ? `جاري التسجيل ${exportProgress}%` : 'تسجيل فيديو مجمع (كل الملفات فيديو واحد)'}
@@ -2076,7 +3274,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
             ref={fileInputRef}
             type="file" 
             multiple 
-            accept=".svga,.pag" 
+            accept=".svga,.pag,.vap,.mp4,.zip,application/zip,video/*" 
             className="hidden" 
             onChange={(e) => {
               if (e.target.files) {
@@ -2260,6 +3458,7 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                         onMaximize={() => setSelectedItemId(item.id)}
                         onDownload={() => handleDownloadSingleImage(item)}
                         onDownloadSvga={() => handleDownloadSvga(item)}
+                        onDownloadGiftBundle={() => handleDownloadSingleGiftBundle(item)}
                         onExportVideo={() => handleExportIndividualVideos([item])}
                         previewBg={previewBg}
                         watermark={watermark}
@@ -2343,9 +3542,110 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                   <InfoItem label="المدة" value={`${(selectedItem.frames / selectedItem.fps).toFixed(2)}s`} />
                 </div>
                 
-                {/* Audio Extractor display */}
-                <EmbeddedAudioPlayer item={selectedItem} />
+                {/* Audio Extractor display and Export Button */}
+                <div className="flex flex-wrap items-center gap-4">
+                  <button
+                    onClick={() => handleDownloadSingleGiftBundle(selectedItem)}
+                    className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white font-black text-sm flex items-center gap-2 shadow-lg shadow-amber-500/25 transition-all"
+                    title="تنزيل ملف الهدية مع أفضل صورة كادر واضحة للهدية في ملف مضغوط ZIP"
+                  >
+                    <Gift className="w-5 h-5" />
+                    حزمة الهدية (الملف + أحلى صورة)
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectedItem.type === 'vap') {
+                        handleExportSingleVap(selectedItem);
+                      } else {
+                        handleExportIndividualVideos([selectedItem]);
+                      }
+                    }}
+                    className="px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black text-sm flex items-center gap-2 shadow-lg shadow-indigo-500/25 transition-all"
+                  >
+                    <Video className="w-5 h-5" />
+                    {selectedItem.type === 'vap' ? 'تصدير VAP إلى MP4' : 'تصدير كفيديو MP4'}
+                  </button>
+                  <EmbeddedAudioPlayer item={selectedItem} />
+                </div>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* VAP Batch Export Progress Modal */}
+      <AnimatePresence>
+        {vapBatchProgress?.isOpen && (
+          <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="relative w-full max-w-lg bg-slate-900 border border-white/10 rounded-3xl p-6 shadow-2xl flex flex-col gap-6 text-right"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                    <Video className="w-5 h-5 animate-pulse" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-white">تصدير VAP إلى MP4</h3>
+                    <p className="text-xs text-slate-400 font-bold">معالجة وتصدير ملفات VAP مع الصوت والألفا</p>
+                  </div>
+                </div>
+                <span className="text-xs font-black px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  {vapBatchProgress.completed} / {vapBatchProgress.total}
+                </span>
+              </div>
+
+              {/* Progress info */}
+              <div className="flex flex-col gap-3">
+                <div className="flex justify-between items-center text-xs font-bold text-slate-300">
+                  <span>الملف الحالي: <span className="text-white font-black">{vapBatchProgress.currentFileName}</span></span>
+                  <span className="text-indigo-400 font-black">{vapBatchProgress.currentPercent}%</span>
+                </div>
+                <div className="w-full h-3 bg-white/5 rounded-full overflow-hidden border border-white/10">
+                  <motion.div 
+                    className="h-full bg-gradient-to-r from-indigo-500 to-purple-500" 
+                    style={{ width: `${vapBatchProgress.currentPercent}%` }}
+                    transition={{ duration: 0.2 }}
+                  />
+                </div>
+                <p className="text-xs text-slate-400">{vapBatchProgress.statusMessage}</p>
+              </div>
+
+              {/* File list status */}
+              <div className="max-h-48 overflow-y-auto custom-scrollbar flex flex-col gap-2 p-2 bg-slate-950/60 rounded-2xl border border-white/5">
+                {vapBatchProgress.fileStatuses.map((fs) => (
+                  <div key={fs.id} className="flex items-center justify-between text-xs px-3 py-2 rounded-xl bg-white/[0.02]">
+                    <span className="text-slate-300 truncate max-w-[200px]">{fs.name}</span>
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+                      fs.status === 'done' ? 'bg-emerald-500/20 text-emerald-300' :
+                      fs.status === 'processing' ? 'bg-indigo-500/20 text-indigo-300 animate-pulse' :
+                      fs.status === 'error' ? 'bg-red-500/20 text-red-300' :
+                      'bg-slate-700/40 text-slate-400'
+                    }`}>
+                      {fs.status === 'done' ? 'اكتمل' : fs.status === 'processing' ? 'جارِ التصدير...' : fs.status === 'error' ? 'فشل' : 'في الانتظار'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Close Button when done */}
+              {vapBatchProgress.completed === vapBatchProgress.total && (
+                <button
+                  onClick={() => setVapBatchProgress(null)}
+                  className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black text-sm rounded-2xl shadow-lg transition-all"
+                >
+                  تم، إغلاق النافذة
+                </button>
+              )}
             </motion.div>
           </div>
         )}
@@ -2375,6 +3675,109 @@ const SvgaPlayer: React.FC<{ item: any }> = ({ item }) => {
 
     const loadAndPlay = async () => {
       if (!containerRef.current || !wrapperRef.current) return;
+
+      if (item.type === "vap") {
+        containerRef.current.innerHTML = "";
+
+        let vapConfig = item.vapConfig;
+        if (!vapConfig) {
+          try {
+            vapConfig = await extractVapConfigFromBlob(item.file);
+            item.vapConfig = vapConfig;
+          } catch(e) {}
+        }
+
+        const video = document.createElement('video');
+        video.crossOrigin = 'anonymous';
+        video.loop = true;
+        video.muted = false;
+        video.playsInline = true;
+        video.src = item.url;
+
+        let animId = 0;
+        let webgl: WebGLVapRenderer | null = null;
+
+        video.onloadedmetadata = () => {
+          if (isCanceled || !containerRef.current) return;
+          const vw = video.videoWidth;
+          const vh = video.videoHeight;
+          let cfgW = vapConfig?.info?.w || Math.round(vw / 2);
+          let cfgH = vapConfig?.info?.h || vh;
+          let rgbRect = vapConfig?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
+          let alphaRect = vapConfig?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+
+          if (!vapConfig?.info?.rgbFrame && vh > vw && vw > 0) {
+            rgbRect = [0, 0, vw, Math.round(vh / 2)];
+            alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
+            cfgW = vw;
+            cfgH = Math.round(vh / 2);
+          }
+
+          if (!item.dimensions) {
+            item.dimensions = { width: cfgW, height: cfgH };
+            item.fps = vapConfig?.info?.f || 24;
+            item.frames = Math.floor((video.duration || 3) * item.fps);
+          }
+          if (!isCanceled) setIsLoaded(true);
+
+          try {
+            webgl = new WebGLVapRenderer(cfgW, cfgH);
+            webgl.canvas.style.width = '100%';
+            webgl.canvas.style.height = '100%';
+            webgl.canvas.style.objectFit = 'contain';
+            containerRef.current?.appendChild(webgl.canvas);
+          } catch (e) {
+            console.error("WebGL VAP error", e);
+          }
+
+          const rawVideoW = vapConfig?.info?.videoW || vw;
+          const rawVideoH = vapConfig?.info?.videoH || vh;
+          const scaleX = vw / (rawVideoW || vw);
+          const scaleY = vh / (rawVideoH || vh);
+          const srcRgbX = Math.round(rgbRect[0] * scaleX);
+          const srcRgbY = Math.round(rgbRect[1] * scaleY);
+          const srcRgbW = Math.round(rgbRect[2] * scaleX);
+          const srcRgbH = Math.round(rgbRect[3] * scaleY);
+          const srcAlphaX = Math.round(alphaRect[0] * scaleX);
+          const srcAlphaY = Math.round(alphaRect[1] * scaleY);
+          const srcAlphaW = Math.round(alphaRect[2] * scaleX);
+          const srcAlphaH = Math.round(alphaRect[3] * scaleY);
+
+          video.play().catch(() => {
+            video.muted = true;
+            video.play().catch(() => {});
+          });
+
+          const renderFrame = () => {
+            if (isCanceled) return;
+            if (webgl && video.readyState >= 2) {
+              webgl.render(video, [srcRgbX, srcRgbY, srcRgbW, srcRgbH], [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH], 10, true);
+            }
+            animId = requestAnimationFrame(renderFrame);
+          };
+          animId = requestAnimationFrame(renderFrame);
+        };
+
+        playerRef.current = {
+          video,
+          stopAnimation: () => {
+            cancelAnimationFrame(animId);
+            video.pause();
+          },
+          pauseAnimation: () => {
+            video.pause();
+          },
+          startAnimation: () => {
+            video.play().catch(() => {});
+          },
+          destroy: () => {
+            cancelAnimationFrame(animId);
+            video.pause();
+          }
+        };
+
+        return;
+      }
       
       if (item.type === "pag") {
         let pagFile = item.pagFile;
@@ -2570,6 +3973,7 @@ const SvgaCard: React.FC<{
   onMaximize: () => void;
   onDownload: () => void;
   onDownloadSvga: () => void;
+  onDownloadGiftBundle?: () => void;
   onExportVideo?: () => void;
   previewBg: string | null;
   watermark: string | null;
@@ -2577,7 +3981,7 @@ const SvgaCard: React.FC<{
   onUpdatePreset: (presetId: string) => void;
   isSelected?: boolean;
   onToggleSelect?: () => void;
-}> = ({ item, onRemove, onMaximize, onDownload, onDownloadSvga, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect }) => {
+}> = ({ item, onRemove, onMaximize, onDownload, onDownloadSvga, onDownloadGiftBundle, onExportVideo, previewBg, watermark, wmSettings, onUpdatePreset, isSelected, onToggleSelect }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
@@ -2623,12 +4027,116 @@ const SvgaCard: React.FC<{
           if (item.type === "pag") {
             try { playerRef.current.destroy?.(); } catch (e) {}
             try { pagSurfaceRef.current?.destroy?.(); } catch (e) {}
+          } else if (item.type === "vap") {
+            try { playerRef.current.stopAnimation?.(); } catch (e) {}
           }
           else playerRef.current.stopAnimation();
           playerRef.current = null;
           pagSurfaceRef.current = null;
         }
         if (containerRef.current) containerRef.current.innerHTML = "";
+        return;
+      }
+
+      if (item.type === "vap") {
+        let vapConfig = item.vapConfig;
+        if (!vapConfig) {
+          try {
+            vapConfig = await extractVapConfigFromBlob(item.file);
+            item.vapConfig = vapConfig;
+          } catch(e) {}
+        }
+
+        if (isCanceled || !containerRef.current) return;
+        setHasAudio(true);
+
+        if (!playerRef.current) {
+          containerRef.current.innerHTML = "";
+
+          const video = document.createElement('video');
+          video.crossOrigin = 'anonymous';
+          video.loop = true;
+          video.muted = true;
+          video.playsInline = true;
+          video.src = item.url;
+
+          let animId = 0;
+          let webgl: WebGLVapRenderer | null = null;
+
+          video.onloadedmetadata = () => {
+            if (isCanceled || !containerRef.current) return;
+            const vw = video.videoWidth;
+            const vh = video.videoHeight;
+            let cfgW = vapConfig?.info?.w || Math.round(vw / 2);
+            let cfgH = vapConfig?.info?.h || vh;
+            let rgbRect = vapConfig?.info?.rgbFrame || [0, 0, Math.round(vw / 2), vh];
+            let alphaRect = vapConfig?.info?.aFrame || [Math.round(vw / 2), 0, Math.round(vw / 2), vh];
+
+            if (!vapConfig?.info?.rgbFrame && vh > vw && vw > 0) {
+              rgbRect = [0, 0, vw, Math.round(vh / 2)];
+              alphaRect = [0, Math.round(vh / 2), vw, Math.round(vh / 2)];
+              cfgW = vw;
+              cfgH = Math.round(vh / 2);
+            }
+
+            if (!item.dimensions) {
+              item.dimensions = { width: cfgW, height: cfgH };
+              item.fps = vapConfig?.info?.f || 24;
+              item.frames = Math.floor((video.duration || 3) * item.fps);
+            }
+            if (!isCanceled) setIsLoaded(true);
+
+            try {
+              webgl = new WebGLVapRenderer(cfgW, cfgH);
+              webgl.canvas.style.width = '100%';
+              webgl.canvas.style.height = '100%';
+              webgl.canvas.style.objectFit = 'contain';
+              containerRef.current?.appendChild(webgl.canvas);
+            } catch (e) {
+              console.error("WebGL VAP error", e);
+            }
+
+            const rawVideoW = vapConfig?.info?.videoW || vw;
+            const rawVideoH = vapConfig?.info?.videoH || vh;
+            const scaleX = vw / (rawVideoW || vw);
+            const scaleY = vh / (rawVideoH || vh);
+            const srcRgbX = Math.round(rgbRect[0] * scaleX);
+            const srcRgbY = Math.round(rgbRect[1] * scaleY);
+            const srcRgbW = Math.round(rgbRect[2] * scaleX);
+            const srcRgbH = Math.round(rgbRect[3] * scaleY);
+            const srcAlphaX = Math.round(alphaRect[0] * scaleX);
+            const srcAlphaY = Math.round(alphaRect[1] * scaleY);
+            const srcAlphaW = Math.round(alphaRect[2] * scaleX);
+            const srcAlphaH = Math.round(alphaRect[3] * scaleY);
+
+            if (isPlayingRef.current) {
+              video.play().catch(() => {});
+            }
+
+            const renderFrame = () => {
+              if (isCanceled) return;
+              if (webgl && video.readyState >= 2) {
+                webgl.render(video, [srcRgbX, srcRgbY, srcRgbW, srcRgbH], [srcAlphaX, srcAlphaY, srcAlphaW, srcAlphaH], 10, true);
+              }
+              animId = requestAnimationFrame(renderFrame);
+            };
+            animId = requestAnimationFrame(renderFrame);
+          };
+
+          playerRef.current = {
+            video,
+            stopAnimation: () => {
+              cancelAnimationFrame(animId);
+              video.pause();
+            },
+            pauseAnimation: () => {
+              video.pause();
+            },
+            startAnimation: () => {
+              video.play().catch(() => {});
+            }
+          };
+        }
         return;
       }
 
@@ -2841,6 +4349,13 @@ const SvgaCard: React.FC<{
   const togglePlay = () => {
     if (item.type === 'pag') {
       setIsPlaying(!isPlaying);
+    } else if (item.type === 'vap') {
+      if (isPlaying) {
+        playerRef.current?.pauseAnimation?.();
+      } else {
+        playerRef.current?.startAnimation?.();
+      }
+      setIsPlaying(!isPlaying);
     } else {
       if (isPlaying) {
         playerRef.current?.pauseAnimation();
@@ -2856,6 +4371,12 @@ const SvgaCard: React.FC<{
       if (playerRef.current) {
         playerRef.current.setProgress(0);
         playerRef.current.flush();
+      }
+      setIsPlaying(true);
+    } else if (item.type === 'vap') {
+      if (playerRef.current?.video) {
+        playerRef.current.video.currentTime = 0;
+        playerRef.current.video.play().catch(() => {});
       }
       setIsPlaying(true);
     } else {
@@ -2981,6 +4502,13 @@ const SvgaCard: React.FC<{
             <Maximize2 className="w-5 h-5" />
           </button>
           <button 
+            onClick={onDownloadGiftBundle || onDownloadSvga}
+            className="w-10 h-10 bg-amber-500/20 backdrop-blur-md text-amber-300 rounded-xl flex items-center justify-center hover:bg-amber-500 hover:text-white transition-all shadow-lg shadow-amber-500/10"
+            title="تنزيل حزمة الهدية (الملف + أحلى كادر صورة في ملف ZIP)"
+          >
+            <Gift className="w-5 h-5" />
+          </button>
+          <button 
             onClick={onDownload}
             className="w-10 h-10 bg-emerald-500/20 backdrop-blur-md text-emerald-400 rounded-xl flex items-center justify-center hover:bg-emerald-500 hover:text-white transition-all"
             title="تنزيل صورة"
@@ -2990,15 +4518,15 @@ const SvgaCard: React.FC<{
           <button 
             onClick={onDownloadSvga}
             className="w-10 h-10 bg-blue-500/20 backdrop-blur-md text-blue-400 rounded-xl flex items-center justify-center hover:bg-blue-500 hover:text-white transition-all"
-            title="تنزيل ملف SVGA"
+            title={item.type === 'vap' ? "تنزيل ملف VAP" : item.type === 'pag' ? "تنزيل ملف PAG" : "تنزيل ملف SVGA"}
           >
             <Download className="w-5 h-5" />
           </button>
           {onExportVideo && (
             <button 
               onClick={onExportVideo}
-              className="w-10 h-10 bg-purple-500/20 backdrop-blur-md text-purple-400 rounded-xl flex items-center justify-center hover:bg-purple-500 hover:text-white transition-all"
-              title="تصدير كفيديو MP4"
+              className={`w-10 h-10 ${item.type === 'vap' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-purple-500/20 text-purple-400'} backdrop-blur-md rounded-xl flex items-center justify-center hover:bg-purple-500 hover:text-white transition-all`}
+              title={item.type === 'vap' ? "تصدير VAP إلى MP4" : "تصدير كفيديو MP4"}
             >
               <Video className="w-5 h-5" />
             </button>
@@ -3015,9 +4543,21 @@ const SvgaCard: React.FC<{
       {/* Info Footer */}
       <div className="p-5 bg-white/[0.02] z-10">
         <div className="flex items-center justify-between mb-4">
-          <h4 className="text-white font-black text-sm truncate max-w-[150px]" title={item.name}>
-            {item.name}
-          </h4>
+          <div className="flex items-center gap-2 truncate max-w-[170px]">
+            {item.type === 'vap' && (
+              <span className="px-1.5 py-0.5 rounded bg-indigo-500/30 border border-indigo-400/40 text-[9px] font-black text-indigo-300 uppercase shrink-0">
+                VAP
+              </span>
+            )}
+            {item.type === 'pag' && (
+              <span className="px-1.5 py-0.5 rounded bg-amber-500/30 border border-amber-400/40 text-[9px] font-black text-amber-300 uppercase shrink-0">
+                PAG
+              </span>
+            )}
+            <h4 className="text-white font-black text-sm truncate" title={item.name}>
+              {item.name}
+            </h4>
+          </div>
           <span className="text-[10px] text-slate-500 font-bold">
             {(item.size / 1024).toFixed(1)} KB
           </span>

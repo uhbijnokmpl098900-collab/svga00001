@@ -1,14 +1,15 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserRecord, AppSettings } from '../types';
-import { 
+import {  
   LogOut, Settings, ShoppingBag, Image, Video, Layers, Wand2, 
   BadgeCheck, Maximize, Lock, Scissors, Menu, X as CloseIcon, 
   Zap, Sparkles, Info, Search, ChevronDown, Check, LayoutGrid, 
   Command, Wand, Cpu, Repeat, RefreshCw, User
-} from 'lucide-react';
+, BookOpen } from 'lucide-react';
 
 interface HeaderProps {
+  onOpenGuide?: () => void;
   onLogoClick: () => void;
   isAdmin: boolean;
   currentUser: UserRecord | null;

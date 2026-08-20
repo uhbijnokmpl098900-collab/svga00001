@@ -560,7 +560,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('يرجى اختيار ملف صورة صالح (PNG / JPG / SVG / WebP)');
+      setErrorMessage('يرجى اختيار ملف صورة صالح (PNG / JPG / SVG / WebP)');
       return;
     }
 
@@ -602,6 +602,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       silentAudio.pause();
     }
   }, [isExporting, silentAudio]);
+  const [errorMessage, setErrorMessage] = useState<string>("");
   const [exportProgress, setExportProgress] = useState<number>(0);
   const [exportStatusText, setExportStatusText] = useState<string>('');
   const [exportedBlob, setExportedBlob] = useState<Blob | null>(null);
@@ -819,10 +820,9 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   };
 
   // Extract VAP configuration from MP4 vapc box
-  const extractVapConfig = async (url: string): Promise<VapConfig | null> => {
+  const extractVapConfig = async (file: File): Promise<VapConfig | null> => {
     try {
-      const response = await fetch(url);
-      const buffer = await response.arrayBuffer();
+      const buffer = await file.arrayBuffer();
       const uint8 = new Uint8Array(buffer);
       const vapcString = [118, 97, 112, 99]; // 'vapc'
       let offset = -1;
@@ -857,8 +857,9 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
   // Process File and init VAP Player
   const processFile = async (f: File) => {
-    if (!f.name.toLowerCase().endsWith('.mp4')) {
-      alert("يرجى رفع ملف فيديو بصيغة MP4 (VAP).");
+    const name = f.name.toLowerCase();
+    if (!name.endsWith('.mp4') && !name.endsWith('.vap')) {
+      setErrorMessage("يرجى رفع ملف فيديو بصيغة MP4 أو VAP.");
       return;
     }
     
@@ -876,9 +877,14 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     // Get duration & dimensions from video element
     const tempVideo = document.createElement('video');
     tempVideo.src = url;
-    tempVideo.onloadedmetadata = () => {
-      setVideoDuration(tempVideo.duration || 3);
-    };
+    
+    await new Promise<void>((resolve) => {
+      tempVideo.onloadedmetadata = () => {
+        setVideoDuration(tempVideo.duration || 3);
+        resolve();
+      };
+      tempVideo.onerror = () => resolve();
+    });
 
     if (vapInstanceRef.current) {
       try { vapInstanceRef.current.destroy(); } catch (e) {}
@@ -889,11 +895,14 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       containerRef.current.innerHTML = '';
     }
 
-    const config = await extractVapConfig(url);
+    const config = await extractVapConfig(f);
     setVapConfig(config);
 
-    const w = config?.info?.w || 750;
-    const h = config?.info?.h || 1334;
+    const vw = tempVideo.videoWidth || 1500;
+    const vh = tempVideo.videoHeight || 1334;
+
+    const w = config?.info?.w || Math.round(vw / 2);
+    const h = config?.info?.h || vh;
     const fps = config?.info?.f || 24;
 
     setVideoDimensions({ width: w, height: h });
@@ -1134,12 +1143,12 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
           setIsCapturingSnapshot(false);
         }
       } else {
-        alert("تعذر التقاط صورة الهدية حالياً. تأكد من تشغيل العرض.");
+        setErrorMessage("تعذر التقاط صورة الهدية حالياً. تأكد من تشغيل العرض.");
         setIsCapturingSnapshot(false);
       }
     } catch (err) {
       console.error("Error downloading gift snapshot image:", err);
-      alert("حدث خطأ أثناء تنزيل صورة الهدية.");
+      setErrorMessage("حدث خطأ أثناء تنزيل صورة الهدية.");
       setIsCapturingSnapshot(false);
     }
   };
@@ -1178,7 +1187,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             window.location.href = `/api/audio/download/${jobId}`;
             setIsExtractingAudio(false);
           } else if (statusData.status === 'failed') {
-            alert('فشل استخراج الصوت');
+            setErrorMessage('فشل استخراج الصوت');
             setIsExtractingAudio(false);
           } else {
             setTimeout(checkStatus, 1000);
@@ -1190,7 +1199,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       checkStatus();
     } catch (e) {
       console.error(e);
-      alert('حدث خطأ أثناء محاولة استخراج الصوت.');
+      setErrorMessage('حدث خطأ أثناء محاولة استخراج الصوت.');
       setIsExtractingAudio(false);
     }
   };
@@ -1895,7 +1904,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
     } catch (err: any) {
       console.error('Export Error:', err);
-      alert(`حدث خطأ أثناء تصدير الملف: ${err.message || err}`);
+      setErrorMessage(`حدث خطأ أثناء تصدير الملف: ${err.message || err}`);
       setIsExporting(false);
       setExportStatusText('فشل التصدير');
     }
@@ -2243,7 +2252,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
     } catch (err: any) {
       console.error('Export SVGA Error:', err);
-      alert(`حدث خطأ أثناء تصدير ملف SVGA: ${err.message || err}`);
+      setErrorMessage(`حدث خطأ أثناء تصدير ملف SVGA: ${err.message || err}`);
       setIsExporting(false);
       setExportStatusText('فشل التصدير');
     }
@@ -2339,6 +2348,20 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       <div className="relative w-full max-w-[1580px] h-[94vh] bg-[#0E1017] rounded-[2.5rem] border border-white/10 shadow-2xl flex flex-col overflow-hidden">
         
         {/* Top Header */}
+        {errorMessage && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[100] min-w-[300px] p-4 bg-red-500/90 backdrop-blur-md border border-red-400/50 rounded-2xl flex items-center justify-between shadow-2xl animate-in fade-in slide-in-from-top-4">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-6 h-6 text-white" />
+              <span className="text-white font-bold">{errorMessage}</span>
+            </div>
+            <button 
+              onClick={() => setErrorMessage('')}
+              className="text-white/80 hover:text-white p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        )}
         <div className="flex items-center justify-between px-6 sm:px-8 py-4 sm:py-5 border-b border-white/5 bg-[#141824]/60 shrink-0">
           <div className="flex items-center gap-4">
             <div className="w-11 h-11 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 rounded-2xl flex items-center justify-center border border-indigo-500/30 shadow-lg shadow-indigo-500/10">

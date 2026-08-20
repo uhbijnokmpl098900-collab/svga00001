@@ -1,18 +1,38 @@
 const fs = require('fs');
-let code = fs.readFileSync('src/components/Header.tsx', 'utf8');
 
-code = code.replace(
-  "onPagConverterOpen: () => void;",
-  "onPagConverterOpen: () => void;\n  onName3DEditorOpen: () => void;"
-);
+let headerTsx = fs.readFileSync('src/components/Header.tsx', 'utf8');
 
-const newToolDef = `{ id: 'name-3d', label: '3D Name Editor', icon: <Sparkles className="w-4 h-4" />, actionKey: 'onName3DEditorOpen', descAr: 'محرر احترافي لإنشاء وتصميم أسماء 3D مع تحكم كامل بالخطوط والزخارف والإضاءة', descEn: 'Professional 3D Name Editor with full control over fonts, ornaments, and lighting.', highlight: true },`;
+if (!headerTsx.includes('onOpenGuide?: () => void;')) {
+  headerTsx = headerTsx.replace(
+    /interface HeaderProps \{/,
+    `interface HeaderProps {\n  onOpenGuide?: () => void;`
+  );
+}
 
-// Let's add it to the category: "أنيميشن و SVGA" or create a new one. 
-// I'll create a new category just for Design. Wait, let's just put it in "معالجة الصور والذكاء الاصطناعي" for now.
-code = code.replace(
-  "{ id: 'image-enhancer', label: 'AI Image Enhancer',",
-  newToolDef + "\n      { id: 'image-enhancer', label: 'AI Image Enhancer',"
-);
+if (!headerTsx.includes('onOpenGuide')) {
+  headerTsx = headerTsx.replace(
+    /export function Header\(\{([^}]+)\}: HeaderProps\) \{/,
+    `export function Header({$1, onOpenGuide}: HeaderProps) {`
+  );
+}
 
-fs.writeFileSync('src/components/Header.tsx', code);
+if (!headerTsx.includes('دليل الاستخدام')) {
+  headerTsx = headerTsx.replace(
+    /(<button[^>]*onClick=\{onToggleTheme\}[^>]*>)/,
+    `<button
+            onClick={onOpenGuide}
+            className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 hover:scale-105 transition-all"
+            title="دليل الاستخدام"
+          >
+            <BookOpen className="w-4 h-4" />
+            <span className="text-sm font-medium">دليل الاستخدام</span>
+          </button>\n          $1`
+  );
+  
+  if (!headerTsx.includes('BookOpen')) {
+      headerTsx = headerTsx.replace(/import \{([^}]+)\} from 'lucide-react';/, `import { $1, BookOpen } from 'lucide-react';`);
+  }
+}
+
+fs.writeFileSync('src/components/Header.tsx', headerTsx);
+console.log('Header.tsx patched successfully');

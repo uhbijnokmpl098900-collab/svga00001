@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Header } from './components/Header';
+import { FeaturesGuideModal } from './components/FeaturesGuideModal';
+import { WelcomeGuideModal } from './components/WelcomeGuideModal';
 import { Uploader } from './components/Uploader';
 import { Dashboard } from './components/Dashboard';
 import { Workspace } from './components/Workspace';
@@ -55,6 +57,8 @@ const App: React.FC = () => {
   });
   const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showFeaturesGuide, setShowFeaturesGuide] = useState(false);
+  const [showWelcomeGuide, setShowWelcomeGuide] = useState(false);
   const [showBatchImage, setShowBatchImage] = useState(false);
   const [showPagConverter, setShowPagConverter] = useState(false);
   const [uploadedPagFile, setUploadedPagFile] = useState<File | null>(null);
@@ -77,6 +81,13 @@ const App: React.FC = () => {
     const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
     if (!hasSeenOnboarding) {
       setShowOnboarding(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const guideSkipped = localStorage.getItem('guide_skipped');
+    if (!guideSkipped) {
+      setShowWelcomeGuide(true);
     }
   }, []);
 
@@ -401,6 +412,26 @@ const App: React.FC = () => {
       <div className="fixed inset-0 bg-[#020617]/30 backdrop-blur-[4px] -z-10 pointer-events-none" />
       
       {/* 3D Splash Screen */}
+      {showWelcomeGuide && (
+        <WelcomeGuideModal 
+          onOpenGuide={() => {
+            setShowWelcomeGuide(false);
+            setShowFeaturesGuide(true);
+          }} 
+          onSkip={() => {
+            setShowWelcomeGuide(false);
+            localStorage.setItem('guide_skipped', 'true');
+          }}
+        />
+      )}
+      
+      {showFeaturesGuide && (
+        <FeaturesGuideModal onClose={() => {
+          setShowFeaturesGuide(false);
+          localStorage.setItem('guide_skipped', 'true');
+        }} />
+      )}
+
       <AnimatePresence>
         {showSplash && (
           <motion.div 
@@ -464,6 +495,7 @@ const App: React.FC = () => {
       )}
 
       <Header 
+        onOpenGuide={() => setShowFeaturesGuide(true)}
         onLogoClick={handleReset} 
         isAdmin={currentUser?.role === 'admin' || currentUser?.role === 'moderator'} 
         currentUser={currentUser}
