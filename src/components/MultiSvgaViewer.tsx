@@ -3335,9 +3335,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                 <button 
                   key={bg.id}
                   onClick={() => setPreviewBg(bg.url)}
-                  className={`w-10 h-10 rounded-xl border bg-cover bg-center transition-all ${previewBg === bg.url ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-white/10'}`}
-                  style={{ backgroundImage: `url(${bg.url})` }}
-                />
+                  className={`w-10 h-10 rounded-xl border relative overflow-hidden transition-all ${previewBg === bg.url ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-white/10'}`}
+                >
+                  <img src={bg.url} alt={bg.label || "Background"} className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
+                </button>
               ))}
               <button 
                 onClick={() => bgInputRef.current?.click()}
@@ -3537,12 +3538,10 @@ export const MultiSvgaViewer: React.FC<MultiSvgaViewerProps> = ({ onCancel, curr
                     height: '100%',
                     maxWidth: selectedItem.dimensions?.width || 500,
                     maxHeight: selectedItem.dimensions?.height || 500,
-                    aspectRatio: `${selectedItem.dimensions?.width || 500} / ${selectedItem.dimensions?.height || 500}`,
-                    backgroundImage: previewBg ? `url(${previewBg})` : 'none',
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center'
+                    aspectRatio: `${selectedItem.dimensions?.width || 500} / ${selectedItem.dimensions?.height || 500}`
                   }}
                 >
+                  {previewBg && <img src={previewBg} alt="Background" className="absolute inset-0 w-full h-full object-cover z-0" referrerPolicy="no-referrer" />}
                   <SvgaPlayer item={selectedItem} />
                   {watermark && <WatermarkOverlay watermark={watermark} settings={wmSettings} />}
                 </div>
@@ -4410,15 +4409,13 @@ const SvgaCard: React.FC<{
         ref={wrapperRef}
         className={`relative bg-slate-950/50 flex items-center justify-center overflow-hidden w-full`}
         style={{
-          height: selectedPreset ? `${(selectedPreset.height / selectedPreset.width) * 350}px` : `${(itemHeight / itemWidth) * 350}px`,
-          backgroundImage: previewBg ? `url(${previewBg})` : 'none',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center'
+          height: selectedPreset ? `${(selectedPreset.height / selectedPreset.width) * 350}px` : `${(itemHeight / itemWidth) * 350}px`
         }}
       >
+        {previewBg && <img src={previewBg} alt="Background" className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none" referrerPolicy="no-referrer" />}
         <div 
           ref={containerRef} 
-          className="relative"
+          className="relative z-10"
         />
 
         {/* Watermark */}

@@ -9279,9 +9279,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                   width: `${videoWidth}px`,
                   height: `${videoHeight}px`,
                   backgroundImage:
-                    previewBg && previewBgType === "image"
-                      ? `url(${previewBg})`
-                      : previewBg
+                    previewBg
                         ? "none"
                         : `
                         linear-gradient(45deg, #334155 25%, transparent 25%), 
@@ -9290,16 +9288,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                         linear-gradient(-45deg, transparent 75%, #334155 75%)
                       `,
                   backgroundSize:
-                    previewBg && previewBgType === "image"
-                      ? `${bgScale}%`
+                    previewBg
+                      ? "auto"
                       : "20px 20px",
                   backgroundRepeat:
-                    previewBg && previewBgType === "image"
+                    previewBg
                       ? "no-repeat"
                       : "repeat",
                   backgroundPosition:
-                    previewBg && previewBgType === "image"
-                      ? `${bgPos.x}% ${bgPos.y}%`
+                    previewBg
+                      ? "0 0"
                       : "0 0, 0 10px, 10px -10px, -10px 0px",
                   backgroundColor: previewBg ? "transparent" : "#0f172a",
                   boxShadow:
@@ -9326,6 +9324,24 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                   maskComposite: "intersect",
                 }}
               >
+                {previewBg && previewBgType === "image" && (
+                  <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
+                    <img 
+                      src={previewBg} 
+                      alt="Background"
+                      style={{
+                        position: 'absolute',
+                        width: `${bgScale}%`,
+                        height: 'auto',
+                        left: `${bgPos.x}%`,
+                        top: `${bgPos.y}%`,
+                        transform: `translate(-${bgPos.x}%, -${bgPos.y}%)`,
+                        pointerEvents: 'none'
+                      }}
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                )}
                 {previewBg && previewBgType === "video" && (
                   <video
                     src={previewBg}
@@ -11688,6 +11704,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                           <img
                             src={bg.url}
                             className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
                           />
                           <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                             <span className="text-[8px] text-white font-black">

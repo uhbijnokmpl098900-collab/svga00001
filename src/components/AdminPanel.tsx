@@ -111,7 +111,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
       alert("تم إنشاء الحساب بنجاح");
       setShowCreateUser(false);
       setNewUser({ name: '', email: '', password: '', role: 'user' });
-      fetchData();
+      fetchData(true);
     } catch (error: any) {
       console.error("Error creating user:", error);
       alert("فشل إنشاء الحساب: " + (error.message || "خطأ غير معروف"));
@@ -130,9 +130,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
     fetchData();
   }, [activeTab]);
 
-  const fetchData = async () => {
+  const fetchData = async (forceRefresh = false) => {
     const now = Date.now();
-    if (cache[activeTab] && (now - cache[activeTab].timestamp) < CACHE_DURATION) {
+    if (!forceRefresh && cache[activeTab] && (now - cache[activeTab].timestamp) < CACHE_DURATION) {
       const cached = cache[activeTab].data;
       if (activeTab === 'users') {
         setUsers(cached.users);
@@ -458,7 +458,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
         createdBy: currentUser?.id || 'admin'
       };
       await addDoc(collection(db, 'licenseKeys'), newKey);
-      fetchData();
+      fetchData(true);
     } catch (error) {
       console.error("Error generating key:", error);
     }
@@ -496,7 +496,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
           url,
           createdAt: Timestamp.now()
         });
-        fetchData();
+        fetchData(true);
       }
     } catch (error) {
       console.error("Error uploading asset:", error);
@@ -529,7 +529,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
               createdAt: Timestamp.now()
           });
           setPresetUrlInput('');
-          fetchData();
+          fetchData(true);
       } catch (error) {
           console.error("Error adding preset url:", error);
           alert("فشل إضافة الخلفية");
@@ -975,7 +975,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                       <div className="flex flex-col gap-4">
                         <div className="flex items-center gap-4">
                             {settings?.logoUrl && (
-                            <img src={settings.logoUrl} alt="Logo" className="w-16 h-16 rounded-lg object-contain bg-black/20" />
+                            <img src={settings.logoUrl} alt="Logo" className="w-16 h-16 rounded-lg object-contain bg-black/20" referrerPolicy="no-referrer" />
                             )}
                             <label className="flex-1 cursor-pointer">
                             <div className="border-2 border-dashed border-white/10 hover:border-indigo-500/50 rounded-lg p-4 text-center transition-colors">
@@ -1008,7 +1008,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                       <div className="flex flex-col gap-4">
                         <div className="flex items-center gap-4">
                             {settings?.backgroundUrl && (
-                            <img src={settings.backgroundUrl} alt="Background" className="w-24 h-16 rounded-lg object-cover bg-black/20" />
+                            <img src={settings.backgroundUrl} alt="Background" className="w-24 h-16 rounded-lg object-cover bg-black/20" referrerPolicy="no-referrer" />
                             )}
                             <label className="flex-1 cursor-pointer">
                             <div className="border-2 border-dashed border-white/10 hover:border-purple-500/50 rounded-lg p-4 text-center transition-colors">
@@ -1062,7 +1062,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                       {backgrounds.map(bg => (
                         <div key={bg.id} className="group relative aspect-video rounded-lg overflow-hidden border border-white/10">
-                          <img src={bg.url} alt={bg.label} className="w-full h-full object-cover" />
+                          <img src={bg.url} alt={bg.label} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                             <button 
                               onClick={() => handleDeletePreset(bg.id, bg.url)}
