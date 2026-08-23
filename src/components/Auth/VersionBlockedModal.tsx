@@ -27,6 +27,20 @@ export const VersionBlockedModal: React.FC<VersionBlockedModalProps> = ({
     // Clear any simulated old version
     setSimulatedClientVersion(null);
 
+    // 1. Clear Cache Storages completely to purge cached index.html / assets
+    if ('caches' in window) {
+      caches.keys().then((keys) => {
+        keys.forEach((key) => caches.delete(key));
+      }).catch(err => console.warn("Cache storage clear error:", err));
+    }
+
+    // 2. Unregister any service workers to prevent old workers from serving old cached site
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations.forEach((registration) => registration.unregister());
+      }).catch(err => console.warn("Service worker unregistration error:", err));
+    }
+
     if (updateUrl && updateUrl.trim()) {
       window.location.href = updateUrl.trim();
       return;
@@ -36,7 +50,9 @@ export const VersionBlockedModal: React.FC<VersionBlockedModalProps> = ({
       setIsUpdating(false);
       setUpdateSuccess(true);
       setTimeout(() => {
-        window.location.reload();
+        // Cache bust reload using current timestamp to force getting the freshest version from server/CDN
+        const cacheBusterUrl = window.location.origin + window.location.pathname + '?v=' + Date.now() + window.location.hash;
+        window.location.href = cacheBusterUrl;
       }, 1000);
     }, 1200);
   };

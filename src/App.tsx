@@ -32,7 +32,7 @@ import { SubscriptionModal } from './components/SubscriptionModal';
 import { useAuth } from './contexts/AuthContext';
 import { AppState, FileMetadata, AppSettings } from './types';
 import { useAccessControl } from './hooks/useAccessControl';
-import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import { logActivity } from './utils/logger';
 import { MaintenanceScreen } from './components/MaintenanceScreen';
@@ -111,6 +111,12 @@ const App: React.FC = () => {
           });
         } else {
           setVersionBlockedState(prev => ({ ...prev, isBlocked: false }));
+          // Update lastUsedVersion in database if it differs to show real-time version status to admins
+          if (currentUser.lastUsedVersion !== clientVer) {
+            updateDoc(doc(db, 'users', currentUser.id), {
+              lastUsedVersion: clientVer
+            }).catch(err => console.warn("Failed to update lastUsedVersion on success:", err));
+          }
         }
       })
       .catch(() => {
@@ -120,6 +126,13 @@ const App: React.FC = () => {
             requiredVersion: localCheck.requiredVersion,
             installedVersion: localCheck.currentVersion
           });
+        } else {
+          setVersionBlockedState(prev => ({ ...prev, isBlocked: false }));
+          if (currentUser.lastUsedVersion !== clientVer) {
+            updateDoc(doc(db, 'users', currentUser.id), {
+              lastUsedVersion: clientVer
+            }).catch(err => console.warn("Failed to update lastUsedVersion on local success:", err));
+          }
         }
       });
   }, [currentUser?.id, currentUser?.allowedVersion, settings?.defaultAllowedVersion]);
