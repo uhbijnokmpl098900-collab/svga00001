@@ -89,6 +89,29 @@ const App: React.FC = () => {
     }
 
     const clientVer = getActiveClientVersion();
+
+    // CRITICAL: Admins are ALWAYS bypassed from version blocks to prevent lockouts.
+    // We also correct database records if they were set incorrectly.
+    if (currentUser.role === 'admin') {
+      setVersionBlockedState(prev => ({ ...prev, isBlocked: false }));
+      
+      // Self-correct database if allowedVersion is not set to client version
+      if (currentUser.allowedVersion !== clientVer) {
+        updateDoc(doc(db, 'users', currentUser.id), {
+          allowedVersion: clientVer,
+          lastUsedVersion: clientVer
+        }).catch(err => console.warn("Failed to correct admin allowedVersion:", err));
+      }
+
+      // Self-correct global default allowed version in settings
+      if (settings && settings.defaultAllowedVersion !== clientVer) {
+        updateDoc(doc(db, 'settings', 'global'), {
+          defaultAllowedVersion: clientVer
+        }).catch(err => console.warn("Failed to correct global defaultAllowedVersion:", err));
+      }
+      return;
+    }
+
     const allowedVer = currentUser.allowedVersion || settings?.defaultAllowedVersion || 'v3.0.0';
 
     const localCheck = checkVersionCompatibility(allowedVer, clientVer);
@@ -135,7 +158,7 @@ const App: React.FC = () => {
           }
         }
       });
-  }, [currentUser?.id, currentUser?.allowedVersion, settings?.defaultAllowedVersion]);
+  }, [currentUser?.id, currentUser?.role, currentUser?.allowedVersion, settings?.defaultAllowedVersion]);
 
   useEffect(() => {
     // Hide splash screen after 2.5 seconds
