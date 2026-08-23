@@ -11,6 +11,7 @@ import {
 import { doc, getDoc, setDoc, onSnapshot, updateDoc, Timestamp } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { UserRecord } from '../types';
+import { getActiveClientVersion, DEFAULT_ALLOWED_VERSION } from '../utils/versionControl';
 
 // Helper to get or generate device ID
 const getDeviceId = () => {
@@ -89,13 +90,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const isAdmin = user.email === 'uhbijnokmpl098900@gmail.com';
               
               let defaultFreeAttempts = 5;
+              let defaultAllowedVer = DEFAULT_ALLOWED_VERSION;
               try {
                 const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
-                if (settingsDoc.exists() && settingsDoc.data().defaultFreeAttempts !== undefined) {
-                  defaultFreeAttempts = settingsDoc.data().defaultFreeAttempts;
+                if (settingsDoc.exists()) {
+                  const sData = settingsDoc.data();
+                  if (sData.defaultFreeAttempts !== undefined) defaultFreeAttempts = sData.defaultFreeAttempts;
+                  if (sData.defaultAllowedVersion) defaultAllowedVer = sData.defaultAllowedVersion;
                 }
               } catch (err) {
-                console.warn("Could not fetch default free attempts settings:", err);
+                console.warn("Could not fetch default settings:", err);
               }
               
               const newUser: UserRecord = {
@@ -114,7 +118,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 lastLogin: Timestamp.now(),
                 deviceId,
                 lastIp,
-                hasSvgaExAccess: isAdmin
+                hasSvgaExAccess: isAdmin,
+                allowedVersion: defaultAllowedVer,
+                lastUsedVersion: getActiveClientVersion()
               };
               await setDoc(userDocRef, newUser);
               if (isMounted) setCurrentUser(newUser);
@@ -187,6 +193,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Check if registration is open
     const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
     let defaultFreeAttempts = 5;
+    let defaultAllowedVer = DEFAULT_ALLOWED_VERSION;
     if (settingsDoc.exists()) {
       const settings = settingsDoc.data();
       if (settings.isRegistrationOpen === false) {
@@ -194,6 +201,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       if (settings.defaultFreeAttempts !== undefined) {
         defaultFreeAttempts = settings.defaultFreeAttempts;
+      }
+      if (settings.defaultAllowedVersion) {
+        defaultAllowedVer = settings.defaultAllowedVersion;
       }
     }
 
@@ -219,7 +229,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       lastLogin: Timestamp.now(),
       deviceId,
       lastIp,
-      hasSvgaExAccess: isAdmin
+      hasSvgaExAccess: isAdmin,
+      allowedVersion: defaultAllowedVer,
+      lastUsedVersion: getActiveClientVersion()
     };
 
     await setDoc(doc(db, 'users', user.uid), newUser);

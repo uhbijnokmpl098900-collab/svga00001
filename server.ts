@@ -76,6 +76,31 @@ async function startServer() {
     res.json({ status: "ok", maintenance: serverMaintenanceState.isMaintenanceMode });
   });
 
+  // Server-side Version Control Verification Endpoint
+  app.post("/api/version/verify", (req, res) => {
+    const { userId, email, allowedVersion, clientVersion } = req.body;
+    const installedVersion = clientVersion || (req.headers['x-client-version'] as string) || 'v3.0.0';
+    const requiredVersion = (allowedVersion && allowedVersion.trim()) ? allowedVersion.trim() : 'v3.0.0';
+
+    const isAllowed = installedVersion.toLowerCase() === requiredVersion.toLowerCase();
+
+    if (!isAllowed) {
+      return res.status(403).json({
+        allowed: false,
+        requiredVersion,
+        installedVersion,
+        message: `هذا الإصدار (${installedVersion}) من الموقع لم يعد مدعومًا لهذا الحساب. يرجى تحديث التطبيق إلى الإصدار ${requiredVersion} للاستمرار.`
+      });
+    }
+
+    return res.json({
+      allowed: true,
+      requiredVersion,
+      installedVersion,
+      message: 'الإصدار متوافق ومسموح به'
+    });
+  });
+
   app.get("/api/ip", (req, res) => {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     res.json({ ip });

@@ -98,6 +98,10 @@ export interface UserRecord {
   deviceId?: string;
   allowedExportFormat?: string | string[]; // Restrict user to specific format(s)
   hasSvgaExAccess?: boolean; // Per-user access to SVGA 2.0 EX
+  allowedVersion?: string; // Specific allowed version for this account (e.g., 'v3.0.0')
+  lastUsedVersion?: string; // Version from which user last connected
+  versionLastUpdated?: any; // Timestamp when version was last changed
+  versionUpdatedBy?: string; // Admin who modified allowed version
   [key: string]: any;
 }
 
@@ -132,11 +136,23 @@ export interface AppSettings {
   maintenanceMessage?: string; // رسالة التحديث المخصصة
   maintenanceTitle?: string; // عنوان شاشة التحديث
   maintenanceEstimatedTime?: string; // الوقت المقدر للانتهاء
+  defaultAllowedVersion?: string; // الإصدار الافتراضي للحسابات الجديدة (e.g. 'v3.0.0')
   costs: {
     svgaProcess: number;
     batchCompress: number;
     vipPrice: number;
   }
+}
+
+export interface AccountVersionHistory {
+  id: string;
+  userId: string;
+  userEmail?: string;
+  oldVersion: string;
+  newVersion: string;
+  updatedBy: string;
+  reason?: string;
+  timestamp: any;
 }
 
 export interface ActivityLog {

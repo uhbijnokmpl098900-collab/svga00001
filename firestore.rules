@@ -88,6 +88,11 @@ service cloud.firestore {
       allow create: if (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == 'user') || isAdmin();
       allow update: if (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role) || isAdmin();
       allow delete: if isAdmin();
+
+      match /versionHistory/{historyId} {
+        allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+        allow write: if isAdmin();
+      }
     }
 
     match /activityLogs/{logId} {

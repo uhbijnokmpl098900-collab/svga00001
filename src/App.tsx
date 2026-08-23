@@ -36,6 +36,8 @@ import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import { logActivity } from './utils/logger';
 import { MaintenanceScreen } from './components/MaintenanceScreen';
+import { VersionBlockedModal } from './components/Auth/VersionBlockedModal';
+import { checkVersionCompatibility, verifyAccountVersionWithServer, getActiveClientVersion } from './utils/versionControl';
 
 declare var SVGA: any;
 
@@ -68,6 +70,59 @@ const App: React.FC = () => {
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
+
+  // Server-Enforced Version Control State
+  const [versionBlockedState, setVersionBlockedState] = useState<{
+    isBlocked: boolean;
+    requiredVersion: string;
+    installedVersion: string;
+  }>({
+    isBlocked: false,
+    requiredVersion: 'v3.0.0',
+    installedVersion: 'v3.0.0'
+  });
+
+  useEffect(() => {
+    if (!currentUser) {
+      setVersionBlockedState(prev => ({ ...prev, isBlocked: false }));
+      return;
+    }
+
+    const clientVer = getActiveClientVersion();
+    const allowedVer = currentUser.allowedVersion || settings?.defaultAllowedVersion || 'v3.0.0';
+
+    const localCheck = checkVersionCompatibility(allowedVer, clientVer);
+    if (!localCheck.isAllowed) {
+      setVersionBlockedState({
+        isBlocked: true,
+        requiredVersion: localCheck.requiredVersion,
+        installedVersion: localCheck.currentVersion
+      });
+      return;
+    }
+
+    verifyAccountVersionWithServer(currentUser.id, currentUser.email, allowedVer)
+      .then(res => {
+        if (!res.allowed) {
+          setVersionBlockedState({
+            isBlocked: true,
+            requiredVersion: res.requiredVersion,
+            installedVersion: res.installedVersion
+          });
+        } else {
+          setVersionBlockedState(prev => ({ ...prev, isBlocked: false }));
+        }
+      })
+      .catch(() => {
+        if (!localCheck.isAllowed) {
+          setVersionBlockedState({
+            isBlocked: true,
+            requiredVersion: localCheck.requiredVersion,
+            installedVersion: localCheck.currentVersion
+          });
+        }
+      });
+  }, [currentUser?.id, currentUser?.allowedVersion, settings?.defaultAllowedVersion]);
 
   useEffect(() => {
     // Hide splash screen after 2.5 seconds
@@ -830,6 +885,24 @@ const App: React.FC = () => {
         onClose={() => setShowSubscriptionModal(false)}
         settings={settings}
       />
+
+      {/* Version Blocked Modal */}
+      {versionBlockedState.isBlocked && (
+        <VersionBlockedModal
+          requiredVersion={versionBlockedState.requiredVersion}
+          installedVersion={versionBlockedState.installedVersion}
+          userEmail={currentUser?.email}
+          userId={currentUser?.id}
+          onRetry={() => {
+            const clientVer = getActiveClientVersion();
+            const allowedVer = currentUser?.allowedVersion || settings?.defaultAllowedVersion || 'v3.0.0';
+            const localCheck = checkVersionCompatibility(allowedVer, clientVer);
+            if (localCheck.isAllowed) {
+              setVersionBlockedState(prev => ({ ...prev, isBlocked: false }));
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

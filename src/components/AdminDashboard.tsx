@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, Gift, Diamond, Mic, List, Plus, Trash2, Edit2, Check, X, ShieldAlert, Gamepad2, Image as ImageIcon, TrendingUp, ShoppingBag, Layout, Users, RefreshCw, Upload, Loader2, Star, Briefcase, Crown, Smile, FileText, Radio } from 'lucide-react';
+import { Settings, Gift, Diamond, Mic, List, Plus, Trash2, Edit2, Check, X, ShieldAlert, Gamepad2, Image as ImageIcon, TrendingUp, ShoppingBag, Layout, Users, RefreshCw, Upload, Loader2, Star, Briefcase, Crown, Smile, FileText, Radio, GitBranch } from 'lucide-react';
 import { db, storage } from '../firebase';
 import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy, getDoc, setDoc, onSnapshot, DocumentSnapshot, where } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -12,6 +12,7 @@ import CPTab from './admin/CPTab';
 import GamesTab from './admin/GamesTab';
 import ActiveRoomsTab from './admin/ActiveRoomsTab';
 import AppSettingsTab from './admin/AppSettingsTab';
+import { AccountVersionsTab } from './admin/AccountVersionsTab';
 
 import AppIconsTab from './admin/AppIconsTab';
 
@@ -81,6 +82,7 @@ export default function AdminDashboard() {
       case 'reset': return <AdminResetTab />;
       case 'users': return <UsersTab />;
       case 'active_rooms': return <ActiveRoomsTab />;
+      case 'account_versions': return <AccountVersionsTab currentAdminEmail={user?.email || 'Admin'} currentAdminId={user?.uid || 'admin'} />;
       case 'app_settings': return <AppSettingsTab />;
       default: return null;
     }
@@ -118,6 +120,7 @@ export default function AdminDashboard() {
           <TabCard onClick={() => setActiveTab('reset')} icon={<RefreshCw size={24} />} label="إعادة تعيين الحساب" />
           <TabCard onClick={() => setActiveTab('users')} icon={<List size={24} />} label="سجلات الدخول" />
           <TabCard onClick={() => setActiveTab('active_rooms')} icon={<Radio size={24} />} label="الغرف المتصلة (النشطة)" />
+          <TabCard onClick={() => setActiveTab('account_versions')} icon={<GitBranch size={24} />} label="إدارة إصدارات الحسابات" />
           <TabCard onClick={() => setActiveTab('app_settings')} icon={<Settings size={24} />} label="إعدادات التطبيق" />
         </div>
       </div>
