@@ -130,7 +130,7 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 z-[100] bg-gray-50 flex flex-col">
           <div className="bg-white p-4 shadow-sm flex items-center justify-between">
             <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-              {activeTab}
+              {activeTab === 'account_versions' ? 'إدارة إصدارات الحسابات' : activeTab}
             </h2>
             <button 
               onClick={() => setActiveTab(null)}
