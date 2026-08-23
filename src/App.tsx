@@ -41,6 +41,7 @@ declare var SVGA: any;
 import { OnboardingModal } from './components/OnboardingModal';
 import { HelpCircle, BookOpen } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { MaintenanceScreen } from './components/MaintenanceScreen';
 
 const videoWidth = 1334;
 const videoHeight = 750;
@@ -394,6 +395,17 @@ const App: React.FC = () => {
           )}
         </div>
       </div>
+    );
+  }
+
+  const isMaintenanceMode = settings?.maintenanceMode && currentUser.role !== 'admin' && currentUser.role !== 'moderator';
+
+  if (isMaintenanceMode) {
+    return (
+      <MaintenanceScreen 
+        appName={settings?.appName} 
+        message={settings?.maintenanceMessage} 
+      />
     );
   }
 

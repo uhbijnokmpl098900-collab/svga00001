@@ -1218,6 +1218,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
 
                     <div className="flex items-center justify-between p-4 bg-slate-950/30 border border-white/10 rounded-xl">
                         <div className="flex flex-col gap-1">
+                            <span className="text-sm font-bold text-white">تفعيل وضع التحديث والتطوير</span>
+                            <span className="text-[10px] text-slate-500">عند التفعيل، سيتم إيقاف الموقع للمستخدمين العاديين وإظهار صفحة الصيانة</span>
+                        </div>
+                        <button 
+                            type="button"
+                            onClick={() => setSettings({ ...settings, maintenanceMode: !settings.maintenanceMode })}
+                            className={`w-12 h-6 rounded-full transition-all relative ${settings.maintenanceMode ? 'bg-orange-500' : 'bg-slate-700'}`}
+                        >
+                            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.maintenanceMode ? 'right-7' : 'right-1'}`}></div>
+                        </button>
+                    </div>
+
+                    {settings.maintenanceMode && (
+                      <div className="p-4 bg-orange-500/5 border border-orange-500/20 rounded-xl animate-in fade-in zoom-in-95 duration-200">
+                        <label className="block text-sm font-medium text-orange-400 mb-2">رسالة وضع التحديث (تظهر للمستخدمين)</label>
+                        <textarea 
+                          value={settings.maintenanceMessage || "الموقع حالياً تحت التحديث والتطوير، يرجى الانتظار حتى انتهاء أعمال التطوير."} 
+                          onChange={e => setSettings({ ...settings, maintenanceMessage: e.target.value })}
+                          className="w-full bg-slate-950/50 border border-orange-500/20 rounded-lg px-4 py-3 focus:outline-none focus:border-orange-500/50 transition-colors text-white resize-none"
+                          placeholder="الموقع حالياً تحت التحديث والتطوير..."
+                          rows={3}
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between p-4 bg-slate-950/30 border border-white/10 rounded-xl">
+                        <div className="flex flex-col gap-1">
                             <span className="text-sm font-bold text-white">تفعيل SVGA 2.0 للجميع</span>
                             <span className="text-[10px] text-slate-500">عند التفعيل، سيظهر الزر لجميع المستخدمين (مع القفل إذا لم يملكوا صلاحية)</span>
                         </div>

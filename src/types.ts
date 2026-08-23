@@ -123,6 +123,8 @@ export interface AppSettings {
   isRegistrationOpen: boolean;
   defaultFreeAttempts: number;
   isSvgaExEnabled: boolean; // Global toggle for SVGA 2.0 EX
+  maintenanceMode?: boolean;
+  maintenanceMessage?: string;
   costs: {
     svgaProcess: number;
     batchCompress: number;
