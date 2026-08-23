@@ -38,9 +38,9 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
   const pollIntervalRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
 
   const handleFileUpload = (newFiles: FileList | File[]) => {
-    const validExtensions = /\.(mp4|mov|mkv|avi)$/i;
+    const validExtensions = /\.(mp4|mov|mkv|avi|webm|flv|wmv|3gp|mp3|wav|aac|m4a|ogg|flac|opus|wma|aiff|alac)$/i;
     const newItems: AudioFileItem[] = Array.from(newFiles)
-      .filter(f => f.type.startsWith('video/') || f.name.match(validExtensions))
+      .filter(f => f.type.startsWith('video/') || f.type.startsWith('audio/') || f.name.match(validExtensions))
       .map(file => ({
         id: Math.random().toString(36).substring(2, 9),
         originalName: file.name,
@@ -59,7 +59,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
         setActiveFileId(newItems[0].id);
       }
     } else {
-      alert("الرجاء رفع ملف فيديو صالح (MP4, MOV, MKV, AVI).");
+      alert("الرجاء رفع ملف صوتي أو فيديو صالح (MP3, WAV, AAC, M4A, FLAC, OGG, MP4, MOV, MKV, AVI).");
     }
   };
 
@@ -218,7 +218,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                 ref={fileInputRef} 
                 className="hidden" 
                 multiple 
-                accept="video/mp4,video/x-m4v,video/quicktime,.mkv,.avi"
+                accept="video/*,audio/*,.mp4,.mov,.mkv,.avi,.webm,.mp3,.wav,.aac,.m4a,.ogg,.flac,.opus,.wma,.aiff,.alac"
                 onChange={(e) => {
                   if (e.target.files) handleFileUpload(e.target.files);
                 }}
@@ -227,10 +227,10 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                 <div className="w-20 h-20 mb-4 bg-gradient-to-br from-fuchsia-500/20 to-blue-500/20 rounded-full flex items-center justify-center border border-white/5 shadow-inner group-hover:shadow-[0_0_20px_rgba(217,70,239,0.3)] transition-all">
                   <Upload className="w-10 h-10 text-fuchsia-400 group-hover:-translate-y-1 transition-transform" />
                 </div>
-                <h3 className="text-xl font-bold text-white mb-2">ارفع الفيديوهات هنا</h3>
-                <p className="text-sm text-slate-400">سحب وإفلات أو اضغط للاختيار</p>
-                <div className="mt-3 text-xs text-slate-500 bg-white/5 px-3 py-1 rounded-full border border-white/5">
-                  أقصى حجم: 500MB | MP4, MKV, AVI
+                <h3 className="text-xl font-bold text-white mb-2">ارفع ملفات الصوت أو الفيديو هنا</h3>
+                <p className="text-sm text-slate-400">سحب وإفلات أو اضغط للاختيار لتحويل أو استخراج الصوت</p>
+                <div className="mt-3 text-xs text-slate-400 bg-white/5 px-3 py-1 rounded-full border border-white/5">
+                  أقصى حجم: 500MB | MP3, WAV, AAC, M4A, FLAC, MP4, MKV, AVI...
                 </div>
               </div>
             </div>
@@ -247,7 +247,7 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                     disabled={!files.some(f => f.status === 'pending' || f.status === 'error')}
                     className="px-4 py-2 bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 disabled:opacity-50 text-white rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-fuchsia-600/20"
                   >
-                    استخراج الكل
+                    معالجة الكل
                   </button>
                 </div>
                 <div className="overflow-y-auto p-3 flex flex-col gap-3 flex-grow">
@@ -271,7 +271,11 @@ export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onC
                         
                         <div className="flex items-center gap-3 relative z-10">
                           <div className="w-12 h-12 rounded-xl bg-black/40 border border-white/5 flex items-center justify-center shrink-0 shadow-inner">
-                            <Video className="w-6 h-6 text-slate-300" />
+                            {file.videoFile.type.startsWith('audio/') || file.originalName.match(/\.(mp3|wav|aac|m4a|ogg|flac|opus|wma|aiff)$/i) ? (
+                              <FileAudio className="w-6 h-6 text-cyan-400" />
+                            ) : (
+                              <Video className="w-6 h-6 text-fuchsia-400" />
+                            )}
                           </div>
                           <div className="flex-grow min-w-0">
                             <p className="text-sm font-bold text-white truncate" dir="ltr" style={{ textAlign: 'right' }}>{file.originalName}</p>

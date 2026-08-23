@@ -30,10 +30,14 @@ const upload = multer({
   storage: storage,
   limits: { fileSize: 500 * 1024 * 1024 }, // 500MB limit
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'video/mp4' || file.mimetype === 'video/x-m4v' || file.mimetype === 'video/quicktime' || file.originalname.match(/\.(mp4|mov|mkv|avi)$/i)) {
+    if (
+      file.mimetype.startsWith('video/') || 
+      file.mimetype.startsWith('audio/') || 
+      file.originalname.match(/\.(mp4|mov|mkv|avi|webm|flv|wmv|3gp|mp3|wav|aac|m4a|ogg|flac|opus|wma|aiff|alac)$/i)
+    ) {
       cb(null, true);
     } else {
-      cb(new Error('الملف غير مدعوم. الرجاء رفع فيديو صحيح.'));
+      cb(new Error('الملف غير مدعوم. الرجاء رفع ملف صوتي أو فيديو صالح.'));
     }
   }
 });

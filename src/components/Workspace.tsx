@@ -1951,22 +1951,30 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   useEffect(() => {
     const handleResize = () => {
       if (containerRef.current) {
-        const parent =
-          containerRef.current.parentElement || containerRef.current;
-        const availableW = Math.max(200, parent.clientWidth - 48);
-        const availableH = Math.max(
-          240,
-          Math.min(680, window.innerHeight - 340),
-        );
+        const clientW = containerRef.current.clientWidth || 600;
+        const clientH = containerRef.current.clientHeight || 750;
+        // Maximize utilization of viewport: minimal 16px buffer
+        const availableW = Math.max(120, clientW - 16);
+        const availableH = Math.max(120, clientH - 16);
         const s = Math.min(availableW / videoWidth, availableH / videoHeight);
         setScale(Math.max(0.05, parseFloat(s.toFixed(3))));
       }
     };
-    const timer = setTimeout(handleResize, 80);
+    const timer = setTimeout(handleResize, 50);
     window.addEventListener("resize", handleResize);
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (containerRef.current && typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        handleResize();
+      });
+      resizeObserver.observe(containerRef.current);
+    }
+
     return () => {
       clearTimeout(timer);
       window.removeEventListener("resize", handleResize);
+      if (resizeObserver) resizeObserver.disconnect();
     };
   }, [videoWidth, videoHeight]);
 
@@ -9421,166 +9429,24 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               </span>
             </div>
           )}
-          {/* Professional SVGA Viewport Control Toolbar */}
-          <div className="mb-3 w-full bg-slate-900/90 backdrop-blur-2xl p-3 sm:p-4 rounded-2xl border border-white/10 shadow-xl flex flex-col gap-3">
-            {/* Top Row: Dimensions Info & Zoom Controls & Background Options */}
-            <div className="flex flex-wrap items-center justify-between gap-2.5">
-              {/* Active Dimensions Badge */}
-              <div className="flex items-center gap-2">
-                <div className="px-3 py-1.5 bg-sky-500/10 border border-sky-500/30 rounded-xl flex items-center gap-2">
-                  <span className="text-sky-400 font-mono text-xs font-black">
-                    📐 {videoWidth} × {videoHeight} px
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-bold border-r border-white/10 pr-2">
-                    {dimensionRatioLabel}
-                  </span>
-                </div>
-              </div>
-
-              {/* Viewport Zoom & Mode Controls */}
-              <div className="flex items-center gap-1.5 bg-slate-950/80 p-1 rounded-xl border border-white/10">
-                <button
-                  type="button"
-                  onClick={handleZoomOut}
-                  className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white text-xs font-black transition-all active:scale-95 cursor-pointer"
-                  title="تصغير المعاينة (-)"
-                >
-                  ➖
-                </button>
-                <div
-                  className={`px-2.5 py-1 text-[11px] font-mono font-black rounded-lg ${zoomMode === "actual" ? "bg-indigo-500 text-white shadow-glow-indigo" : zoomMode === "fit" ? "bg-sky-500 text-white shadow-glow-sky" : "bg-white/10 text-white"}`}
-                  title="نسبة التكبير الحالية في المعاينة"
-                >
-                  {Math.round(effectiveScale * 100)}%
-                  <span className="text-[9px] mr-1 opacity-80">
-                    {zoomMode === "fit"
-                      ? "(ملاءمة)"
-                      : zoomMode === "actual"
-                        ? "(1:1 حقيقي)"
-                        : ""}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleZoomIn}
-                  className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white text-xs font-black transition-all active:scale-95 cursor-pointer"
-                  title="تكبير المعاينة (+)"
-                >
-                  ➕
-                </button>
-                <div className="w-[1px] h-4 bg-white/10 mx-0.5" />
-                <button
-                  type="button"
-                  onClick={handleZoomFit}
-                  className={`px-2.5 py-1 text-[10px] font-black rounded-lg transition-all cursor-pointer ${zoomMode === "fit" ? "bg-sky-500 text-white shadow-glow-sky" : "bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white"}`}
-                  title="ملاءمة الشاشة التلقائية للرؤية الكاملة دون أي قص"
-                >
-                  🎯 ملاءمة (Fit)
-                </button>
-                <button
-                  type="button"
-                  onClick={handleZoomActual}
-                  className={`px-2.5 py-1 text-[10px] font-black rounded-lg transition-all cursor-pointer ${zoomMode === "actual" ? "bg-indigo-500 text-white shadow-glow-indigo" : "bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white"}`}
-                  title="عرض بالحجم الحقيقي 100% 1:1 Pixel"
-                >
-                  1:1 الحجم الفعلي
-                </button>
-                <div className="hidden sm:flex items-center gap-1">
-                  {[0.5, 0.75, 1.5].map((lvl) => (
-                    <button
-                      key={lvl}
-                      type="button"
-                      onClick={() => handleZoomPreset(lvl)}
-                      className={`px-1.5 py-0.5 text-[9px] font-mono font-bold rounded transition-all cursor-pointer ${customZoom === lvl && zoomMode === "custom" ? "bg-white/20 text-white" : "text-slate-500 hover:text-slate-300"}`}
-                    >
-                      {Math.round(lvl * 100)}%
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Background Theme Selector & Auto Fit Helper */}
-              <div className="flex items-center gap-1.5">
-                <div className="flex items-center bg-slate-950/80 p-0.5 rounded-xl border border-white/10">
-                  <button
-                    type="button"
-                    onClick={() => setCanvasBgTheme("checker")}
-                    className={`px-2 py-1 text-[10px] rounded-lg font-bold transition-all cursor-pointer ${canvasBgTheme === "checker" ? "bg-sky-500 text-white" : "text-slate-400 hover:text-white"}`}
-                    title="خلفية شفافة شطرنجية"
-                  >
-                    🏁 شفاف
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCanvasBgTheme("dark")}
-                    className={`px-2 py-1 text-[10px] rounded-lg font-bold transition-all cursor-pointer ${canvasBgTheme === "dark" ? "bg-sky-500 text-white" : "text-slate-400 hover:text-white"}`}
-                    title="خلفية داكنة"
-                  >
-                    ⬛ داكن
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCanvasBgTheme("white")}
-                    className={`px-2 py-1 text-[10px] rounded-lg font-bold transition-all cursor-pointer ${canvasBgTheme === "white" ? "bg-sky-500 text-white" : "text-slate-400 hover:text-white"}`}
-                    title="خلفية بيضاء"
-                  >
-                    ⬜ أبيض
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAutoCenterFitSvga}
-                  className="px-2.5 py-1 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-xl text-[10px] font-black transition-all cursor-pointer flex items-center gap-1"
-                  title="إعادة ضبط وتوسيط تأثير SVGA داخل الأبعاد الحالية"
-                >
-                  🔄 توسيط التأثير
-                </button>
-              </div>
-            </div>
-
-            {/* Bottom Row: Quick Canvas Dimension Presets */}
-            <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-white/5">
-              <span className="text-[10px] text-slate-500 font-bold ml-1">
-                مقاسات سريعة للمساحة:
+          {/* Clean Minimal File Info Header */}
+          <div className="mb-3 w-full bg-slate-900/60 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 overflow-hidden">
+              <span className="text-xs font-black text-white truncate max-w-[260px] sm:max-w-md">
+                {metadata.name || "ملف SVGA"}
               </span>
-              {[
-                { label: "📱 750×1334 (تيك توك / لايف)", w: 750, h: 1334 },
-                { label: "📱 1080×1920 (Full HD عمودي)", w: 1080, h: 1920 },
-                { label: "🖥️ 1334×750 (أفقي)", w: 1334, h: 750 },
-                { label: "🖥️ 1920×1080 (Full HD أفقي)", w: 1920, h: 1080 },
-                { label: "🎁 750×750 (مربع)", w: 750, h: 750 },
-                {
-                  label: `📄 الأبعاد الأصلية (${originalDimensions.width}×${originalDimensions.height})`,
-                  w: originalDimensions.width,
-                  h: originalDimensions.height,
-                },
-              ].map((preset, idx) => {
-                const isSelected =
-                  videoWidth === preset.w && videoHeight === preset.h;
-                return (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() =>
-                      handleSetCanvasDimensions(preset.w, preset.h, true)
-                    }
-                    className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      isSelected
-                        ? "bg-sky-500 text-white font-black shadow-glow-sky border border-sky-400"
-                        : "bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/5"
-                    }`}
-                  >
-                    {preset.label}
-                  </button>
-                );
-              })}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="px-3 py-1 bg-sky-500/10 border border-sky-500/30 text-sky-400 font-mono text-xs font-black rounded-xl shadow-sm">
+                📐 {videoWidth} × {videoHeight} px
+              </span>
             </div>
           </div>
 
           {/* Canvas Viewport Container with Smooth Pan & Scroll */}
           <div
             ref={containerRef}
-            className="w-full h-[520px] sm:h-[600px] lg:h-[650px] max-h-[75vh] overflow-auto bg-slate-950/80 backdrop-blur-3xl rounded-2xl sm:rounded-[2.5rem] border border-white/10 p-4 sm:p-8 flex items-center justify-center relative shadow-2xl custom-scrollbar"
+            className="w-full h-[620px] sm:h-[720px] lg:h-[780px] xl:h-[820px] max-h-[85vh] min-h-[500px] overflow-auto bg-slate-950/80 backdrop-blur-3xl rounded-2xl sm:rounded-[2.5rem] border border-white/10 p-2 sm:p-4 flex items-center justify-center relative shadow-2xl custom-scrollbar"
             style={{ touchAction: "pan-x pan-y" }}
             onDragOver={handleDragOverSvga}
             onDrop={handleDropSvgaFile}
@@ -11273,41 +11139,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                       />
                     </div>
 
-                    {/* Presets in Transforms tab */}
-                    <div className="col-span-2 space-y-2">
-                      <label className="text-[9px] font-black text-slate-500 uppercase block">
-                        مقاسات سريعة
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { label: "📱 750×1334 (تيك توك)", w: 750, h: 1334 },
-                          { label: "📱 1080×1920 (FHD عمودي)", w: 1080, h: 1920 },
-                          { label: "🖥️ 1334×750 (أفقي)", w: 1334, h: 750 },
-                          { label: "🖥️ 1920×1080 (FHD أفقي)", w: 1920, h: 1080 },
-                          { label: "🎁 750×750 (مربع)", w: 750, h: 750 },
-                          {
-                            label: `🔄 الأصلي (${originalDimensions.width}×${originalDimensions.height})`,
-                            w: originalDimensions.width,
-                            h: originalDimensions.height,
-                          },
-                        ].map((preset, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() =>
-                              handleSetCanvasDimensions(preset.w, preset.h, true)
-                            }
-                            className={`p-2 rounded-xl text-[10px] font-mono font-bold transition-all text-right cursor-pointer ${
-                              videoWidth === preset.w && videoHeight === preset.h
-                                ? "bg-sky-500 text-white font-black shadow-glow-sky border border-sky-400"
-                                : "bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5"
-                            }`}
-                          >
-                            {preset.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
 
                     <button
                       type="button"
@@ -12758,41 +12589,6 @@ class _MyAppState extends State<MyApp> {
                       </span>
                     </div>
 
-                    {/* Presets Palette */}
-                    <div className="col-span-2 space-y-2 pt-2 border-t border-white/5">
-                      <label className="text-[9px] font-black text-slate-500 uppercase block">
-                        مقاسات معتمدة سريعة
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { label: "📱 750×1334 (تيك توك / ستوري)", w: 750, h: 1334 },
-                          { label: "📱 1080×1920 (FHD عمودي)", w: 1080, h: 1920 },
-                          { label: "🖥️ 1334×750 (أفقي)", w: 1334, h: 750 },
-                          { label: "🖥️ 1920×1080 (FHD أفقي)", w: 1920, h: 1080 },
-                          { label: "🎁 750×750 (صندوق مربع)", w: 750, h: 750 },
-                          {
-                            label: `🔄 الأصلي (${originalDimensions.width}×${originalDimensions.height})`,
-                            w: originalDimensions.width,
-                            h: originalDimensions.height,
-                          },
-                        ].map((preset, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() =>
-                              handleSetCanvasDimensions(preset.w, preset.h, true)
-                            }
-                            className={`p-2 rounded-xl text-[10px] font-mono font-bold transition-all text-right cursor-pointer ${
-                              videoWidth === preset.w && videoHeight === preset.h
-                                ? "bg-indigo-500 text-white font-black shadow-glow-indigo border border-indigo-400"
-                                : "bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5"
-                            }`}
-                          >
-                            {preset.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
 
                     <button
                       type="button"
