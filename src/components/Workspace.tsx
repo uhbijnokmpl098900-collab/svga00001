@@ -201,6 +201,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [assetsLoading, setAssetsLoading] = useState(true);
   const [scale, setScale] = useState(1);
+  const [zoomMode, setZoomMode] = useState<"fit" | "actual" | "custom">("fit");
+  const [customZoom, setCustomZoom] = useState<number>(1);
+  const [canvasBgTheme, setCanvasBgTheme] = useState<
+    "checker" | "dark" | "black" | "white" | "slate"
+  >("checker");
   const [maintainAspectRatio, setMaintainAspectRatio] = useState(true);
   const [activeSideTab, setActiveSideTab] = useState<
     "layers" | "transforms" | "bg" | "optimize" | "resize" | "settings"
@@ -1284,16 +1289,144 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   const audioInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
+  const originalDimensions = useMemo(() => {
+    const defaults = getDefaultDimensions(metadata);
+    const w =
+      metadata.dimensions?.width ||
+      metadata.videoItem?.videoSize?.width ||
+      defaults.width ||
+      750;
+    const h =
+      metadata.dimensions?.height ||
+      metadata.videoItem?.videoSize?.height ||
+      defaults.height ||
+      1334;
+    return { width: w, height: h };
+  }, [metadata]);
+
   const { videoWidth, videoHeight } = useMemo(() => {
     const defaults = getDefaultDimensions(metadata);
     const w = customDimensions?.width || defaults.width;
     const h = customDimensions?.height || defaults.height;
 
     return {
-      videoWidth: w > 0 && !isNaN(w) ? w : 1334,
-      videoHeight: h > 0 && !isNaN(h) ? h : 750,
+      videoWidth: w > 0 && !isNaN(w) ? Math.round(w) : 1334,
+      videoHeight: h > 0 && !isNaN(h) ? Math.round(h) : 750,
     };
   }, [customDimensions, metadata]);
+
+  const effectiveScale = useMemo(() => {
+    if (zoomMode === "actual") return 1;
+    if (zoomMode === "custom") return Math.max(0.1, customZoom);
+    return Math.max(0.08, scale);
+  }, [zoomMode, customZoom, scale]);
+
+  const dimensionRatioLabel = useMemo(() => {
+    const gcd = (a: number, b: number): number =>
+      b === 0 ? a : gcd(b, a % b);
+    const d = gcd(Math.round(videoWidth), Math.round(videoHeight));
+    const rW = Math.round(videoWidth) / (d || 1);
+    const rH = Math.round(videoHeight) / (d || 1);
+    if (
+      (rW === 9 && rH === 16) ||
+      (videoWidth === 750 && videoHeight === 1334) ||
+      (videoWidth === 1080 && videoHeight === 1920)
+    )
+      return "9:16 عمودي (تيك توك / لايف)";
+    if (
+      (rW === 16 && rH === 9) ||
+      (videoWidth === 1334 && videoHeight === 750) ||
+      (videoWidth === 1920 && videoHeight === 1080)
+    )
+      return "16:9 أفقي (شاشة كاملة)";
+    if (rW === 1 && rH === 1) return "1:1 مربع (صندوق هدايا)";
+    if (rW === 3 && rH === 4) return "3:4 عمودي قياسي";
+    if (rW === 4 && rH === 3) return "4:3 أفقي قياسي";
+    if (videoWidth < videoHeight) return `${videoWidth}×${videoHeight} عمودي`;
+    if (videoWidth > videoHeight) return `${videoWidth}×${videoHeight} أفقي`;
+    return "1:1 مربع";
+  }, [videoWidth, videoHeight]);
+
+  const handleSetCanvasDimensions = useCallback(
+    (newWidth: number, newHeight: number, autoCenterFit: boolean = false) => {
+      const targetW = Math.max(
+        16,
+        Math.min(8192, isNaN(newWidth) ? 750 : Math.round(newWidth)),
+      );
+      const targetH = Math.max(
+        16,
+        Math.min(8192, isNaN(newHeight) ? 1334 : Math.round(newHeight)),
+      );
+
+      if (
+        videoWidth > 0 &&
+        videoHeight > 0 &&
+        (targetW !== videoWidth || targetH !== videoHeight)
+      ) {
+        const scaleX = targetW / videoWidth;
+        const scaleY = targetH / videoHeight;
+        setCustomLayers((prev) =>
+          prev.map((layer) => ({
+            ...layer,
+            x: Math.round(layer.x * scaleX),
+            y: Math.round(layer.y * scaleY),
+            scale: layer.scale * Math.min(scaleX, scaleY),
+          })),
+        );
+      }
+
+      setCustomDimensions({ width: targetW, height: targetH });
+
+      if (autoCenterFit) {
+        setSvgaPos({ x: 0, y: 0 });
+        setSvgaScale(1);
+        setSvgaRotation(0);
+      }
+    },
+    [videoWidth, videoHeight],
+  );
+
+  const handleAutoCenterFitSvga = useCallback(() => {
+    setSvgaPos({ x: 0, y: 0 });
+    setSvgaScale(1);
+    setSvgaRotation(0);
+  }, []);
+
+  const handleZoomIn = useCallback(() => {
+    const steps = [
+      0.2, 0.33, 0.5, 0.67, 0.75, 0.9, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0,
+    ];
+    const current = effectiveScale;
+    const next =
+      steps.find((s) => s > current + 0.04) || Math.min(4, current + 0.25);
+    setCustomZoom(parseFloat(next.toFixed(2)));
+    setZoomMode("custom");
+  }, [effectiveScale]);
+
+  const handleZoomOut = useCallback(() => {
+    const steps = [
+      3.0, 2.5, 2.0, 1.75, 1.5, 1.25, 1.0, 0.9, 0.75, 0.67, 0.5, 0.33, 0.2,
+    ];
+    const current = effectiveScale;
+    const next =
+      steps.find((s) => s < current - 0.04) || Math.max(0.15, current - 0.25);
+    setCustomZoom(parseFloat(next.toFixed(2)));
+    setZoomMode("custom");
+  }, [effectiveScale]);
+
+  const handleZoomFit = useCallback(() => {
+    setZoomMode("fit");
+  }, []);
+
+  const handleZoomActual = useCallback(() => {
+    setCustomZoom(1.0);
+    setZoomMode("actual");
+  }, []);
+
+  const handleZoomPreset = useCallback((level: number) => {
+    setCustomZoom(level);
+    setZoomMode("custom");
+  }, []);
 
   const cost = settings?.costs.svgaProcess || 5;
 
@@ -1818,20 +1951,23 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   useEffect(() => {
     const handleResize = () => {
       if (containerRef.current) {
-        // Find the actual available width for the container
-        const maxWidth = containerRef.current.parentElement?.clientWidth || containerRef.current.clientWidth;
-        // Use window inner height minus approximate header and padding sizes (250px)
-        const maxHeight = Math.max(300, window.innerHeight - 250);
-        
-        // Calculate the scale to perfectly fit both width and height
-        const s = Math.min(maxWidth / videoWidth, maxHeight / videoHeight);
-        setScale(s);
+        const parent =
+          containerRef.current.parentElement || containerRef.current;
+        const availableW = Math.max(200, parent.clientWidth - 48);
+        const availableH = Math.max(
+          240,
+          Math.min(680, window.innerHeight - 340),
+        );
+        const s = Math.min(availableW / videoWidth, availableH / videoHeight);
+        setScale(Math.max(0.05, parseFloat(s.toFixed(3))));
       }
     };
-    // Small timeout to ensure DOM is ready before initial calculation
-    setTimeout(handleResize, 100);
+    const timer = setTimeout(handleResize, 80);
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("resize", handleResize);
+    };
   }, [videoWidth, videoHeight]);
 
   const applyTransparencyEffects = useCallback(
@@ -9285,26 +9421,189 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               </span>
             </div>
           )}
+          {/* Professional SVGA Viewport Control Toolbar */}
+          <div className="mb-3 w-full bg-slate-900/90 backdrop-blur-2xl p-3 sm:p-4 rounded-2xl border border-white/10 shadow-xl flex flex-col gap-3">
+            {/* Top Row: Dimensions Info & Zoom Controls & Background Options */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5">
+              {/* Active Dimensions Badge */}
+              <div className="flex items-center gap-2">
+                <div className="px-3 py-1.5 bg-sky-500/10 border border-sky-500/30 rounded-xl flex items-center gap-2">
+                  <span className="text-sky-400 font-mono text-xs font-black">
+                    📐 {videoWidth} × {videoHeight} px
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-bold border-r border-white/10 pr-2">
+                    {dimensionRatioLabel}
+                  </span>
+                </div>
+              </div>
+
+              {/* Viewport Zoom & Mode Controls */}
+              <div className="flex items-center gap-1.5 bg-slate-950/80 p-1 rounded-xl border border-white/10">
+                <button
+                  type="button"
+                  onClick={handleZoomOut}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white text-xs font-black transition-all active:scale-95 cursor-pointer"
+                  title="تصغير المعاينة (-)"
+                >
+                  ➖
+                </button>
+                <div
+                  className={`px-2.5 py-1 text-[11px] font-mono font-black rounded-lg ${zoomMode === "actual" ? "bg-indigo-500 text-white shadow-glow-indigo" : zoomMode === "fit" ? "bg-sky-500 text-white shadow-glow-sky" : "bg-white/10 text-white"}`}
+                  title="نسبة التكبير الحالية في المعاينة"
+                >
+                  {Math.round(effectiveScale * 100)}%
+                  <span className="text-[9px] mr-1 opacity-80">
+                    {zoomMode === "fit"
+                      ? "(ملاءمة)"
+                      : zoomMode === "actual"
+                        ? "(1:1 حقيقي)"
+                        : ""}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleZoomIn}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white text-xs font-black transition-all active:scale-95 cursor-pointer"
+                  title="تكبير المعاينة (+)"
+                >
+                  ➕
+                </button>
+                <div className="w-[1px] h-4 bg-white/10 mx-0.5" />
+                <button
+                  type="button"
+                  onClick={handleZoomFit}
+                  className={`px-2.5 py-1 text-[10px] font-black rounded-lg transition-all cursor-pointer ${zoomMode === "fit" ? "bg-sky-500 text-white shadow-glow-sky" : "bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white"}`}
+                  title="ملاءمة الشاشة التلقائية للرؤية الكاملة دون أي قص"
+                >
+                  🎯 ملاءمة (Fit)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleZoomActual}
+                  className={`px-2.5 py-1 text-[10px] font-black rounded-lg transition-all cursor-pointer ${zoomMode === "actual" ? "bg-indigo-500 text-white shadow-glow-indigo" : "bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white"}`}
+                  title="عرض بالحجم الحقيقي 100% 1:1 Pixel"
+                >
+                  1:1 الحجم الفعلي
+                </button>
+                <div className="hidden sm:flex items-center gap-1">
+                  {[0.5, 0.75, 1.5].map((lvl) => (
+                    <button
+                      key={lvl}
+                      type="button"
+                      onClick={() => handleZoomPreset(lvl)}
+                      className={`px-1.5 py-0.5 text-[9px] font-mono font-bold rounded transition-all cursor-pointer ${customZoom === lvl && zoomMode === "custom" ? "bg-white/20 text-white" : "text-slate-500 hover:text-slate-300"}`}
+                    >
+                      {Math.round(lvl * 100)}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Background Theme Selector & Auto Fit Helper */}
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center bg-slate-950/80 p-0.5 rounded-xl border border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setCanvasBgTheme("checker")}
+                    className={`px-2 py-1 text-[10px] rounded-lg font-bold transition-all cursor-pointer ${canvasBgTheme === "checker" ? "bg-sky-500 text-white" : "text-slate-400 hover:text-white"}`}
+                    title="خلفية شفافة شطرنجية"
+                  >
+                    🏁 شفاف
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCanvasBgTheme("dark")}
+                    className={`px-2 py-1 text-[10px] rounded-lg font-bold transition-all cursor-pointer ${canvasBgTheme === "dark" ? "bg-sky-500 text-white" : "text-slate-400 hover:text-white"}`}
+                    title="خلفية داكنة"
+                  >
+                    ⬛ داكن
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCanvasBgTheme("white")}
+                    className={`px-2 py-1 text-[10px] rounded-lg font-bold transition-all cursor-pointer ${canvasBgTheme === "white" ? "bg-sky-500 text-white" : "text-slate-400 hover:text-white"}`}
+                    title="خلفية بيضاء"
+                  >
+                    ⬜ أبيض
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAutoCenterFitSvga}
+                  className="px-2.5 py-1 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded-xl text-[10px] font-black transition-all cursor-pointer flex items-center gap-1"
+                  title="إعادة ضبط وتوسيط تأثير SVGA داخل الأبعاد الحالية"
+                >
+                  🔄 توسيط التأثير
+                </button>
+              </div>
+            </div>
+
+            {/* Bottom Row: Quick Canvas Dimension Presets */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-white/5">
+              <span className="text-[10px] text-slate-500 font-bold ml-1">
+                مقاسات سريعة للمساحة:
+              </span>
+              {[
+                { label: "📱 750×1334 (تيك توك / لايف)", w: 750, h: 1334 },
+                { label: "📱 1080×1920 (Full HD عمودي)", w: 1080, h: 1920 },
+                { label: "🖥️ 1334×750 (أفقي)", w: 1334, h: 750 },
+                { label: "🖥️ 1920×1080 (Full HD أفقي)", w: 1920, h: 1080 },
+                { label: "🎁 750×750 (مربع)", w: 750, h: 750 },
+                {
+                  label: `📄 الأبعاد الأصلية (${originalDimensions.width}×${originalDimensions.height})`,
+                  w: originalDimensions.width,
+                  h: originalDimensions.height,
+                },
+              ].map((preset, idx) => {
+                const isSelected =
+                  videoWidth === preset.w && videoHeight === preset.h;
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() =>
+                      handleSetCanvasDimensions(preset.w, preset.h, true)
+                    }
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      isSelected
+                        ? "bg-sky-500 text-white font-black shadow-glow-sky border border-sky-400"
+                        : "bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/5"
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Canvas Viewport Container with Smooth Pan & Scroll */}
           <div
             ref={containerRef}
-            className="w-full flex items-center justify-center overflow-visible"
-            style={{ minHeight: `${Math.max(200, videoHeight * scale)}px` }}
+            className="w-full h-[520px] sm:h-[600px] lg:h-[650px] max-h-[75vh] overflow-auto bg-slate-950/80 backdrop-blur-3xl rounded-2xl sm:rounded-[2.5rem] border border-white/10 p-4 sm:p-8 flex items-center justify-center relative shadow-2xl custom-scrollbar"
+            style={{ touchAction: "pan-x pan-y" }}
+            onDragOver={handleDragOverSvga}
+            onDrop={handleDropSvgaFile}
           >
+            {/* Scaled Bounds Sizer for Scroll Calculations */}
             <div
-              onDragOver={handleDragOverSvga}
-              onDrop={handleDropSvgaFile}
-              className="relative flex items-center justify-center overflow-hidden rounded-2xl sm:rounded-[3rem] border border-white/10 shadow-3xl bg-black/20 transition-colors duration-200 hover:bg-black/30"
+              className="relative flex items-center justify-center flex-shrink-0 transition-all duration-150 m-auto"
               style={{ 
-                width: `${videoWidth * scale}px`,
-                height: `${videoHeight * scale}px` 
+                width: `${Math.round(videoWidth * effectiveScale)}px`,
+                height: `${Math.round(videoHeight * effectiveScale)}px`,
+                minWidth: `${Math.round(videoWidth * effectiveScale)}px`,
+                minHeight: `${Math.round(videoHeight * effectiveScale)}px`,
               }}
             >
+              {/* Visual Transform Scaler */}
               <div
-                className="absolute inset-0 flex items-center justify-center transition-transform duration-500 ease-out origin-center pointer-events-none"
-                style={{ transform: `scale(${scale})` }}
+                className="absolute inset-0 flex items-center justify-center origin-center pointer-events-none"
+                style={{ transform: `scale(${effectiveScale})` }}
               >
+                {/* Real Fixed Dimensions Design Canvas */}
                 <div
-                  className="relative overflow-hidden shadow-2xl pointer-events-auto"
+                  id="svga-fixed-canvas-workspace"
+                  className="relative overflow-hidden shadow-2xl pointer-events-auto flex-shrink-0 rounded-xl ring-1 ring-white/10"
                   style={{
                     width: `${videoWidth}px`,
                     height: `${videoHeight}px`,
@@ -9313,12 +9612,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                       ? `url(${previewBg})`
                       : previewBg
                         ? "none"
-                        : `
+                        : canvasBgTheme === "checker"
+                          ? `
                         linear-gradient(45deg, #334155 25%, transparent 25%), 
                         linear-gradient(-45deg, #334155 25%, transparent 25%), 
                         linear-gradient(45deg, transparent 75%, #334155 75%), 
                         linear-gradient(-45deg, transparent 75%, #334155 75%)
-                      `,
+                      `
+                          : "none",
                   backgroundSize:
                     previewBg && previewBgType === "image"
                       ? `${bgScale}%`
@@ -9331,7 +9632,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                     previewBg && previewBgType === "image"
                       ? `${bgPos.x}% ${bgPos.y}%`
                       : "0 0, 0 10px, 10px -10px, -10px 0px",
-                  backgroundColor: previewBg ? "transparent" : "#0f172a",
+                  backgroundColor:
+                    previewBg
+                      ? "transparent"
+                      : canvasBgTheme === "dark"
+                        ? "#0f172a"
+                        : canvasBgTheme === "black"
+                          ? "#000000"
+                          : canvasBgTheme === "white"
+                            ? "#ffffff"
+                            : canvasBgTheme === "slate"
+                              ? "#1e293b"
+                              : "#0f172a",
                   boxShadow:
                     "0 0 100px rgba(0,0,0,0.5), inset 0 0 50px rgba(0,0,0,0.5)",
                   border: previewBg
@@ -10916,48 +11228,91 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             {activeSideTab === "transforms" && (
               <div className="space-y-10 animate-in slide-in-from-right-4 duration-300">
                 <div className="space-y-6 pb-6 border-b border-white/5">
-                  <h4 className="text-white font-black text-xs uppercase tracking-widest text-sky-400">
-                    أبعاد الملف (Canvas Dimensions)
-                  </h4>
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-white font-black text-xs uppercase tracking-widest text-sky-400">
+                      أبعاد ومساحة التصميم (Canvas Dimensions)
+                    </h4>
+                    <span className="text-[10px] text-sky-400 font-mono font-bold bg-sky-500/10 border border-sky-500/20 px-2 py-0.5 rounded-lg">
+                      {dimensionRatioLabel}
+                    </span>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-[9px] font-black text-slate-500 uppercase">
-                        العرض (Width)
+                        العرض (Width px)
                       </label>
                       <input
                         type="number"
                         value={videoWidth}
                         onChange={(e) =>
-                          setCustomDimensions((prev) => ({
-                            width: parseInt(e.target.value) || 750,
-                            height: prev?.height || videoHeight,
-                          }))
+                          handleSetCanvasDimensions(
+                            parseInt(e.target.value) || 750,
+                            videoHeight,
+                            false,
+                          )
                         }
                         className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-white text-xs font-mono focus:border-sky-500 outline-none"
                       />
                     </div>
                     <div className="space-y-2">
                       <label className="text-[9px] font-black text-slate-500 uppercase">
-                        الارتفاع (Height)
+                        الارتفاع (Height px)
                       </label>
                       <input
                         type="number"
                         value={videoHeight}
                         onChange={(e) =>
-                          setCustomDimensions((prev) => ({
-                            width: prev?.width || videoWidth,
-                            height: parseInt(e.target.value) || 750,
-                          }))
+                          handleSetCanvasDimensions(
+                            videoWidth,
+                            parseInt(e.target.value) || 1334,
+                            false,
+                          )
                         }
                         className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-white text-xs font-mono focus:border-sky-500 outline-none"
                       />
                     </div>
+
+                    {/* Presets in Transforms tab */}
+                    <div className="col-span-2 space-y-2">
+                      <label className="text-[9px] font-black text-slate-500 uppercase block">
+                        مقاسات سريعة
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { label: "📱 750×1334 (تيك توك)", w: 750, h: 1334 },
+                          { label: "📱 1080×1920 (FHD عمودي)", w: 1080, h: 1920 },
+                          { label: "🖥️ 1334×750 (أفقي)", w: 1334, h: 750 },
+                          { label: "🖥️ 1920×1080 (FHD أفقي)", w: 1920, h: 1080 },
+                          { label: "🎁 750×750 (مربع)", w: 750, h: 750 },
+                          {
+                            label: `🔄 الأصلي (${originalDimensions.width}×${originalDimensions.height})`,
+                            w: originalDimensions.width,
+                            h: originalDimensions.height,
+                          },
+                        ].map((preset, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() =>
+                              handleSetCanvasDimensions(preset.w, preset.h, true)
+                            }
+                            className={`p-2 rounded-xl text-[10px] font-mono font-bold transition-all text-right cursor-pointer ${
+                              videoWidth === preset.w && videoHeight === preset.h
+                                ? "bg-sky-500 text-white font-black shadow-glow-sky border border-sky-400"
+                                : "bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5"
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     <button
-                      onClick={() => {
-                        setSvgaPos({ x: 0, y: 0 });
-                        setSvgaScale(1);
-                      }}
-                      className="col-span-2 py-3 bg-sky-500/10 text-sky-400 border border-sky-500/20 rounded-xl text-[10px] font-black uppercase hover:bg-sky-500/20 transition-all flex items-center justify-center gap-2 group"
+                      type="button"
+                      onClick={handleAutoCenterFitSvga}
+                      className="col-span-2 py-3 bg-sky-500/10 text-sky-400 border border-sky-500/20 rounded-xl text-[10px] font-black uppercase hover:bg-sky-500/20 transition-all flex items-center justify-center gap-2 group cursor-pointer"
                     >
                       <svg
                         className="w-4 h-4 group-hover:scale-110 transition-transform"
@@ -12329,17 +12684,23 @@ class _MyAppState extends State<MyApp> {
             {activeSideTab === "resize" && (
               <div className="space-y-8 animate-in fade-in duration-300">
                 <div className="bg-slate-950/40 p-6 rounded-[2rem] border border-white/5 space-y-6">
-                  <div className="flex items-center gap-2 mb-4">
-                    <div className="w-1 h-4 bg-indigo-500 rounded-full"></div>
-                    <h4 className="text-white font-black text-xs uppercase tracking-widest">
-                      تغيير الأبعاد (Resize)
-                    </h4>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <div className="w-1 h-4 bg-indigo-500 rounded-full"></div>
+                      <h4 className="text-white font-black text-xs uppercase tracking-widest">
+                        مساحة التصميم وتغيير الأبعاد (Canvas Workspace)
+                      </h4>
+                    </div>
+                    <span className="text-[10px] text-indigo-400 font-mono font-bold bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-lg">
+                      {dimensionRatioLabel}
+                    </span>
                   </div>
 
+                  {/* Dimension Inputs */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-[9px] font-black text-slate-500 uppercase">
-                        العرض (Width)
+                        العرض (Width px)
                       </label>
                       <input
                         type="number"
@@ -12350,30 +12711,14 @@ class _MyAppState extends State<MyApp> {
                             ? Math.round(newWidth * (videoHeight / videoWidth))
                             : customDimensions?.height || videoHeight;
 
-                          if (videoWidth > 0 && videoHeight > 0) {
-                            const scaleX = newWidth / videoWidth;
-                            const scaleY = newHeight / videoHeight;
-                            setCustomLayers((prev) =>
-                              prev.map((layer) => ({
-                                ...layer,
-                                x: layer.x * scaleX,
-                                y: layer.y * scaleY,
-                                scale: layer.scale * Math.min(scaleX, scaleY),
-                              })),
-                            );
-                          }
-
-                          setCustomDimensions({
-                            width: newWidth,
-                            height: newHeight,
-                          });
+                          handleSetCanvasDimensions(newWidth, newHeight, false);
                         }}
                         className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-white text-xs font-mono focus:border-indigo-500 outline-none"
                       />
                     </div>
                     <div className="space-y-2">
                       <label className="text-[9px] font-black text-slate-500 uppercase">
-                        الارتفاع (Height)
+                        الارتفاع (Height px)
                       </label>
                       <input
                         type="number"
@@ -12384,45 +12729,78 @@ class _MyAppState extends State<MyApp> {
                             ? Math.round(newHeight * (videoWidth / videoHeight))
                             : customDimensions?.width || videoWidth;
 
-                          if (videoWidth > 0 && videoHeight > 0) {
-                            const scaleX = newWidth / videoWidth;
-                            const scaleY = newHeight / videoHeight;
-                            setCustomLayers((prev) =>
-                              prev.map((layer) => ({
-                                ...layer,
-                                x: layer.x * scaleX,
-                                y: layer.y * scaleY,
-                                scale: layer.scale * Math.min(scaleX, scaleY),
-                              })),
-                            );
-                          }
-
-                          setCustomDimensions({
-                            width: newWidth,
-                            height: newHeight,
-                          });
+                          handleSetCanvasDimensions(newWidth, newHeight, false);
                         }}
                         className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-white text-xs font-mono focus:border-indigo-500 outline-none"
                       />
                     </div>
 
-                    <div className="col-span-2 flex items-center gap-2 mt-2">
-                      <input
-                        type="checkbox"
-                        id="maintainAspectRatio"
-                        checked={maintainAspectRatio}
-                        onChange={(e) =>
-                          setMaintainAspectRatio(e.target.checked)
-                        }
-                        className="w-4 h-4 rounded bg-slate-900 border-white/10 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-slate-950"
-                      />
-                      <label
-                        htmlFor="maintainAspectRatio"
-                        className="text-[10px] font-bold text-slate-400 cursor-pointer"
-                      >
-                        الحفاظ على تناسب الأبعاد (Maintain Aspect Ratio)
-                      </label>
+                    <div className="col-span-2 flex items-center justify-between gap-2 mt-1 bg-white/5 p-2.5 rounded-xl border border-white/5">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="maintainAspectRatio"
+                          checked={maintainAspectRatio}
+                          onChange={(e) =>
+                            setMaintainAspectRatio(e.target.checked)
+                          }
+                          className="w-4 h-4 rounded bg-slate-900 border-white/10 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-slate-950 cursor-pointer"
+                        />
+                        <label
+                          htmlFor="maintainAspectRatio"
+                          className="text-[10px] font-bold text-slate-300 cursor-pointer select-none"
+                        >
+                          الحفاظ على نسبة العرض إلى الارتفاع (Maintain Ratio)
+                        </label>
+                      </div>
+                      <span className="text-[9px] font-mono text-slate-400">
+                        {videoWidth} × {videoHeight}
+                      </span>
                     </div>
+
+                    {/* Presets Palette */}
+                    <div className="col-span-2 space-y-2 pt-2 border-t border-white/5">
+                      <label className="text-[9px] font-black text-slate-500 uppercase block">
+                        مقاسات معتمدة سريعة
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { label: "📱 750×1334 (تيك توك / ستوري)", w: 750, h: 1334 },
+                          { label: "📱 1080×1920 (FHD عمودي)", w: 1080, h: 1920 },
+                          { label: "🖥️ 1334×750 (أفقي)", w: 1334, h: 750 },
+                          { label: "🖥️ 1920×1080 (FHD أفقي)", w: 1920, h: 1080 },
+                          { label: "🎁 750×750 (صندوق مربع)", w: 750, h: 750 },
+                          {
+                            label: `🔄 الأصلي (${originalDimensions.width}×${originalDimensions.height})`,
+                            w: originalDimensions.width,
+                            h: originalDimensions.height,
+                          },
+                        ].map((preset, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() =>
+                              handleSetCanvasDimensions(preset.w, preset.h, true)
+                            }
+                            className={`p-2 rounded-xl text-[10px] font-mono font-bold transition-all text-right cursor-pointer ${
+                              videoWidth === preset.w && videoHeight === preset.h
+                                ? "bg-indigo-500 text-white font-black shadow-glow-indigo border border-indigo-400"
+                                : "bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5"
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleAutoCenterFitSvga}
+                      className="col-span-2 py-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-[10px] font-black uppercase transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      🎯 وسطنة وتناسب تأثير SVGA (Auto Center & Fit)
+                    </button>
                   </div>
                 </div>
 
