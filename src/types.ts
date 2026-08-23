@@ -74,7 +74,11 @@ export type UserRole = 'admin' | 'moderator' | 'user';
 
 export interface UserRecord {
   id: string;
+  uid?: string;
   name: string;
+  displayName?: string;
+  photoURL?: string;
+  avatarUrl?: string;
   email?: string;
   password?: string;
   role: UserRole;
@@ -94,6 +98,7 @@ export interface UserRecord {
   deviceId?: string;
   allowedExportFormat?: string | string[]; // Restrict user to specific format(s)
   hasSvgaExAccess?: boolean; // Per-user access to SVGA 2.0 EX
+  [key: string]: any;
 }
 
 export interface PresetBackground {
@@ -123,8 +128,10 @@ export interface AppSettings {
   isRegistrationOpen: boolean;
   defaultFreeAttempts: number;
   isSvgaExEnabled: boolean; // Global toggle for SVGA 2.0 EX
-  maintenanceMode?: boolean;
-  maintenanceMessage?: string;
+  isMaintenanceMode?: boolean; // وضع التحديث والتطوير
+  maintenanceMessage?: string; // رسالة التحديث المخصصة
+  maintenanceTitle?: string; // عنوان شاشة التحديث
+  maintenanceEstimatedTime?: string; // الوقت المقدر للانتهاء
   costs: {
     svgaProcess: number;
     batchCompress: number;

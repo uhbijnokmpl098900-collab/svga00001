@@ -213,7 +213,7 @@ export default function LoginScreen() {
                 </div>
 
                 <button 
-                  onClick={login}
+                  onClick={() => login(email, password)}
                   type="button"
                   className="mt-6 w-full bg-white/10 border border-white/10 text-white font-bold py-3.5 px-4 rounded-2xl shadow-sm hover:bg-white/20 transition-colors flex items-center justify-center gap-3 backdrop-blur-md"
                 >

@@ -203,7 +203,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
             }`}
             title={tool.descAr}
           >
-            {React.cloneElement(tool.icon as React.ReactElement, { className: 'w-4 h-4' })}
+            {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-4 h-4' })}
             <span>{tool.label}</span>
           </button>
         )
@@ -386,7 +386,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
 
                  <div className="flex items-center gap-4">
                     <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-600/20 border border-indigo-500/30 text-indigo-400 flex items-center justify-center shadow-lg shadow-indigo-500/10">
-                      {React.cloneElement(infoModalTool.icon as React.ReactElement, { className: 'w-8 h-8' })}
+                      {React.cloneElement(infoModalTool.icon as React.ReactElement<any>, { className: 'w-8 h-8' })}
                     </div>
                     <div className="flex flex-col gap-1">
                       <h3 className="text-2xl font-black text-white">{infoModalTool.label}</h3>
@@ -467,7 +467,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
                                }`}
                              >
                                 <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isActive ? 'bg-white/20' : 'bg-[#020617]/50'}`}>
-                                  {React.cloneElement(tool.icon as React.ReactElement, { className: 'w-6 h-6' })}
+                                  {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-6 h-6' })}
                                 </div>
                                 <div className="flex-1 flex flex-col items-start gap-1 text-right">
                                   <span className="font-black text-lg">{tool.label}</span>

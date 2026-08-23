@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserRecord, AppSettings, LicenseKey, PresetBackground, SubscriptionType, ActivityLog } from '../types';
+import { UserRecord, UserRole, AppSettings, LicenseKey, PresetBackground, SubscriptionType, ActivityLog } from '../types';
 import { db, storage } from '../lib/firebase';
 import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, query, orderBy, Timestamp, setDoc, getDoc, limit } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -39,6 +39,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
     isRegistrationOpen: true,
     defaultFreeAttempts: 5,
     isSvgaExEnabled: false,
+    isMaintenanceMode: false,
+    maintenanceMessage: 'الموقع حالياً تحت التحديث والتطوير، يرجى الانتظار حتى انتهاء أعمال التطوير.',
+    maintenanceTitle: 'الموقع تحت التحديث والتطوير',
+    maintenanceEstimatedTime: '',
     costs: {
       svgaProcess: 0,
       batchCompress: 0,
@@ -111,7 +115,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
       alert("تم إنشاء الحساب بنجاح");
       setShowCreateUser(false);
       setNewUser({ name: '', email: '', password: '', role: 'user' });
-      fetchData(true);
+      fetchData();
     } catch (error: any) {
       console.error("Error creating user:", error);
       alert("فشل إنشاء الحساب: " + (error.message || "خطأ غير معروف"));
@@ -130,9 +134,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
     fetchData();
   }, [activeTab]);
 
-  const fetchData = async (forceRefresh = false) => {
+  const fetchData = async () => {
     const now = Date.now();
-    if (!forceRefresh && cache[activeTab] && (now - cache[activeTab].timestamp) < CACHE_DURATION) {
+    if (cache[activeTab] && (now - cache[activeTab].timestamp) < CACHE_DURATION) {
       const cached = cache[activeTab].data;
       if (activeTab === 'users') {
         setUsers(cached.users);
@@ -327,7 +331,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
     try {
       const updates = {
         isVIP: false,
-        subscriptionType: 'none',
+        subscriptionType: 'none' as SubscriptionType,
         subscriptionExpiry: null,
         activatedKey: null
       };
@@ -408,12 +412,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
     if (!confirm('هل أنت متأكد من سحب الإشراف من هذا المستخدم؟ سيعود مستخدماً عادياً.')) return;
     try {
       const updates = {
-        role: 'user',
+        role: 'user' as UserRole,
         permissions: [],
         // Optionally reset perks, but maybe keep them if they were paid? 
         // Usually staff perks are revoked.
         isVIP: false,
-        subscriptionType: 'none',
+        subscriptionType: 'none' as SubscriptionType,
         subscriptionExpiry: null,
         coins: 0,
         freeAttempts: settings.defaultFreeAttempts,
@@ -458,7 +462,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
         createdBy: currentUser?.id || 'admin'
       };
       await addDoc(collection(db, 'licenseKeys'), newKey);
-      fetchData(true);
+      fetchData();
     } catch (error) {
       console.error("Error generating key:", error);
     }
@@ -496,7 +500,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
           url,
           createdAt: Timestamp.now()
         });
-        fetchData(true);
+        fetchData();
       }
     } catch (error) {
       console.error("Error uploading asset:", error);
@@ -529,7 +533,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
               createdAt: Timestamp.now()
           });
           setPresetUrlInput('');
-          fetchData(true);
+          fetchData();
       } catch (error) {
           console.error("Error adding preset url:", error);
           alert("فشل إضافة الخلفية");
@@ -626,10 +630,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                           <tr key={user.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                             <td className="p-3 font-medium flex items-center gap-2">
                                 {user.name}
-                                {isSuperAdmin(user) && <BadgeCheck className="w-4 h-4 text-amber-400" title="المدير العام" />}
-                                {user.role === 'admin' && !isSuperAdmin(user) && <BadgeCheck className="w-4 h-4 text-blue-400" title="مسؤول" />}
-                                {user.role === 'moderator' && <Shield className="w-4 h-4 text-green-400" title="مشرف" />}
-                                {user.activatedKey && <BadgeCheck className="w-4 h-4 text-yellow-400" title="مفعل كود اشتراك" />}
+                                {isSuperAdmin(user) && <span title="المدير العام"><BadgeCheck className="w-4 h-4 text-amber-400" /></span>}
+                                {user.role === 'admin' && !isSuperAdmin(user) && <span title="مسؤول"><BadgeCheck className="w-4 h-4 text-blue-400" /></span>}
+                                {user.role === 'moderator' && <span title="مشرف"><Shield className="w-4 h-4 text-green-400" /></span>}
+                                {user.activatedKey && <span title="مفعل كود اشتراك"><BadgeCheck className="w-4 h-4 text-yellow-400" /></span>}
                             </td>
                             <td className="p-3 text-slate-400">{user.email}</td>
                             <td className="p-3">
@@ -975,7 +979,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                       <div className="flex flex-col gap-4">
                         <div className="flex items-center gap-4">
                             {settings?.logoUrl && (
-                            <img src={settings.logoUrl} alt="Logo" className="w-16 h-16 rounded-lg object-contain bg-black/20" referrerPolicy="no-referrer" />
+                            <img src={settings.logoUrl} alt="Logo" className="w-16 h-16 rounded-lg object-contain bg-black/20" />
                             )}
                             <label className="flex-1 cursor-pointer">
                             <div className="border-2 border-dashed border-white/10 hover:border-indigo-500/50 rounded-lg p-4 text-center transition-colors">
@@ -1008,7 +1012,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                       <div className="flex flex-col gap-4">
                         <div className="flex items-center gap-4">
                             {settings?.backgroundUrl && (
-                            <img src={settings.backgroundUrl} alt="Background" className="w-24 h-16 rounded-lg object-cover bg-black/20" referrerPolicy="no-referrer" />
+                            <img src={settings.backgroundUrl} alt="Background" className="w-24 h-16 rounded-lg object-cover bg-black/20" />
                             )}
                             <label className="flex-1 cursor-pointer">
                             <div className="border-2 border-dashed border-white/10 hover:border-purple-500/50 rounded-lg p-4 text-center transition-colors">
@@ -1062,7 +1066,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                       {backgrounds.map(bg => (
                         <div key={bg.id} className="group relative aspect-video rounded-lg overflow-hidden border border-white/10">
-                          <img src={bg.url} alt={bg.label} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          <img src={bg.url} alt={bg.label} className="w-full h-full object-cover" />
                           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                             <button 
                               onClick={() => handleDeletePreset(bg.id, bg.url)}
@@ -1202,6 +1206,53 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                         />
                     </div>
 
+                    {/* 🔴 وضع التحديث والتطوير */}
+                    <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-white">تفعيل وضع التحديث والتطوير</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${settings.isMaintenanceMode ? 'bg-amber-500 text-black' : 'bg-slate-700 text-slate-300'}`}>
+                              {settings.isMaintenanceMode ? 'نشط' : 'معطل'}
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-slate-300">عند التفعيل، يتم إغلاق الموقع للمستخدمين العاديين وتظهر شاشة الصيانة، ويبقى متاحاً للمدير فقط</span>
+                        </div>
+                        <button 
+                          type="button"
+                          onClick={() => setSettings({ ...settings, isMaintenanceMode: !settings.isMaintenanceMode })}
+                          className={`w-12 h-6 rounded-full transition-all relative flex-shrink-0 ${settings.isMaintenanceMode ? 'bg-amber-500' : 'bg-slate-700'}`}
+                        >
+                          <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.isMaintenanceMode ? 'right-7' : 'right-1'}`}></div>
+                        </button>
+                      </div>
+
+                      {settings.isMaintenanceMode && (
+                        <div className="space-y-3 pt-2 border-t border-amber-500/20">
+                          <div>
+                            <label className="block text-xs font-semibold text-amber-200 mb-1">رسالة التحديث المخصصة</label>
+                            <input 
+                              type="text" 
+                              value={settings.maintenanceMessage || ''} 
+                              onChange={e => setSettings({ ...settings, maintenanceMessage: e.target.value })}
+                              className="w-full bg-slate-950/70 border border-amber-500/30 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                              placeholder="الموقع حالياً تحت التحديث والتطوير، يرجى الانتظار حتى انتهاء أعمال التطوير."
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-amber-200 mb-1">الوقت المقدر للانتهاء (اختياري)</label>
+                            <input 
+                              type="text" 
+                              value={settings.maintenanceEstimatedTime || ''} 
+                              onChange={e => setSettings({ ...settings, maintenanceEstimatedTime: e.target.value })}
+                              className="w-full bg-slate-950/70 border border-amber-500/30 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                              placeholder="مثال: 30 دقيقة / قريباً"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="flex items-center justify-between p-4 bg-slate-950/30 border border-white/10 rounded-xl">
                         <div className="flex flex-col gap-1">
                             <span className="text-sm font-bold text-white">فتح التسجيل للجميع</span>
@@ -1215,33 +1266,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
                             <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.isRegistrationOpen ? 'right-7' : 'right-1'}`}></div>
                         </button>
                     </div>
-
-                    <div className="flex items-center justify-between p-4 bg-slate-950/30 border border-white/10 rounded-xl">
-                        <div className="flex flex-col gap-1">
-                            <span className="text-sm font-bold text-white">تفعيل وضع التحديث والتطوير</span>
-                            <span className="text-[10px] text-slate-500">عند التفعيل، سيتم إيقاف الموقع للمستخدمين العاديين وإظهار صفحة الصيانة</span>
-                        </div>
-                        <button 
-                            type="button"
-                            onClick={() => setSettings({ ...settings, maintenanceMode: !settings.maintenanceMode })}
-                            className={`w-12 h-6 rounded-full transition-all relative ${settings.maintenanceMode ? 'bg-orange-500' : 'bg-slate-700'}`}
-                        >
-                            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.maintenanceMode ? 'right-7' : 'right-1'}`}></div>
-                        </button>
-                    </div>
-
-                    {settings.maintenanceMode && (
-                      <div className="p-4 bg-orange-500/5 border border-orange-500/20 rounded-xl animate-in fade-in zoom-in-95 duration-200">
-                        <label className="block text-sm font-medium text-orange-400 mb-2">رسالة وضع التحديث (تظهر للمستخدمين)</label>
-                        <textarea 
-                          value={settings.maintenanceMessage || "الموقع حالياً تحت التحديث والتطوير، يرجى الانتظار حتى انتهاء أعمال التطوير."} 
-                          onChange={e => setSettings({ ...settings, maintenanceMessage: e.target.value })}
-                          className="w-full bg-slate-950/50 border border-orange-500/20 rounded-lg px-4 py-3 focus:outline-none focus:border-orange-500/50 transition-colors text-white resize-none"
-                          placeholder="الموقع حالياً تحت التحديث والتطوير..."
-                          rows={3}
-                        />
-                      </div>
-                    )}
 
                     <div className="flex items-center justify-between p-4 bg-slate-950/30 border border-white/10 rounded-xl">
                         <div className="flex flex-col gap-1">
@@ -1365,7 +1389,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onCancel })
               {TABS.map(tab => (
                 <label key={tab.id} className="flex items-center justify-between p-3 bg-slate-950/30 border border-white/5 rounded-xl cursor-pointer hover:bg-white/5 transition-colors">
                   <div className="flex items-center gap-3">
-                    {React.cloneElement(tab.icon as React.ReactElement, { className: 'w-4 h-4 text-slate-400' })}
+                    {React.cloneElement(tab.icon as React.ReactElement<any>, { className: 'w-4 h-4 text-slate-400' })}
                     <span className="text-sm">{tab.label}</span>
                   </div>
                   <input 
@@ -1405,7 +1429,7 @@ const NavButton: React.FC<{ active: boolean; onClick: () => void; icon: React.Re
         : 'text-slate-400 hover:bg-white/5 hover:text-white'
     }`}
   >
-    {React.cloneElement(icon as React.ReactElement, { className: 'w-4 h-4 sm:w-5 sm:h-5' })}
+    {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-4 h-4 sm:w-5 sm:h-5' })}
     <span className="font-medium text-xs sm:text-sm whitespace-nowrap">{label}</span>
   </button>
 );

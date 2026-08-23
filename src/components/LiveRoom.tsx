@@ -1030,7 +1030,7 @@ export default function LiveRoom({
               {mics.slice(0, settings.maxMics).map((mic, i) => (
                 <div 
                   key={mic.id} 
-                  ref={el => micRefs.current[mic.id] = el}
+                  ref={el => { micRefs.current[mic.id] = el; }}
                   onClick={() => handleMicClick(mic)} 
                   className="flex flex-col items-center relative cursor-pointer group"
                 >
@@ -2260,7 +2260,7 @@ export default function LiveRoom({
               {selectedProfile.cpPartnerId && (
                 <div className="border border-pink-500/30 rounded-2xl p-4 mb-6 relative overflow-hidden flex items-center justify-between">
                   {selectedProfile.cpBackground ? (
-                    <img src={selectedProfile.cpBackground || undefined} className="absolute inset-0 w-full h-full object-cover" style={{ imageRendering: 'high-quality' }} alt="CP Background" />
+                    <img src={selectedProfile.cpBackground || undefined} className="absolute inset-0 w-full h-full object-cover" style={{ imageRendering: 'auto' }} alt="CP Background" />
                   ) : (
                     <div className="absolute inset-0 bg-gray-800/50"></div>
                   )}

@@ -32,16 +32,16 @@ import { SubscriptionModal } from './components/SubscriptionModal';
 import { useAuth } from './contexts/AuthContext';
 import { AppState, FileMetadata, AppSettings } from './types';
 import { useAccessControl } from './hooks/useAccessControl';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import { logActivity } from './utils/logger';
+import { MaintenanceScreen } from './components/MaintenanceScreen';
 
 declare var SVGA: any;
 
 import { OnboardingModal } from './components/OnboardingModal';
-import { HelpCircle, BookOpen } from 'lucide-react';
+import { HelpCircle, BookOpen, Wrench, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { MaintenanceScreen } from './components/MaintenanceScreen';
 
 const videoWidth = 1334;
 const videoHeight = 750;
@@ -97,36 +97,45 @@ const App: React.FC = () => {
     localStorage.setItem('hasSeenOnboarding', 'true');
   };
 
+  const isSuperAdmin = currentUser?.email?.toLowerCase() === 'uhbijnokmpl098900@gmail.com' || currentUser?.isSuperAdmin === true;
+  const isAdminUser = isSuperAdmin || currentUser?.role === 'admin' || currentUser?.role === 'moderator';
+  const isMaintenanceActive = Boolean(settings?.isMaintenanceMode);
+
   useEffect(() => {
-    // Load Global Settings - Use cache immediately on failure
-    const loadSettings = async () => {
-      try {
-        const docRef = doc(db, 'settings', 'global');
-        // Use getDoc instead of getDocFromServer to allow cached data if offline
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data() as AppSettings;
-          setSettings(data);
-          localStorage.setItem('appSettings', JSON.stringify(data));
-        }
-      } catch (e: any) { 
-        console.warn("Settings Load Notice:", e.message);
-        if (e.message && e.message.includes('offline')) {
-          console.error("Firestore is unreachable. Please ensure Firestore is enabled in your Firebase Console.");
-        }
-        
-        // Try to load from cache if Firestore fails
-        const cached = localStorage.getItem('appSettings');
-        if (cached) {
-          try {
-            setSettings(JSON.parse(cached));
-          } catch (parseError) {
-            console.error("Failed to parse cached settings");
-          }
+    // Real-time listener for Global Settings
+    const docRef = doc(db, 'settings', 'global');
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as AppSettings;
+        setSettings(data);
+        localStorage.setItem('appSettings', JSON.stringify(data));
+        // Sync with backend memory cache
+        try {
+          fetch('/api/maintenance/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              isMaintenanceMode: data.isMaintenanceMode,
+              maintenanceMessage: data.maintenanceMessage,
+              maintenanceTitle: data.maintenanceTitle,
+              maintenanceEstimatedTime: data.maintenanceEstimatedTime
+            })
+          }).catch(() => {});
+        } catch (e) {}
+      }
+    }, (e: any) => {
+      console.warn("Settings Load Notice:", e.message);
+      const cached = localStorage.getItem('appSettings');
+      if (cached) {
+        try {
+          setSettings(JSON.parse(cached));
+        } catch (parseError) {
+          console.error("Failed to parse cached settings");
         }
       }
-    };
-    loadSettings();
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const handleFeatureAccess = async (targetState: AppState, featureName: string) => {
@@ -380,6 +389,24 @@ const App: React.FC = () => {
     return <Loading />;
   }
 
+  // 🔴 Maintenance Mode Blocking for Non-Admin Users
+  if (isMaintenanceActive && !isAdminUser) {
+    return (
+      <MaintenanceScreen 
+        settings={settings} 
+        currentUser={currentUser} 
+        onRefresh={async () => {
+          try {
+            const docSnap = await getDoc(doc(db, 'settings', 'global'));
+            if (docSnap.exists()) {
+              setSettings(docSnap.data() as AppSettings);
+            }
+          } catch (e) {}
+        }}
+      />
+    );
+  }
+
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-[#020617] flex items-center justify-center p-4 relative overflow-hidden">
@@ -395,17 +422,6 @@ const App: React.FC = () => {
           )}
         </div>
       </div>
-    );
-  }
-
-  const isMaintenanceMode = settings?.maintenanceMode && currentUser.role !== 'admin' && currentUser.role !== 'moderator';
-
-  if (isMaintenanceMode) {
-    return (
-      <MaintenanceScreen 
-        appName={settings?.appName} 
-        message={settings?.maintenanceMessage} 
-      />
     );
   }
 
@@ -500,6 +516,21 @@ const App: React.FC = () => {
         )}
       </AnimatePresence>
       
+      {isMaintenanceActive && isAdminUser && (
+        <div className="fixed top-0 left-0 right-0 bg-gradient-to-r from-amber-600 via-orange-600 to-amber-600 text-white py-1.5 px-4 text-xs font-bold z-[300] flex items-center justify-between shadow-lg border-b border-amber-400/40">
+          <div className="flex items-center gap-2">
+            <Wrench className="w-4 h-4 text-amber-200 animate-pulse" />
+            <span>⚠️ وضع التحديث والتطوير مفعّل حالياً: الموقع مغلق أمام المستخدمين العاديين، وتتصفح أنت كمسؤول.</span>
+          </div>
+          <button
+            onClick={() => setState(AppState.ADMIN_PANEL)}
+            className="px-3 py-0.5 rounded-lg bg-black/40 hover:bg-black/60 text-white text-[11px] border border-white/20 transition-all font-bold"
+          >
+            فتح لوحة الإعدادات
+          </button>
+        </div>
+      )}
+
       {isQuotaExceeded && (
         <div className="fixed top-0 left-0 right-0 bg-amber-500/90 backdrop-blur-sm text-black py-1 px-4 text-center text-[10px] font-bold z-[300] flex items-center justify-center gap-2">
           <span>⚠️ تم تجاوز حصة الاستخدام اليومية للسيرفر. الموقع يعمل الآن بالوضع الاحتياطي (Offline Mode).</span>

@@ -47,7 +47,7 @@ export const ImageEnhancer: React.FC<ImageEnhancerProps> = ({ onCancel, currentU
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const requestRef = useRef<number>();
+  const requestRef = useRef<number | null>(null);
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

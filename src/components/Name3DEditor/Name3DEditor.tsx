@@ -75,7 +75,13 @@ const ColorFillEditor = ({ label, fill, onChange }: { label: string, fill: any, 
   )
 }
 
-const Name3DEditor: React.FC = () => {
+interface Name3DEditorProps {
+  onCancel?: () => void;
+  currentUser?: any;
+  onSubscriptionRequired?: () => void;
+}
+
+const Name3DEditor: React.FC<Name3DEditorProps> = ({ onCancel, currentUser, onSubscriptionRequired }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [state, setState] = useState<Name3DState>({
     text: 'الاسم هنا',

@@ -11,7 +11,7 @@ interface VapPlayerProps {
 export const VapPlayer: React.FC<VapPlayerProps> = ({ src, width, height, className, alphaMode = 'right' }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
-    const requestRef = useRef<number>();
+    const requestRef = useRef<number | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
 
     useEffect(() => {

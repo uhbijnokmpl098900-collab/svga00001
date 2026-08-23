@@ -154,7 +154,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onUpload, onAction }) => {
                           <div className={`relative z-10 p-3 sm:p-4 rounded-xl sm:rounded-2xl transition-all duration-500 group-hover:scale-110 group-hover:rotate-3 shadow-[0_8px_16px_rgba(0,0,0,0.4)] border ${
                              tool.highlight ? 'bg-gradient-to-br from-[#4DA3FF]/30 to-[#8B5CF6]/30 text-white border-white/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.4),0_0_20px_rgba(77,163,255,0.5)]' : 'bg-white/5 text-slate-300 border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]'
                           }`}>
-                            {React.cloneElement(tool.icon as React.ReactElement, { className: 'w-6 h-6 sm:w-8 sm:h-8 drop-shadow-md' })}
+                            {React.cloneElement(tool.icon as React.ReactElement<any>, { className: 'w-6 h-6 sm:w-8 sm:h-8 drop-shadow-md' })}
                           </div>
 
                           <div className="relative z-10 flex flex-col gap-2 sm:gap-4 w-full h-full flex-grow">

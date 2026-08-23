@@ -234,7 +234,7 @@ export default function ProfilePage({ onOpenAdmin }: { onOpenAdmin?: () => void 
           <div className="mt-6">
             <div className="relative rounded-2xl overflow-hidden p-4 shadow-sm border border-pink-100 flex items-center justify-between bg-white">
               {userData.cpBackground && (
-                <img src={userData.cpBackground || undefined} className="absolute inset-0 w-full h-full object-cover" style={{ imageRendering: 'high-quality' }} alt="CP Background" />
+                <img src={userData.cpBackground || undefined} className="absolute inset-0 w-full h-full object-cover" style={{ imageRendering: 'auto' }} alt="CP Background" />
               )}
               <div className="absolute inset-0 bg-black/40"></div>
               

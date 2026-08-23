@@ -873,7 +873,7 @@ export const ImageToSvga: React.FC<ImageToSvgaProps> = ({ currentUser, onCancel,
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
-  const animationRef = useRef<number>();
+  const animationRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {

@@ -9,7 +9,7 @@ export const ShineEffectSystem: React.FC<{ onCancel: () => void }> = ({ onCancel
   const [angle, setAngle] = useState(45);
   const [shineProps, setShineProps] = useState({ length: 50, width: 20, opacity: 0.5 });
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationRef = useRef<number>();
+  const animationRef = useRef<number | null>(null);
 
   // Shine Effect Logic
   const drawShine = (ctx: CanvasRenderingContext2D, width: number, height: number, progress: number) => {

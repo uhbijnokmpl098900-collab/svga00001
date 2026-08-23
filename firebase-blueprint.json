@@ -115,6 +115,10 @@
         "isRegistrationOpen": { "type": "boolean" },
         "defaultFreeAttempts": { "type": "number" },
         "isSvgaExEnabled": { "type": "boolean" },
+        "isMaintenanceMode": { "type": "boolean" },
+        "maintenanceMessage": { "type": "string" },
+        "maintenanceTitle": { "type": "string" },
+        "maintenanceEstimatedTime": { "type": "string" },
         "costs": { "type": "object" }
       },
       "required": ["appName", "whatsappNumber"]

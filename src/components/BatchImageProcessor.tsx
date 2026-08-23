@@ -447,7 +447,7 @@ export const BatchImageProcessor: React.FC<BatchImageProcessorProps> = ({ onCanc
                         <div className="flex items-center gap-3 shrink-0 pl-3">
                           {img.status === 'processing' && <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />}
                           {img.status === 'success' && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
-                          {img.status === 'error' && <AlertCircle className="w-5 h-5 text-red-400" title={img.error} />}
+                          {img.status === 'error' && <span title={img.error}><AlertCircle className="w-5 h-5 text-red-400" /></span>}
                           
                           {!isProcessing && img.status === 'pending' && (
                             <button 

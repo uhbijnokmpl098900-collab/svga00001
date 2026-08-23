@@ -36,9 +36,13 @@ const getClientIp = async () => {
 
 interface AuthContextType {
   currentUser: UserRecord | null;
+  user: UserRecord | null;
   loading: boolean;
   login: (email: string, pass: string) => Promise<void>;
-  signup: (email: string, pass: string, name: string) => Promise<void>;
+  loginWithEmail: (email: string, pass: string) => Promise<void>;
+  signup: (email: string, pass: string, name?: string) => Promise<void>;
+  signupWithEmail: (email: string, pass: string, name?: string) => Promise<void>;
+  updateUserProfile: (dataOrName: Partial<UserRecord> | string, photoURL?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -179,7 +183,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await signInWithEmailAndPassword(auth, email, pass);
   };
 
-  const signup = async (email: string, pass: string, name: string) => {
+  const signup = async (email: string, pass: string, name: string = '') => {
     // Check if registration is open
     const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
     let defaultFreeAttempts = 5;
@@ -197,10 +201,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const deviceId = getDeviceId();
     const lastIp = await getClientIp();
     const isAdmin = email === 'uhbijnokmpl098900@gmail.com';
+    const userName = name || email.split('@')[0] || 'User';
 
     const newUser: UserRecord = {
       id: user.uid,
-      name,
+      name: userName,
       email,
       role: isAdmin ? 'admin' : 'user',
       isApproved: true,
@@ -218,7 +223,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     await setDoc(doc(db, 'users', user.uid), newUser);
-    await updateProfile(user, { displayName: name });
+    if (userName) {
+      await updateProfile(user, { displayName: userName });
+    }
     setCurrentUser(newUser);
   };
 
@@ -235,8 +242,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateUserProfile = async (dataOrName: Partial<UserRecord> | string, photoURL?: string) => {
+    if (auth.currentUser) {
+      if (typeof dataOrName === 'string') {
+        const displayName = dataOrName;
+        const updates: any = {};
+        if (displayName) updates.displayName = displayName;
+        if (photoURL) updates.photoURL = photoURL;
+        await updateProfile(auth.currentUser, updates);
+        await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+          ...(displayName ? { name: displayName, displayName } : {}),
+          ...(photoURL ? { photoURL, avatar: photoURL } : {})
+        });
+      } else {
+        await updateDoc(doc(db, 'users', auth.currentUser.uid), dataOrName);
+      }
+      await refreshUser();
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ currentUser, loading, login, signup, logout, refreshUser }}>
+    <AuthContext.Provider value={{
+      currentUser,
+      user: currentUser,
+      loading,
+      login,
+      loginWithEmail: login,
+      signup,
+      signupWithEmail: signup,
+      updateUserProfile,
+      logout,
+      refreshUser
+    }}>
       {children}
     </AuthContext.Provider>
   );

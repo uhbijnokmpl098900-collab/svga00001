@@ -1125,14 +1125,14 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
-        if (json.version && json.version.includes("QUANTUM")) {
+        if (json && (json.sprites || json.layers || json.version || json.name)) {
           setAeJsonData(json);
           setSelectedFormat("SVGA 2.0");
           alert(
-            "✅ تم استيراد بيانات After Effects بنجاح! يمكنك الآن التصدير بصيغة SVGA 2.0.",
+            "✅ تم استيراد وربط بيانات After Effects بنجاح! جاهز للتصدير والتجميع.",
           );
         } else {
-          alert("❌ ملف غير مدعوم أو إصدار قديم.");
+          alert("❌ الملف لا يحتوي على بيانات طبقات أو حركات After Effects صالحة.");
         }
       } catch (err) {
         alert("❌ خطأ في قراءة ملف JSON.");
@@ -1818,16 +1818,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   useEffect(() => {
     const handleResize = () => {
       if (containerRef.current) {
-        const parent = containerRef.current.parentElement;
-        if (parent) {
-          const maxWidth = parent.clientWidth;
-          const maxHeight = window.innerHeight * 0.85;
-          const s = Math.min(maxWidth / videoWidth, maxHeight / videoHeight);
-          setScale(s);
-        }
+        // Find the actual available width for the container
+        const maxWidth = containerRef.current.parentElement?.clientWidth || containerRef.current.clientWidth;
+        // Use window inner height minus approximate header and padding sizes (250px)
+        const maxHeight = Math.max(300, window.innerHeight - 250);
+        
+        // Calculate the scale to perfectly fit both width and height
+        const s = Math.min(maxWidth / videoWidth, maxHeight / videoHeight);
+        setScale(s);
       }
     };
-    handleResize();
+    // Small timeout to ensure DOM is ready before initial calculation
+    setTimeout(handleResize, 100);
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, [videoWidth, videoHeight]);
@@ -4545,7 +4547,10 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     options: { decrement?: boolean } = {},
   ) => {
     const { decrement = true } = options;
-    if (!svgaInstance) return;
+    if (!svgaInstance && !metadata.videoItem) {
+      alert("لا توجد بيانات SVGA للتصدير.");
+      return;
+    }
 
     if (!currentUser) {
       onLoginRequired();
@@ -4554,7 +4559,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
     const { allowed } = await checkAccess("AE Project Export", {
       decrement,
-      subscriptionOnly: true,
+      subscriptionOnly: false,
     });
     if (!allowed) {
       onSubscriptionRequired();
@@ -4562,7 +4567,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
 
     setIsExporting(true);
-    setExportPhase("تحليل مصفوفة الطبقات Quantum v5.6...");
+    setExportPhase("تحليل مصفوفة الطبقات وتوليد مشروع After Effects v9.5...");
     try {
       const { message, imagesData, originalWidth, originalHeight } =
         await getProcessedSVGAData(true);
@@ -4590,7 +4595,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       }
     } catch (e) {
       console.error(e);
-      alert("❌ Error during After Effects export!");
+      alert("❌ حدث خطأ أثناء تصدير مشروع After Effects!");
     } finally {
       setTimeout(() => setIsExporting(false), 800);
     }
@@ -7456,9 +7461,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
         // Ensure even dimensions for video encoding using utility
         const isVap =
-          currentFormat === "VAP (MP4)" ||
-          currentFormat === "VAP 1.0.5" ||
-          currentFormat === "SVGA → YYEVA";
+          (currentFormat as string) === "VAP (MP4)" ||
+          (currentFormat as string) === "VAP 1.0.5" ||
+          (currentFormat as string) === "SVGA → YYEVA";
         const maxPixels = isVap ? 6000000 : 9437184;
         const safe = calculateSafeDimensions(
           videoWidth,
@@ -8031,8 +8036,28 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             message.sprites.forEach((sprite: any) => {
               const aeSprite = aeSpritesMap.get(sprite.imageKey);
               if (aeSprite) {
-                // Apply AE animation (keyframes)
-                sprite.keyframes = aeSprite.keyframes;
+                // Apply AE animation (keyframes / frames)
+                if (aeSprite.keyframes) {
+                  sprite.frames = aeSprite.keyframes.map((kf: any) => ({
+                    alpha: kf.a !== undefined ? kf.a : 1.0,
+                    layout: kf.l ? {
+                      x: kf.l.x || 0,
+                      y: kf.l.y || 0,
+                      width: kf.l.width || 0,
+                      height: kf.l.height || 0
+                    } : null,
+                    transform: kf.t ? {
+                      a: kf.t.a ?? 1,
+                      b: kf.t.b ?? 0,
+                      c: kf.t.c ?? 0,
+                      d: kf.t.d ?? 1,
+                      tx: kf.t.tx ?? 0,
+                      ty: kf.t.ty ?? 0
+                    } : null
+                  }));
+                } else if (aeSprite.frames) {
+                  sprite.frames = aeSprite.frames;
+                }
                 // Apply AE properties (matte, blend mode)
                 if (aeSprite.matteKey !== undefined)
                   sprite.matteKey = aeSprite.matteKey;
@@ -8044,10 +8069,8 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             // Update global params if AE data provides them
             if (aeJsonData.width && aeJsonData.height) {
               message.params = message.params || {};
-              message.params.viewBox = {
-                width: aeJsonData.width,
-                height: aeJsonData.height,
-              };
+              message.params.viewBoxWidth = aeJsonData.width;
+              message.params.viewBoxHeight = aeJsonData.height;
             }
             if (aeJsonData.fps) {
               message.params = message.params || {};
@@ -9263,23 +9286,32 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             </div>
           )}
           <div
-            onDragOver={handleDragOverSvga}
-            onDrop={handleDropSvgaFile}
-            className="relative flex items-center justify-center w-full overflow-hidden rounded-2xl sm:rounded-[3rem] border border-white/10 shadow-3xl bg-black/20 transition-colors duration-200 hover:bg-black/30"
-            style={{ height: `${Math.max(200, videoHeight * scale)}px` }}
+            ref={containerRef}
+            className="w-full flex items-center justify-center overflow-visible"
+            style={{ minHeight: `${Math.max(200, videoHeight * scale)}px` }}
           >
             <div
-              ref={containerRef}
-              className="absolute inset-0 flex items-center justify-center transition-transform duration-500 ease-out origin-center pointer-events-none"
-              style={{ transform: `scale(${scale})` }}
+              onDragOver={handleDragOverSvga}
+              onDrop={handleDropSvgaFile}
+              className="relative flex items-center justify-center overflow-hidden rounded-2xl sm:rounded-[3rem] border border-white/10 shadow-3xl bg-black/20 transition-colors duration-200 hover:bg-black/30"
+              style={{ 
+                width: `${videoWidth * scale}px`,
+                height: `${videoHeight * scale}px` 
+              }}
             >
               <div
-                className="relative overflow-hidden shadow-2xl pointer-events-auto"
-                style={{
-                  width: `${videoWidth}px`,
-                  height: `${videoHeight}px`,
+                className="absolute inset-0 flex items-center justify-center transition-transform duration-500 ease-out origin-center pointer-events-none"
+                style={{ transform: `scale(${scale})` }}
+              >
+                <div
+                  className="relative overflow-hidden shadow-2xl pointer-events-auto"
+                  style={{
+                    width: `${videoWidth}px`,
+                    height: `${videoHeight}px`,
                   backgroundImage:
-                    previewBg
+                    previewBg && previewBgType === "image"
+                      ? `url(${previewBg})`
+                      : previewBg
                         ? "none"
                         : `
                         linear-gradient(45deg, #334155 25%, transparent 25%), 
@@ -9288,16 +9320,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                         linear-gradient(-45deg, transparent 75%, #334155 75%)
                       `,
                   backgroundSize:
-                    previewBg
-                      ? "auto"
+                    previewBg && previewBgType === "image"
+                      ? `${bgScale}%`
                       : "20px 20px",
                   backgroundRepeat:
-                    previewBg
+                    previewBg && previewBgType === "image"
                       ? "no-repeat"
                       : "repeat",
                   backgroundPosition:
-                    previewBg
-                      ? "0 0"
+                    previewBg && previewBgType === "image"
+                      ? `${bgPos.x}% ${bgPos.y}%`
                       : "0 0, 0 10px, 10px -10px, -10px 0px",
                   backgroundColor: previewBg ? "transparent" : "#0f172a",
                   boxShadow:
@@ -9324,24 +9356,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                   maskComposite: "intersect",
                 }}
               >
-                {previewBg && previewBgType === "image" && (
-                  <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
-                    <img 
-                      src={previewBg} 
-                      alt="Background"
-                      style={{
-                        position: 'absolute',
-                        width: `${bgScale}%`,
-                        height: 'auto',
-                        left: `${bgPos.x}%`,
-                        top: `${bgPos.y}%`,
-                        transform: `translate(-${bgPos.x}%, -${bgPos.y}%)`,
-                        pointerEvents: 'none'
-                      }}
-                      referrerPolicy="no-referrer"
-                    />
-                  </div>
-                )}
                 {previewBg && previewBgType === "video" && (
                   <video
                     src={previewBg}
@@ -9509,6 +9523,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               </div>
             </div>
           </div>
+        </div>
 
           {/* Quick Unified Controller Panel for Secondary Composition Group */}
           {activeCompositionId !== "main" && (
@@ -11704,7 +11719,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                           <img
                             src={bg.url}
                             className="w-full h-full object-cover"
-                            referrerPolicy="no-referrer"
                           />
                           <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                             <span className="text-[8px] text-white font-black">
@@ -11833,7 +11847,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                       </div>
 
                       <button
-                        onClick={handleExportStandardVideo}
+                        onClick={() => handleExportStandardVideo({ decrement: true })}
                         className="w-full py-5 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-glow-red transition-all active:scale-95 flex items-center justify-center gap-3"
                       >
                         <span className="w-3 h-3 bg-white rounded-full animate-pulse"></span>
@@ -12748,7 +12762,7 @@ class _MyAppState extends State<MyApp> {
             <div className="flex flex-col gap-2 mb-2">
               <div className="flex gap-2">
                 <button
-                  onClick={handleExportAEProject}
+                  onClick={() => handleExportAEProject({ decrement: true })}
                   className="flex-1 py-4 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-black rounded-xl shadow-glow-indigo active:scale-95 transition-all flex items-center justify-center gap-2"
                   title="تصدير مشروع After Effects"
                 >
