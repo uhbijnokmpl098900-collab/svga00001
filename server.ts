@@ -4,9 +4,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import audioRouter from "./src/server/audioRouter";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 // In-memory maintenance cache for instant fast response
 let serverMaintenanceState = {
   isMaintenanceMode: false,

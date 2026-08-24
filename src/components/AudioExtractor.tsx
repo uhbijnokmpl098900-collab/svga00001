@@ -28,7 +28,7 @@ interface AudioFileItem {
 }
 
 const AUDIO_FORMATS = ['mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac', 'opus'];
-const BITRATES = ['96k', '128k', '192k', '256k', '320k'];
+const BITRATES = ['48k', '64k', '96k', '128k', '160k', '192k', '256k', '320k'];
 
 export const AudioExtractor: React.FC<AudioExtractorProps> = ({ currentUser, onCancel }) => {
   const [files, setFiles] = useState<AudioFileItem[]>([]);
