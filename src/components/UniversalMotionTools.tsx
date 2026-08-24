@@ -1611,34 +1611,39 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         const hasCustomAudio = !!((audioFile || audioUrl) && !isAudioMuted);
         const audioToUse = hasCustomAudio ? (audioFile || null) : (muteOriginalAudio ? null : (sourceFile || null));
         
-        const finalVapBlob = await fastReplaceAudioInVap(
-          sourceFile,
-          audioToUse,
-          {
-            duration: videoDuration > 0 ? videoDuration : undefined,
-            vapConfig: vapConfig,
-            onProgress: (p) => setExportProgress(p),
-            onStatus: (s) => setExportStatusText(s),
-          }
-        );
+        try {
+          const finalVapBlob = await fastReplaceAudioInVap(
+            sourceFile,
+            audioToUse,
+            {
+              duration: videoDuration > 0 ? videoDuration : undefined,
+              vapConfig: vapConfig,
+              mute: muteOriginalAudio && !hasCustomAudio,
+              onProgress: (p) => setExportProgress(p),
+              onStatus: (s) => setExportStatusText(s),
+            }
+          );
 
-        setExportedBlob(finalVapBlob);
-        setPreProcessedVapBlob(finalVapBlob);
-        setExportedFileSize((finalVapBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
-        setExportSuccess(true);
-        setExportProgress(100);
-        setExportStatusText('تم تصدير ملف VAP بنجاح مع الصوت الجديد بأعلى جودة وسرعة فائقة!');
-        setIsExporting(false);
+          setExportedBlob(finalVapBlob);
+          setPreProcessedVapBlob(finalVapBlob);
+          setExportedFileSize((finalVapBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
+          setExportSuccess(true);
+          setExportProgress(100);
+          setExportStatusText('تم تصدير ملف VAP بنجاح مع الصوت الجديد بأعلى جودة وسرعة فائقة!');
+          setIsExporting(false);
 
-        // Auto download
-        const baseName = fileName.replace(/\.[^/.]+$/, '');
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(finalVapBlob);
-        link.download = `${baseName}_with_audio_vap.mp4`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        return;
+          // Auto download
+          const baseName = fileName.replace(/\.[^/.]+$/, '');
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(finalVapBlob);
+          link.download = `${baseName}_with_audio_vap.mp4`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          return;
+        } catch (fastErr) {
+          console.warn("[VAP Export] Fast path failed, falling back to full client encoding pipeline:", fastErr);
+        }
       }
 
       setExportStatusText('جاري تحضير محرك الفيديو وتجهيز مسار الصوت...');

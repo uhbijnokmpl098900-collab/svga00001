@@ -104,6 +104,7 @@ export const fastReplaceAudioInVap = async (
     options?: {
       duration?: number;
       vapConfig?: any;
+      mute?: boolean;
       onProgress?: (progress: number) => void;
       onStatus?: (status: string) => void;
     }
@@ -117,6 +118,9 @@ export const fastReplaceAudioInVap = async (
       formData.append('video', videoFile, (videoFile as File).name || 'input_video.mp4');
       if (audioFile) {
         formData.append('audio', audioFile, (audioFile as File).name || 'input_audio.mp3');
+      }
+      if (options?.mute) {
+        formData.append('mute', 'true');
       }
       if (options?.duration && options.duration > 0) {
         formData.append('duration', options.duration.toString());
@@ -138,11 +142,11 @@ export const fastReplaceAudioInVap = async (
         };
 
         xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300 && xhr.response) {
+          if (xhr.status >= 200 && xhr.status < 300 && xhr.response && xhr.response.size > 0) {
             options?.onProgress?.(95);
             resolve(xhr.response as Blob);
           } else {
-            reject(new Error(`Server error: status ${xhr.status}`));
+            reject(new Error(`Server response status: ${xhr.status}`));
           }
         };
 
@@ -155,75 +159,100 @@ export const fastReplaceAudioInVap = async (
       options?.onStatus?.('تم تجهيز وتحديث ملف الـ VAP بالصوت الجديد بنجاح!');
       return responseBlob;
     } catch (serverErr) {
-      console.warn("Server fast-replace audio unavailable, attempting local WASM fallback:", serverErr);
+      console.warn("[VAP Audio] Server fast-replace audio unavailable, checking local fallback options:", serverErr);
     }
 
-    // 2. Client-side fallback via WASM
-    const ff = await getFFmpeg((log) => {
-      console.log("[VAP Audio Engine]", log);
-    });
+    // 2. Client-side fallback via WASM if available
+    try {
+      const ff = await getFFmpeg((log) => {
+        console.log("[VAP Audio Engine]", log);
+      });
 
-    const videoName = 'input_video.mp4';
-    const audioName = 'input_audio.media';
-    const outputName = 'output_vap_remux.mp4';
-    
-    options?.onStatus?.('جاري قراءة ملف VAP وتجهيز مسار الصوت...');
-    options?.onProgress?.(10);
+      const videoName = 'input_video.mp4';
+      const audioName = 'input_audio.media';
+      const outputName = 'output_vap_remux.mp4';
+      
+      options?.onStatus?.('جاري قراءة ملف VAP وتجهيز مسار الصوت...');
+      options?.onProgress?.(10);
 
-    if (options?.onProgress) {
-        ff.on('progress', ({ progress }) => {
-            const p = Math.min(95, Math.max(15, Math.round(progress * 100)));
-            options.onProgress?.(p);
-        });
-    }
+      if (options?.onProgress) {
+          ff.on('progress', ({ progress }) => {
+              const p = Math.min(95, Math.max(15, Math.round(progress * 100)));
+              options.onProgress?.(p);
+          });
+      }
 
-    await ff.writeFile(videoName, await fetchFile(videoFile));
+      await ff.writeFile(videoName, await fetchFile(videoFile));
 
-    const args: string[] = ['-y', '-i', videoName];
+      const args: string[] = ['-y', '-i', videoName];
 
-    if (audioFile) {
-        options?.onStatus?.('جاري استبدال مسار الصوت بدون المساس بإطارات الفيديو...');
-        await ff.writeFile(audioName, await fetchFile(audioFile));
-        args.push('-i', audioName);
-        args.push('-map', '0:v:0');
-        args.push('-map', '1:a:0');
-        args.push('-c:v', 'copy');
-        args.push('-c:a', 'aac');
-        args.push('-b:a', '192k');
-        args.push('-ar', '44100');
-        if (options?.duration && options.duration > 0) {
-          args.push('-t', options.duration.toFixed(3));
+      if (audioFile) {
+          options?.onStatus?.('جاري استبدال مسار الصوت بدون المساس بإطارات الفيديو...');
+          await ff.writeFile(audioName, await fetchFile(audioFile));
+          args.push('-i', audioName);
+          args.push('-map', '0:v:0');
+          args.push('-map', '1:a:0?');
+          args.push('-c:v', 'copy');
+          args.push('-c:a', 'aac');
+          args.push('-b:a', '192k');
+          args.push('-ar', '44100');
+          args.push('-shortest');
+          if (options?.duration && options.duration > 0) {
+            args.push('-t', options.duration.toFixed(3));
+          }
+      } else if (options?.mute) {
+          // Mute audio / remove audio stream completely
+          options?.onStatus?.('جاري إزالة مسار الصوت وكتم الفيديو فوراً...');
+          args.push('-map', '0:v:0');
+          args.push('-c:v', 'copy');
+          args.push('-an');
+      } else {
+          options?.onStatus?.('جاري نسخ مسارات الفيديو والصوت...');
+          args.push('-map', '0:v:0');
+          args.push('-map', '0:a:0?');
+          args.push('-c:v', 'copy');
+          args.push('-c:a', 'copy');
+      }
+
+      args.push(outputName);
+      
+      options?.onProgress?.(40);
+      await ff.exec(args);
+      options?.onProgress?.(80);
+      
+      options?.onStatus?.('جاري استخراج ودمج صندوق إعدادات الشفافية (VAP metadata)...');
+      const data = await ff.readFile(outputName);
+      const ffmpegOutputBlob = new Blob([data], { type: 'video/mp4' });
+      
+      // Extract custom VAP/YYEVA box from original file or rebuild from config
+      let rawBox = await extractRawVapBox(videoFile);
+      if (!rawBox && options?.vapConfig) {
+        rawBox = buildVapBoxFromJson(options.vapConfig);
+      }
+      
+      options?.onProgress?.(100);
+      options?.onStatus?.('تم تجهيز ملف الـ VAP بنجاح مع الصوت الجديد!');
+
+      if (rawBox) {
+          return new Blob([ffmpegOutputBlob, rawBox], { type: 'video/mp4' });
+      }
+      
+      return ffmpegOutputBlob;
+    } catch (wasmErr) {
+      console.warn("[VAP Audio] WASM processing unavailable:", wasmErr);
+      
+      // If we are just preserving the video without custom audio alteration
+      if (!audioFile && !options?.mute) {
+        let rawBox = await extractRawVapBox(videoFile);
+        if (!rawBox && options?.vapConfig) {
+          rawBox = buildVapBoxFromJson(options.vapConfig);
         }
-    } else {
-        // Mute audio / remove audio stream completely
-        options?.onStatus?.('جاري إزالة مسار الصوت وكتم الفيديو فوراً...');
-        args.push('-map', '0:v:0');
-        args.push('-c:v', 'copy');
-        args.push('-an');
-    }
+        if (rawBox) {
+          return new Blob([videoFile, rawBox], { type: 'video/mp4' });
+        }
+        return videoFile instanceof Blob ? videoFile : new Blob([videoFile], { type: 'video/mp4' });
+      }
 
-    args.push(outputName);
-    
-    options?.onProgress?.(40);
-    await ff.exec(args);
-    options?.onProgress?.(80);
-    
-    options?.onStatus?.('جاري استخراج ودمج صندوق إعدادات الشفافية (VAP metadata)...');
-    const data = await ff.readFile(outputName);
-    const ffmpegOutputBlob = new Blob([data], { type: 'video/mp4' });
-    
-    // Extract custom VAP/YYEVA box from original file or rebuild from config
-    let rawBox = await extractRawVapBox(videoFile);
-    if (!rawBox && options?.vapConfig) {
-      rawBox = buildVapBoxFromJson(options.vapConfig);
+      throw wasmErr;
     }
-    
-    options?.onProgress?.(100);
-    options?.onStatus?.('تم تجهيز ملف الـ VAP بنجاح مع الصوت الجديد!');
-
-    if (rawBox) {
-        return new Blob([ffmpegOutputBlob, rawBox], { type: 'video/mp4' });
-    }
-    
-    return ffmpegOutputBlob;
 };

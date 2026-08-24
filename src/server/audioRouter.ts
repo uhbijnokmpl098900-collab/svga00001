@@ -6,7 +6,21 @@ import ffmpeg from 'fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import crypto from 'crypto';
 
-ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+// Setup resilient FFmpeg binary path
+let resolvedFfmpegPath = '';
+try {
+  if (ffmpegInstaller && ffmpegInstaller.path && fs.existsSync(ffmpegInstaller.path)) {
+    resolvedFfmpegPath = ffmpegInstaller.path;
+  } else if (fs.existsSync('/usr/bin/ffmpeg')) {
+    resolvedFfmpegPath = '/usr/bin/ffmpeg';
+  } else {
+    resolvedFfmpegPath = 'ffmpeg';
+  }
+  ffmpeg.setFfmpegPath(resolvedFfmpegPath);
+  console.log('[Audio Server] Initialized FFmpeg binary at:', resolvedFfmpegPath);
+} catch (e) {
+  console.warn('[Audio Server] Warning during FFmpeg path resolution:', e);
+}
 
 const router = express.Router();
 
@@ -234,26 +248,37 @@ router.post('/replace-vap-audio', upload.fields([
         proc.input(audioFile.path)
             .outputOptions([
               '-map 0:v:0',
-              '-map 1:a:0',
+              '-map 1:a:0?',
               '-c:v copy',
               '-c:a aac',
               '-b:a 192k',
-              '-ar 44100'
+              '-ar 44100',
+              '-shortest'
             ]);
         if (rawDuration && rawDuration > 0) {
           proc.outputOptions([`-t ${rawDuration.toFixed(3)}`]);
         }
-      } else {
+      } else if (req.body.mute === 'true' || req.body.mute === '1') {
         proc.outputOptions([
           '-map 0:v:0',
           '-c:v copy',
           '-an'
         ]);
+      } else {
+        proc.outputOptions([
+          '-map 0:v:0',
+          '-map 0:a:0?',
+          '-c:v copy',
+          '-c:a copy'
+        ]);
       }
 
       proc.output(outputPath)
           .on('end', () => resolve())
-          .on('error', (err) => reject(err))
+          .on('error', (err) => {
+            console.error('[Audio Server] FFmpeg remux error:', err);
+            reject(err);
+          })
           .run();
     });
 

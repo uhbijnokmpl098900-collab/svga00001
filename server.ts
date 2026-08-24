@@ -72,6 +72,16 @@ async function startServer() {
   // API routes
   app.use('/api/audio', maintenanceGuard, audioRouter);
 
+  // Serve FFmpeg Core locally from node_modules for zero-latency in-browser fallback
+  const ffmpegCoreUmdPath = path.join(process.cwd(), 'node_modules', '@ffmpeg', 'core', 'dist', 'umd');
+  app.use('/vendor/ffmpeg-core', express.static(ffmpegCoreUmdPath, {
+    setHeaders: (res) => {
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  }));
+
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", maintenance: serverMaintenanceState.isMaintenanceMode });
   });
