@@ -1,4 +1,5 @@
-import { fastReplaceAudioInVap, getFFmpeg } from "../utils/vapFFmpeg";
+import { fastReplaceAudioInVap, extractAudioFromVap, getFFmpeg } from "../utils/vapFFmpeg";
+import { extractAudioInBrowser, getAudioChunksForMuxer } from "../utils/clientAudio";
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Upload, X, Info, BoxSelect, FileVideo, RefreshCw, Box, Download, 
@@ -1222,42 +1223,37 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     if (!sourceFile) return;
     setIsExtractingAudio(true);
     try {
-      const formData = new FormData();
-      formData.append('video', sourceFile);
-      formData.append('format', 'mp3');
-      formData.append('quality', '192k');
-
-      const res = await fetch('/api/audio/extract', {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await res.json();
-      
-      const jobId = data.jobId;
-      if (!jobId) throw new Error("No Job ID");
-
-      const checkStatus = async () => {
-        try {
-          const statusRes = await fetch(`/api/audio/status/${jobId}`);
-          const statusData = await statusRes.json();
-          if (statusData.status === 'completed') {
-            window.location.href = `/api/audio/download/${jobId}`;
-            setIsExtractingAudio(false);
-          } else if (statusData.status === 'failed') {
-            setErrorMessage('فشل استخراج الصوت');
-            setIsExtractingAudio(false);
-          } else {
-            setTimeout(checkStatus, 1000);
-          }
-        } catch (e) {
-          setTimeout(checkStatus, 1000);
-        }
-      };
-      checkStatus();
-    } catch (e) {
-      console.error(e);
-      setErrorMessage('حدث خطأ أثناء محاولة استخراج الصوت.');
+      // 100% Client-Side In-Browser Audio Extraction
+      const result = await extractAudioInBrowser(sourceFile);
+      const url = URL.createObjectURL(result.wavBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      const baseName = fileName.replace(/\.[^/.]+$/, '') || 'original_audio';
+      link.download = `${baseName}_audio.wav`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
       setIsExtractingAudio(false);
+    } catch (e: any) {
+      console.warn("Client audio extract failed, attempting FFmpeg fallback:", e);
+      try {
+        const audioBlob = await extractAudioFromVap(sourceFile);
+        const url = URL.createObjectURL(audioBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        const baseName = fileName.replace(/\.[^/.]+$/, '') || 'original_audio';
+        link.download = `${baseName}_audio.mp3`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setIsExtractingAudio(false);
+      } catch (err) {
+        console.error(err);
+        setErrorMessage('تعذر استخراج الصوت من هذا الملف.');
+        setIsExtractingAudio(false);
+      }
     }
   };
 
@@ -1423,112 +1419,12 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     });
   };
 
-  // Convert Audio File or Video Audio Track to AudioData Chunks for MP4 Muxing
+  // Convert Audio File or Video Audio Track to AudioData Chunks for MP4 Muxing (100% In-Browser)
   const prepareAudioDataChunks = async (
     audioBlobOrUrl: Blob | string,
     totalDuration: number
   ): Promise<any[]> => {
-    try {
-      let arrayBuffer: ArrayBuffer;
-      if (typeof audioBlobOrUrl === 'string') {
-        const resp = await fetch(audioBlobOrUrl);
-        arrayBuffer = await resp.arrayBuffer();
-      } else {
-        arrayBuffer = await audioBlobOrUrl.arrayBuffer();
-      }
-
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({
-        sampleRate: 48000
-      });
-
-      let audioBuffer: AudioBuffer | null = null;
-      try {
-        audioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
-      } catch (directErr) {
-        console.log("Direct browser decode failed, trying backend audio extractor...", directErr);
-        if (audioBlobOrUrl instanceof File || audioBlobOrUrl instanceof Blob) {
-          try {
-            const formData = new FormData();
-            formData.append('video', audioBlobOrUrl);
-            formData.append('format', 'mp3');
-            formData.append('quality', '192k');
-            const res = await fetch('/api/audio/extract', { method: 'POST', body: formData });
-            const data = await res.json();
-            if (data.jobId) {
-              for (let i = 0; i < 30; i++) {
-                const sRes = await fetch(`/api/audio/status/${data.jobId}`);
-                const sData = await sRes.json();
-                if (sData.status === 'completed') {
-                  const aRes = await fetch(`/api/audio/download/${data.jobId}`);
-                  const aBuf = await aRes.arrayBuffer();
-                  audioBuffer = await audioCtx.decodeAudioData(aBuf);
-                  break;
-                } else if (sData.status === 'failed') {
-                  break;
-                }
-                await new Promise(r => setTimeout(r, 1000));
-              }
-            }
-          } catch (e) {
-            console.warn("Backend audio extract fallback error:", e);
-          }
-        }
-      }
-
-      if (!audioBuffer) {
-        await audioCtx.close();
-        return [];
-      }
-
-      const targetSampleRate = 48000;
-      const numberOfChannels = 2;
-
-      const offlineCtx = new OfflineAudioContext(
-        numberOfChannels,
-        Math.max(1, Math.ceil(totalDuration * targetSampleRate)),
-        targetSampleRate
-      );
-
-      const source = offlineCtx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(offlineCtx.destination);
-      source.start(0);
-
-      const renderedBuffer = await offlineCtx.startRendering();
-      await audioCtx.close();
-
-      const chunks: any[] = [];
-      const chunkSize = 1024;
-      const totalSamples = renderedBuffer.length;
-      const channel0 = renderedBuffer.getChannelData(0);
-      const channel1 = renderedBuffer.numberOfChannels > 1 
-        ? renderedBuffer.getChannelData(1) 
-        : channel0;
-
-      for (let offset = 0; offset < totalSamples; offset += chunkSize) {
-        const currentChunk = Math.min(chunkSize, totalSamples - offset);
-        const planarData = new Float32Array(currentChunk * 2);
-        planarData.set(channel0.subarray(offset, offset + currentChunk), 0);
-        planarData.set(channel1.subarray(offset, offset + currentChunk), currentChunk);
-
-        const timestamp = Math.round((offset / targetSampleRate) * 1000000);
-        // @ts-ignore
-        const audioData = new AudioData({
-          format: 'f32-planar',
-          sampleRate: targetSampleRate,
-          numberOfFrames: currentChunk,
-          numberOfChannels: 2,
-          timestamp: timestamp,
-          data: planarData,
-        });
-        chunks.push(audioData);
-      }
-
-      return chunks;
-    } catch (e) {
-      console.warn("Audio preparation warning:", e);
-      return [];
-    }
+    return await getAudioChunksForMuxer(audioBlobOrUrl, totalDuration);
   };
 
   // 1. Export as Professional VAP MP4 (or Standard MP4)
