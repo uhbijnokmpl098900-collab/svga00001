@@ -1,4 +1,5 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { toBlobURL } from '@ffmpeg/util';
 
 export const loadFFmpegWithFallbacks = async (ffmpeg: FFmpeg, onLog?: (msg: string) => void): Promise<void> => {
     if (ffmpeg.loaded) return;
@@ -13,15 +14,22 @@ export const loadFFmpegWithFallbacks = async (ffmpeg: FFmpeg, onLog?: (msg: stri
         });
     }
 
-    try {
-        console.log("Attempting to load FFmpeg...");
-        await ffmpeg.load({
-            coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
-            wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
-        });
-        console.log("FFmpeg Loaded successfully");
-    } catch (e) {
-        console.error("FFmpeg load failed:", e);
-        throw e;
+    const cdnBases = [
+      'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd',
+      'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd'
+    ];
+
+    for (const base of cdnBases) {
+      try {
+        console.log(`Attempting to load FFmpeg from ${base}...`);
+        const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript');
+        const wasmURL = await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm');
+        await ffmpeg.load({ coreURL, wasmURL });
+        console.log("FFmpeg Loaded successfully from", base);
+        return;
+      } catch (e) {
+        console.warn(`FFmpeg load failed from ${base}:`, e);
+      }
     }
+    throw new Error('فشل تحميل محرك FFmpeg المحلي من خوادم CDN');
 };

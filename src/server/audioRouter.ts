@@ -10,6 +10,52 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 const router = express.Router();
 
+// Helper to extract VAP metadata box from a Buffer
+function extractRawVapBoxFromBuffer(buffer: Buffer): Buffer | null {
+  try {
+    const chunkSize = Math.min(buffer.length, 8 * 1024 * 1024);
+    const start = Math.max(0, buffer.length - chunkSize);
+    const slice = buffer.subarray(start);
+
+    const boxTags = [
+      Buffer.from([118, 97, 112, 99]), // 'vapc'
+      Buffer.from([121, 121, 101, 97]), // 'yyea'
+      Buffer.from([121, 121, 101, 118]), // 'yyev'
+    ];
+
+    let offset = -1;
+    for (const tag of boxTags) {
+      const idx = slice.indexOf(tag);
+      if (idx !== -1) {
+        offset = idx;
+        break;
+      }
+    }
+
+    if (offset >= 4) {
+      const boxSize = slice.readUInt32BE(offset - 4);
+      if (boxSize > 0 && boxSize <= slice.length - (offset - 4)) {
+        return slice.subarray(offset - 4, offset - 4 + boxSize);
+      } else {
+        return slice.subarray(offset - 4);
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to extract raw VAP box in server:', e);
+  }
+  return null;
+}
+
+function buildVapBoxFromJsonServer(config: any): Buffer {
+  const jsonStr = typeof config === 'string' ? config : JSON.stringify(config);
+  const jsonBytes = Buffer.from(jsonStr, 'utf-8');
+  const boxSize = 8 + jsonBytes.length;
+  const header = Buffer.alloc(8);
+  header.writeUInt32BE(boxSize, 0);
+  header.write('vapc', 4, 'ascii');
+  return Buffer.concat([header, jsonBytes]);
+}
+
 // Setup Multer for file uploads
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -159,6 +205,93 @@ router.get('/download/:jobId', (req, res) => {
   const downloadName = `${baseName}${ext}`;
 
   res.download(job.outputFile, downloadName);
+});
+
+router.post('/replace-vap-audio', upload.fields([
+  { name: 'video', maxCount: 1 },
+  { name: 'audio', maxCount: 1 }
+]), async (req, res) => {
+  const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+  const videoFile = files?.['video']?.[0];
+  const audioFile = files?.['audio']?.[0];
+
+  if (!videoFile) {
+    return res.status(400).json({ error: 'ملف الفيديو (VAP) مطلوب' });
+  }
+
+  const outputId = crypto.randomUUID();
+  const outputPath = path.join(uploadDir, `vap-remux-${outputId}.mp4`);
+  const rawDuration = req.body.duration ? parseFloat(req.body.duration) : undefined;
+  const vapConfigJson = req.body.vapConfig ? req.body.vapConfig : undefined;
+
+  try {
+    // Execute FFmpeg natively with zero video re-encoding (instant stream copy)
+    await new Promise<void>((resolve, reject) => {
+      const proc = ffmpeg();
+      proc.input(videoFile.path);
+
+      if (audioFile) {
+        proc.input(audioFile.path)
+            .outputOptions([
+              '-map 0:v:0',
+              '-map 1:a:0',
+              '-c:v copy',
+              '-c:a aac',
+              '-b:a 192k',
+              '-ar 44100'
+            ]);
+        if (rawDuration && rawDuration > 0) {
+          proc.outputOptions([`-t ${rawDuration.toFixed(3)}`]);
+        }
+      } else {
+        proc.outputOptions([
+          '-map 0:v:0',
+          '-c:v copy',
+          '-an'
+        ]);
+      }
+
+      proc.output(outputPath)
+          .on('end', () => resolve())
+          .on('error', (err) => reject(err))
+          .run();
+    });
+
+    // Read generated mp4
+    const generatedMp4Buffer = await fs.promises.readFile(outputPath);
+    
+    // Read original video file to extract VAP metadata box
+    const originalVideoBuffer = await fs.promises.readFile(videoFile.path);
+    let vapBox = extractRawVapBoxFromBuffer(originalVideoBuffer);
+    if (!vapBox && vapConfigJson) {
+      try {
+        const parsed = typeof vapConfigJson === 'string' ? JSON.parse(vapConfigJson) : vapConfigJson;
+        vapBox = buildVapBoxFromJsonServer(parsed);
+      } catch (e) {}
+    }
+
+    const finalBuffer = vapBox 
+      ? Buffer.concat([generatedMp4Buffer, vapBox])
+      : generatedMp4Buffer;
+
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', `attachment; filename="replaced_vap.mp4"`);
+    res.send(finalBuffer);
+  } catch (error: any) {
+    console.error('Error in replace-vap-audio endpoint:', error);
+    res.status(500).json({ error: error?.message || 'فشلت معالجة الصوت في الخادم' });
+  } finally {
+    // Immediate cleanup of temporary files
+    if (videoFile && fs.existsSync(videoFile.path)) {
+      try { fs.unlinkSync(videoFile.path); } catch (e) {}
+    }
+    if (audioFile && fs.existsSync(audioFile.path)) {
+      try { fs.unlinkSync(audioFile.path); } catch (e) {}
+    }
+    if (fs.existsSync(outputPath)) {
+      try { fs.unlinkSync(outputPath); } catch (e) {}
+    }
+  }
 });
 
 export default router;
