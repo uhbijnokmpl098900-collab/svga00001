@@ -265,6 +265,9 @@ router.post('/replace-vap-audio', upload.fields([
     const args: string[] = ['-y', '-threads', '0', '-i', videoFile.path];
 
     if (audioFile && !isMute) {
+      if (exactDuration && exactDuration > 0) {
+        args.push('-t', exactDuration.toFixed(4));
+      }
       args.push('-i', audioFile.path);
       args.push('-map', '0:v:0');
       args.push('-map', '1:a:0');
@@ -273,23 +276,16 @@ router.post('/replace-vap-audio', upload.fields([
       args.push('-b:a', '128k');
       args.push('-ar', '44100');
       args.push('-ac', '2');
-      if (exactDuration && exactDuration > 0) {
-        args.push('-t', exactDuration.toFixed(4));
-      } else {
-        args.push('-shortest');
-      }
-      args.push('-movflags', '+faststart');
+      args.push('-shortest');
     } else if (isMute) {
       args.push('-map', '0:v:0');
       args.push('-c:v', 'copy');
       args.push('-an');
-      args.push('-movflags', '+faststart');
     } else {
       args.push('-map', '0:v:0');
       args.push('-map', '0:a:0?');
       args.push('-c:v', 'copy');
       args.push('-c:a', 'copy');
-      args.push('-movflags', '+faststart');
     }
 
     args.push(outputPath);

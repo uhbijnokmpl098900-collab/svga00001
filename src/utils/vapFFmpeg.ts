@@ -212,6 +212,9 @@ export const fastReplaceAudioInVap = async (
 
       if (audioFile && !options?.mute) {
           await ff.writeFile(audioName, await fetchFile(audioFile));
+          if (options?.duration && options.duration > 0) {
+            args.push('-t', options.duration.toFixed(3));
+          }
           args.push('-i', audioName);
           args.push('-map', '0:v:0');
           args.push('-map', '1:a:0?');
@@ -220,11 +223,7 @@ export const fastReplaceAudioInVap = async (
           args.push('-b:a', '128k');
           args.push('-ar', '44100');
           args.push('-ac', '2');
-          if (options?.duration && options.duration > 0) {
-            args.push('-t', options.duration.toFixed(3));
-          } else {
-            args.push('-shortest');
-          }
+          args.push('-shortest');
       } else if (options?.mute) {
           args.push('-map', '0:v:0');
           args.push('-c:v', 'copy');
@@ -236,7 +235,7 @@ export const fastReplaceAudioInVap = async (
           args.push('-c:a', 'copy');
       }
 
-      args.push('-movflags', '+faststart', outputName);
+      args.push(outputName);
       options?.onProgress?.(50);
       await ff.exec(args);
       
