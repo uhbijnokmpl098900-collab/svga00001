@@ -83,7 +83,7 @@ async function startServer() {
   }));
 
   // Server Version Metadata (Updated on each build / deploy)
-  const SERVER_APP_VERSION = 'v3.2.0';
+  const SERVER_APP_VERSION = 'v3.3.0';
   const SERVER_BUILD_TIME = new Date().toISOString();
   const SERVER_BUILD_ID = `build-${Date.now().toString(36)}`;
 

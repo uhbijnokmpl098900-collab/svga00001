@@ -5,13 +5,14 @@ declare const __BUILD_TIMESTAMP__: string | undefined;
 declare const __BUILD_NUMBER__: string | undefined;
 declare const __BUILD_ID__: string | undefined;
 
-export const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v3.2.0';
+export const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v3.3.0';
 export const DEFAULT_ALLOWED_VERSION = CURRENT_APP_VERSION;
 export const BUILD_TIMESTAMP = typeof __BUILD_TIMESTAMP__ !== 'undefined' ? __BUILD_TIMESTAMP__ : new Date().toISOString();
-export const BUILD_NUMBER = typeof __BUILD_NUMBER__ !== 'undefined' ? __BUILD_NUMBER__ : '2026.08.24.01';
+export const BUILD_NUMBER = typeof __BUILD_NUMBER__ !== 'undefined' ? __BUILD_NUMBER__ : '2026.08.24.02';
 export const BUILD_ID = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : `build-${Date.now().toString(36)}`;
 
 export const COMMON_VERSION_PRESETS = [
+  'v3.3.0',
   'v3.2.0',
   'v3.1.0',
   'v3.0.0',

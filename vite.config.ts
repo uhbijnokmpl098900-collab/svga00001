@@ -7,7 +7,7 @@ import tailwindcss from '@tailwindcss/vite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const APP_VERSION = 'v3.2.0';
+const APP_VERSION = 'v3.3.0';
 const BUILD_TIMESTAMP = new Date().toISOString();
 const BUILD_NUMBER = `${new Date().getFullYear()}.${String(new Date().getMonth() + 1).padStart(2, '0')}.${String(new Date().getDate()).padStart(2, '0')}.${String(new Date().getHours()).padStart(2, '0')}${String(new Date().getMinutes()).padStart(2, '0')}`;
 const BUILD_ID = `build-${Date.now().toString(36)}`;

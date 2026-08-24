@@ -2,25 +2,20 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import ffmpeg from 'fluent-ffmpeg';
-import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import { execFile } from 'child_process';
+import util from 'util';
 import crypto from 'crypto';
 
+const execFilePromise = util.promisify(execFile);
+
 // Setup resilient FFmpeg binary path
-let resolvedFfmpegPath = '';
-try {
-  if (ffmpegInstaller && ffmpegInstaller.path && fs.existsSync(ffmpegInstaller.path)) {
-    resolvedFfmpegPath = ffmpegInstaller.path;
-  } else if (fs.existsSync('/usr/bin/ffmpeg')) {
-    resolvedFfmpegPath = '/usr/bin/ffmpeg';
-  } else {
-    resolvedFfmpegPath = 'ffmpeg';
-  }
-  ffmpeg.setFfmpegPath(resolvedFfmpegPath);
-  console.log('[Audio Server] Initialized FFmpeg binary at:', resolvedFfmpegPath);
-} catch (e) {
-  console.warn('[Audio Server] Warning during FFmpeg path resolution:', e);
+let resolvedFfmpegPath = '/usr/bin/ffmpeg';
+if (fs.existsSync('/usr/bin/ffmpeg')) {
+  resolvedFfmpegPath = '/usr/bin/ffmpeg';
+} else {
+  resolvedFfmpegPath = 'ffmpeg';
 }
+console.log('[Audio Server] Initialized FFmpeg binary at:', resolvedFfmpegPath);
 
 const router = express.Router();
 
@@ -129,14 +124,14 @@ setInterval(() => {
   for (const [id, job] of jobs.entries()) {
     if (now - job.createdAt > 3600000) {
       if (job.outputFile && fs.existsSync(job.outputFile)) {
-        fs.unlinkSync(job.outputFile);
+        try { fs.unlinkSync(job.outputFile); } catch (e) {}
       }
       jobs.delete(id);
     }
   }
 }, 3600000);
 
-router.post('/extract', upload.single('video'), (req, res) => {
+router.post('/extract', upload.single('video'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'لم يتم رفع أي ملف' });
   }
@@ -156,7 +151,7 @@ router.post('/extract', upload.single('video'), (req, res) => {
     format,
     quality,
     status: 'processing',
-    progress: 0,
+    progress: 10,
     createdAt: Date.now()
   };
 
@@ -164,46 +159,39 @@ router.post('/extract', upload.single('video'), (req, res) => {
 
   res.json({ jobId, message: 'بدأت عملية الاستخراج' });
 
-  // Process video in background
-  const command = ffmpeg(file.path)
-    .noVideo()
-    .format(format);
+  // Process video in background with execFile
+  (async () => {
+    try {
+      const args: string[] = ['-y', '-i', file.path, '-vn'];
+      if (format === 'mp3') {
+        args.push('-c:a', 'libmp3lame', '-b:a', quality);
+      } else if (format === 'wav') {
+        args.push('-c:a', 'pcm_s16le');
+      } else if (format === 'aac') {
+        args.push('-c:a', 'aac', '-b:a', quality);
+      }
+      args.push(outputPath);
 
-  if (format === 'mp3') {
-    command.audioBitrate(quality);
-  }
-
-  command.on('progress', (progress) => {
-    const job = jobs.get(jobId);
-    if (job) {
-      job.progress = Math.round(progress.percent || 0);
+      await execFilePromise(resolvedFfmpegPath, args);
+      const job = jobs.get(jobId);
+      if (job) {
+        job.status = 'completed';
+        job.progress = 100;
+        job.outputFile = outputPath;
+      }
+    } catch (err: any) {
+      console.error('[Audio Extract Error]:', err);
+      const job = jobs.get(jobId);
+      if (job) {
+        job.status = 'failed';
+        job.error = err.message || 'فشل استخراج الصوت';
+      }
+    } finally {
+      if (fs.existsSync(file.path)) {
+        try { fs.unlinkSync(file.path); } catch (e) {}
+      }
     }
-  })
-  .on('end', () => {
-    const job = jobs.get(jobId);
-    if (job) {
-      job.status = 'completed';
-      job.progress = 100;
-      job.outputFile = outputPath;
-    }
-    // Delete original file
-    if (fs.existsSync(file.path)) {
-      fs.unlinkSync(file.path);
-    }
-  })
-  .on('error', (err, stdout, stderr) => {
-    console.error('FFmpeg Error:', err.message);
-    const job = jobs.get(jobId);
-    if (job) {
-      job.status = 'failed';
-      job.error = err.message;
-    }
-    // Delete original file
-    if (fs.existsSync(file.path)) {
-      fs.unlinkSync(file.path);
-    }
-  })
-  .save(outputPath);
+  })();
 });
 
 router.get('/status/:jobId', (req, res) => {
@@ -243,54 +231,46 @@ router.post('/replace-vap-audio', upload.fields([
   const outputPath = path.join(uploadDir, `vap-remux-${outputId}.mp4`);
   const rawDuration = req.body.duration ? parseFloat(req.body.duration) : undefined;
   const vapConfigJson = req.body.vapConfig ? req.body.vapConfig : undefined;
+  const isMute = req.body.mute === 'true' || req.body.mute === '1';
 
   try {
-    // Execute FFmpeg natively with zero video re-encoding (instant stream copy)
-    await new Promise<void>((resolve, reject) => {
-      const proc = ffmpeg();
-      proc.input(videoFile.path);
+    const args: string[] = ['-y', '-i', videoFile.path];
 
-      if (audioFile) {
-        const outputOpts = [
-          '-map 0:v:0',
-          '-map 1:a:0?',
-          '-c:v copy',
-          '-c:a aac',
-          '-b:a 192k',
-          '-ar 44100',
-          '-movflags +faststart'
-        ];
-        if (rawDuration && rawDuration > 0) {
-          outputOpts.push(`-t ${rawDuration.toFixed(3)}`);
-        } else {
-          outputOpts.push('-shortest');
-        }
-        proc.input(audioFile.path).outputOptions(outputOpts);
-      } else if (req.body.mute === 'true' || req.body.mute === '1') {
-        proc.outputOptions([
-          '-map 0:v:0',
-          '-c:v copy',
-          '-an',
-          '-movflags +faststart'
-        ]);
+    if (audioFile && !isMute) {
+      args.push('-i', audioFile.path);
+      args.push('-map', '0:v:0');
+      args.push('-map', '1:a:0');
+      args.push('-c:v', 'copy');
+      args.push('-c:a', 'aac');
+      args.push('-b:a', '192k');
+      args.push('-ar', '44100');
+      if (rawDuration && rawDuration > 0) {
+        args.push('-t', rawDuration.toFixed(3));
       } else {
-        proc.outputOptions([
-          '-map 0:v:0',
-          '-map 0:a:0?',
-          '-c:v copy',
-          '-c:a copy',
-          '-movflags +faststart'
-        ]);
+        args.push('-shortest');
       }
+      args.push('-movflags', '+faststart');
+    } else if (isMute) {
+      args.push('-map', '0:v:0');
+      args.push('-c:v', 'copy');
+      args.push('-an');
+      args.push('-movflags', '+faststart');
+    } else {
+      args.push('-map', '0:v:0');
+      args.push('-map', '0:a:0?');
+      args.push('-c:v', 'copy');
+      args.push('-c:a', 'copy');
+      args.push('-movflags', '+faststart');
+    }
 
-      proc.output(outputPath)
-          .on('end', () => resolve())
-          .on('error', (err) => {
-            console.error('[Audio Server] FFmpeg remux error:', err);
-            reject(err);
-          })
-          .run();
-    });
+    args.push(outputPath);
+
+    console.log('[Audio Server] Running fast remux with args:', args.join(' '));
+    await execFilePromise(resolvedFfmpegPath, args);
+
+    if (!fs.existsSync(outputPath)) {
+      throw new Error('فشل إنشاء ملف الفيديو الجديد');
+    }
 
     // Read generated mp4
     const generatedMp4Buffer = await fs.promises.readFile(outputPath);
@@ -311,7 +291,8 @@ router.post('/replace-vap-audio', upload.fields([
 
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Disposition', `attachment; filename="replaced_vap.mp4"`);
-    res.send(finalBuffer);
+    res.setHeader('Content-Length', finalBuffer.length.toString());
+    res.end(finalBuffer);
   } catch (error: any) {
     console.error('Error in replace-vap-audio endpoint:', error);
     res.status(500).json({ error: error?.message || 'فشلت معالجة الصوت في الخادم' });

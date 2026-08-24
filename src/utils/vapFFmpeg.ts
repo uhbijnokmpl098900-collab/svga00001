@@ -121,21 +121,9 @@ export const fastReplaceAudioInVap = async (
       onStatus?: (status: string) => void;
     }
 ): Promise<Blob> => {
-    // 1. Primary Engine: 100% Client-Side In-Browser WebCodecs & Mp4Muxer (Zero Server Dependency)
+    // 1. Primary Engine: High-Performance Direct Stream Remux (Instant copy in ~100ms)
     try {
-      if (typeof window !== 'undefined') {
-        const clientBlob = await replaceVapAudioClientSide(videoFile, audioFile, options);
-        if (clientBlob && clientBlob.size > 0) {
-          return clientBlob;
-        }
-      }
-    } catch (clientErr) {
-      console.warn("[VAP Audio] Client-side native WebCodecs fell back to secondary engines:", clientErr);
-    }
-
-    // 2. Secondary Engine: High-Performance Server Direct Stream Copy (if backend available)
-    try {
-      options?.onStatus?.('جاري محاولة المعالجة السريعة عبر الخادم المحلي...');
+      options?.onStatus?.('جاري استبدال مسار الصوت ودمج ملف VAP فوراً...');
       options?.onProgress?.(15);
 
       const formData = new FormData();
@@ -157,7 +145,7 @@ export const fastReplaceAudioInVap = async (
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/audio/replace-vap-audio');
         xhr.responseType = 'blob';
-        xhr.timeout = 10000;
+        xhr.timeout = 60000; // 60s for large files
 
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable && e.total > 0) {
@@ -181,14 +169,17 @@ export const fastReplaceAudioInVap = async (
       });
 
       options?.onProgress?.(100);
-      options?.onStatus?.('تم تجهيز وتحديث ملف الـ VAP بالصوت الجديد بنجاح!');
+      options?.onStatus?.('تم دمج وتجهيز ملف VAP بالصوت الجديد بنجاح!');
       return responseBlob;
     } catch (serverErr) {
-      console.warn("[VAP Audio] Server endpoint unavailable, attempting WASM fallback:", serverErr);
+      console.warn("[VAP Audio] Server fast path unavailable, trying fast client engines:", serverErr);
     }
 
-    // 3. Fallback: Client-side WASM if available
+    // 2. Secondary Engine: Fast WASM FFmpeg with Direct Stream Copy (zero frame re-encoding)
     try {
+      options?.onStatus?.('جاري معالجة الصوت المباشر محلياً...');
+      options?.onProgress?.(25);
+
       const ff = await getFFmpeg((log) => {
         console.log("[VAP Audio Engine]", log);
       });
@@ -196,15 +187,12 @@ export const fastReplaceAudioInVap = async (
       const videoName = 'input_video.mp4';
       const audioName = 'input_audio.media';
       const outputName = 'output_vap_remux.mp4';
-      
-      options?.onStatus?.('جاري قراءة ملف VAP وتجهيز مسار الصوت...');
-      options?.onProgress?.(10);
 
       await ff.writeFile(videoName, await fetchFile(videoFile));
 
       const args: string[] = ['-y', '-i', videoName];
 
-      if (audioFile) {
+      if (audioFile && !options?.mute) {
           await ff.writeFile(audioName, await fetchFile(audioFile));
           args.push('-i', audioName);
           args.push('-map', '0:v:0');
@@ -213,9 +201,10 @@ export const fastReplaceAudioInVap = async (
           args.push('-c:a', 'aac');
           args.push('-b:a', '192k');
           args.push('-ar', '44100');
-          args.push('-shortest');
           if (options?.duration && options.duration > 0) {
             args.push('-t', options.duration.toFixed(3));
+          } else {
+            args.push('-shortest');
           }
       } else if (options?.mute) {
           args.push('-map', '0:v:0');
@@ -228,7 +217,8 @@ export const fastReplaceAudioInVap = async (
           args.push('-c:a', 'copy');
       }
 
-      args.push(outputName);
+      args.push('-movflags', '+faststart', outputName);
+      options?.onProgress?.(50);
       await ff.exec(args);
       
       const data = await ff.readFile(outputName);
@@ -240,25 +230,39 @@ export const fastReplaceAudioInVap = async (
       }
       
       options?.onProgress?.(100);
+      options?.onStatus?.('تم دمج وتجهيز ملف VAP بالصوت الجديد بنجاح!');
+
       if (rawBox) {
           return new Blob([ffmpegOutputBlob, rawBox], { type: 'video/mp4' });
       }
       return ffmpegOutputBlob;
     } catch (wasmErr) {
-      console.warn("[VAP Audio] WASM processing fallback:", wasmErr);
-      
-      // If we are just preserving the video without custom audio alteration
-      if (!audioFile && !options?.mute) {
-        let rawBox = await extractRawVapBox(videoFile);
-        if (!rawBox && options?.vapConfig) {
-          rawBox = buildVapBoxFromJson(options.vapConfig);
-        }
-        if (rawBox) {
-          return new Blob([videoFile, rawBox], { type: 'video/mp4' });
-        }
-        return videoFile instanceof Blob ? videoFile : new Blob([videoFile], { type: 'video/mp4' });
-      }
-
-      throw wasmErr;
+      console.warn("[VAP Audio] WASM processing fallback, attempting client audio pipeline:", wasmErr);
     }
+
+    // 3. Last Resort Fallback: Pure Client-Side WebCodecs
+    try {
+      if (typeof window !== 'undefined') {
+        const clientBlob = await replaceVapAudioClientSide(videoFile, audioFile, options);
+        if (clientBlob && clientBlob.size > 0) {
+          return clientBlob;
+        }
+      }
+    } catch (clientErr) {
+      console.error("[VAP Audio] All audio processing engines failed:", clientErr);
+    }
+
+    // If no custom audio was needed and all failed, return original video with VAP box
+    if (!audioFile && !options?.mute) {
+      let rawBox = await extractRawVapBox(videoFile);
+      if (!rawBox && options?.vapConfig) {
+        rawBox = buildVapBoxFromJson(options.vapConfig);
+      }
+      if (rawBox) {
+        return new Blob([videoFile, rawBox], { type: 'video/mp4' });
+      }
+      return videoFile instanceof Blob ? videoFile : new Blob([videoFile], { type: 'video/mp4' });
+    }
+
+    throw new Error('فشل دمج واستبدال الصوت في ملف VAP');
 };
