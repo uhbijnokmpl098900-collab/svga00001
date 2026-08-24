@@ -27,10 +27,6 @@ const router = express.Router();
 // Helper to extract VAP metadata box from a Buffer
 function extractRawVapBoxFromBuffer(buffer: Buffer): Buffer | null {
   try {
-    const chunkSize = Math.min(buffer.length, 8 * 1024 * 1024);
-    const start = Math.max(0, buffer.length - chunkSize);
-    const slice = buffer.subarray(start);
-
     const boxTags = [
       Buffer.from([118, 97, 112, 99]), // 'vapc'
       Buffer.from([121, 121, 101, 97]), // 'yyea'
@@ -39,7 +35,7 @@ function extractRawVapBoxFromBuffer(buffer: Buffer): Buffer | null {
 
     let offset = -1;
     for (const tag of boxTags) {
-      const idx = slice.indexOf(tag);
+      const idx = buffer.indexOf(tag);
       if (idx !== -1) {
         offset = idx;
         break;
@@ -47,21 +43,31 @@ function extractRawVapBoxFromBuffer(buffer: Buffer): Buffer | null {
     }
 
     if (offset >= 4) {
-      const boxSize = slice.readUInt32BE(offset - 4);
-      if (boxSize > 0 && boxSize <= slice.length - (offset - 4)) {
-        return slice.subarray(offset - 4, offset - 4 + boxSize);
+      const boxSize = buffer.readUInt32BE(offset - 4);
+      if (boxSize >= 8 && boxSize <= buffer.length - (offset - 4)) {
+        return buffer.subarray(offset - 4, offset - 4 + boxSize);
       } else {
-        return slice.subarray(offset - 4);
+        return buffer.subarray(offset - 4);
       }
     }
   } catch (e) {
-    console.warn('Failed to extract raw VAP box in server:', e);
+    console.warn('[Audio Server] Failed to extract raw VAP box in server:', e);
   }
   return null;
 }
 
 function buildVapBoxFromJsonServer(config: any): Buffer {
-  const jsonStr = typeof config === 'string' ? config : JSON.stringify(config);
+  let jsonStr = '';
+  if (typeof config === 'string') {
+    try {
+      const parsed = JSON.parse(config);
+      jsonStr = JSON.stringify(parsed);
+    } catch {
+      jsonStr = config;
+    }
+  } else {
+    jsonStr = JSON.stringify(config);
+  }
   const jsonBytes = Buffer.from(jsonStr, 'utf-8');
   const boxSize = 8 + jsonBytes.length;
   const header = Buffer.alloc(8);
@@ -245,31 +251,35 @@ router.post('/replace-vap-audio', upload.fields([
       proc.input(videoFile.path);
 
       if (audioFile) {
-        proc.input(audioFile.path)
-            .outputOptions([
-              '-map 0:v:0',
-              '-map 1:a:0?',
-              '-c:v copy',
-              '-c:a aac',
-              '-b:a 192k',
-              '-ar 44100',
-              '-shortest'
-            ]);
+        const outputOpts = [
+          '-map 0:v:0',
+          '-map 1:a:0?',
+          '-c:v copy',
+          '-c:a aac',
+          '-b:a 192k',
+          '-ar 44100',
+          '-movflags +faststart'
+        ];
         if (rawDuration && rawDuration > 0) {
-          proc.outputOptions([`-t ${rawDuration.toFixed(3)}`]);
+          outputOpts.push(`-t ${rawDuration.toFixed(3)}`);
+        } else {
+          outputOpts.push('-shortest');
         }
+        proc.input(audioFile.path).outputOptions(outputOpts);
       } else if (req.body.mute === 'true' || req.body.mute === '1') {
         proc.outputOptions([
           '-map 0:v:0',
           '-c:v copy',
-          '-an'
+          '-an',
+          '-movflags +faststart'
         ]);
       } else {
         proc.outputOptions([
           '-map 0:v:0',
           '-map 0:a:0?',
           '-c:v copy',
-          '-c:a copy'
+          '-c:a copy',
+          '-movflags +faststart'
         ]);
       }
 

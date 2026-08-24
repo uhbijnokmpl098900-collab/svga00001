@@ -141,12 +141,20 @@ export const fastReplaceAudioInVap = async (
           }
         };
 
-        xhr.onload = () => {
+        xhr.onload = async () => {
           if (xhr.status >= 200 && xhr.status < 300 && xhr.response && xhr.response.size > 0) {
             options?.onProgress?.(95);
             resolve(xhr.response as Blob);
           } else {
-            reject(new Error(`Server response status: ${xhr.status}`));
+            let errorMsg = `Server response status: ${xhr.status}`;
+            try {
+              if (xhr.response instanceof Blob) {
+                const errText = await xhr.response.text();
+                errorMsg += ` - ${errText}`;
+              }
+            } catch (_) {}
+            console.error('[VAP Audio Server Error]:', errorMsg);
+            reject(new Error(errorMsg));
           }
         };
 

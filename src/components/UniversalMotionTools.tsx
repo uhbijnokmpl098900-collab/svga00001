@@ -959,6 +959,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   // Audio Upload & Management Handlers
   const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = ''; // Reset input to allow re-selection
     if (!file) return;
 
     setAudioFile(file);
@@ -966,6 +967,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     setAudioSize((file.size / (1024 * 1024)).toFixed(2) + ' MB');
     setIsAudioMuted(false);
     setMuteOriginalAudio(true);
+    setPreProcessedVapBlob(null);
 
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
@@ -1056,10 +1058,18 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
        } else {
          audioElementRef.current.pause();
          setIsAudioPlaying(false);
-    setPreProcessedVapBlob(null);
        }
     }
   }, [isPlaying, audioUrl, isAudioMuted]);
+
+  // Keep original VAP video muted if muteOriginalAudio is true OR if custom audio is active OR if playback is muted
+  useEffect(() => {
+    const vid = containerRef.current?.querySelector('video') || (vapInstanceRef.current as any)?.video;
+    if (vid) {
+      const shouldMuteVideo = isPlaybackMuted || muteOriginalAudio || !!(audioUrl && !isAudioMuted);
+      vid.muted = shouldMuteVideo;
+    }
+  }, [isPlaybackMuted, muteOriginalAudio, audioUrl, isAudioMuted, activeViewMode, isPlaying]);
 
   // Handler to download transparent gift snapshot (PNG)
   const handleDownloadGiftImage = async () => {
@@ -1286,7 +1296,6 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     if (isAudioPlaying) {
       audioElementRef.current.pause();
       setIsAudioPlaying(false);
-    setPreProcessedVapBlob(null);
     } else {
       audioElementRef.current.play().catch(() => {});
       setIsAudioPlaying(true);
@@ -2720,6 +2729,25 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                     </span>
                   </div>
 
+                  {/* Processing Progress Indicator */}
+                  {isProcessingAudio && (
+                    <div className="bg-pink-500/10 border border-pink-500/30 rounded-xl p-3 space-y-2">
+                      <div className="flex justify-between items-center text-xs font-bold text-pink-300">
+                        <span className="flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-pink-400" />
+                          جاري دمج مسار الصوت الجديد مع VAP فوراً...
+                        </span>
+                        <span className="font-mono text-pink-400">{audioProcessProgress}%</span>
+                      </div>
+                      <div className="w-full bg-black/50 h-1.5 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-pink-500 to-indigo-500 transition-all duration-300"
+                          style={{ width: `${Math.max(5, audioProcessProgress)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   {/* Direct VAP Download Banner if processed */}
                   {preProcessedVapBlob && (
                     <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-2.5 space-y-2">
@@ -2800,7 +2828,36 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
               <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-2xl p-4">
                 <span className="text-sm font-bold text-slate-300">كتم الصوت الأصلي عند التصدير</span>
                 <button 
-                  onClick={() => setMuteOriginalAudio(!muteOriginalAudio)}
+                  onClick={async () => {
+                    const nextMute = !muteOriginalAudio;
+                    setMuteOriginalAudio(nextMute);
+                    setPreProcessedVapBlob(null);
+                    if (sourceFile) {
+                      setIsProcessingAudio(true);
+                      setAudioProcessProgress(0);
+                      try {
+                        const hasCustomAudio = !!(audioFile && !isAudioMuted);
+                        const audioToUse = hasCustomAudio ? audioFile : (nextMute ? null : sourceFile);
+                        const finalVapBlob = await fastReplaceAudioInVap(
+                          sourceFile,
+                          audioToUse,
+                          {
+                            duration: videoDuration > 0 ? videoDuration : undefined,
+                            vapConfig: vapConfig,
+                            mute: nextMute && !hasCustomAudio,
+                            onProgress: (p) => setAudioProcessProgress(p)
+                          }
+                        );
+                        setPreProcessedVapBlob(finalVapBlob);
+                        setExportedBlob(finalVapBlob);
+                        setExportedFileSize((finalVapBlob.size / (1024 * 1024)).toFixed(2) + ' MB');
+                      } catch (e) {
+                        console.warn("Re-process on mute original audio failed:", e);
+                      } finally {
+                        setIsProcessingAudio(false);
+                      }
+                    }
+                  }}
                   className={`w-12 h-6 rounded-full relative transition-colors ${muteOriginalAudio ? 'bg-indigo-500' : 'bg-slate-700'}`}
                 >
                   <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${muteOriginalAudio ? 'left-1 translate-x-6' : 'left-1'}`} />
@@ -2845,24 +2902,6 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
               </div>
 
               {/* Hidden file input for watermark image */}
-              {isProcessingAudio && (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
-                   <div className="flex justify-between items-center text-xs font-bold text-emerald-400">
-                     <span className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري معالجة ودمج الصوت...
-                     </span>
-                     <span>{audioProcessProgress}%</span>
-                   </div>
-                   <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden">
-                     <div 
-                       className="h-full bg-emerald-500 transition-all duration-300"
-                       style={{ width: `${audioProcessProgress}%` }}
-                     />
-                   </div>
-                </div>
-              )}
-
               <input
                 ref={watermarkInputRef}
                 type="file"
@@ -3279,24 +3318,6 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                   }`}
                 >
                   <Sparkles className="w-4 h-4 text-white drop-shadow" />
-              {isProcessingAudio && (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
-                   <div className="flex justify-between items-center text-xs font-bold text-emerald-400">
-                     <span className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري معالجة ودمج الصوت...
-                     </span>
-                     <span>{audioProcessProgress}%</span>
-                   </div>
-                   <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden">
-                     <div 
-                       className="h-full bg-emerald-500 transition-all duration-300"
-                       style={{ width: `${audioProcessProgress}%` }}
-                     />
-                   </div>
-                </div>
-              )}
-
                   <input
                     ref={customColorInputRef}
                     type="color"
@@ -3534,24 +3555,6 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                     {compressionLevel}%
                   </span>
                 </div>
-
-              {isProcessingAudio && (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
-                   <div className="flex justify-between items-center text-xs font-bold text-emerald-400">
-                     <span className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري معالجة ودمج الصوت...
-                     </span>
-                     <span>{audioProcessProgress}%</span>
-                   </div>
-                   <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden">
-                     <div 
-                       className="h-full bg-emerald-500 transition-all duration-300"
-                       style={{ width: `${audioProcessProgress}%` }}
-                     />
-                   </div>
-                </div>
-              )}
 
                 <input 
                   type="range" 
