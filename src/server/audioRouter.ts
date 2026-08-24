@@ -243,6 +243,7 @@ router.post('/replace-vap-audio', upload.fields([
   const rawDuration = req.body.duration ? parseFloat(req.body.duration) : undefined;
   const vapConfigJson = req.body.vapConfig ? req.body.vapConfig : undefined;
   const isMute = req.body.mute === 'true' || req.body.mute === '1';
+  const vapCompressionEnabled = req.body.vapCompressionEnabled === 'true' || req.body.vapCompressionEnabled === '1';
 
   try {
     // 1. Probe exact video duration to ensure added audio is trimmed to exact video length
@@ -271,7 +272,14 @@ router.post('/replace-vap-audio', upload.fields([
       args.push('-i', audioFile.path);
       args.push('-map', '0:v:0');
       args.push('-map', '1:a:0');
-      args.push('-c:v', 'copy');
+      
+      // If VAP compression is enabled, compress the video stream
+      if (vapCompressionEnabled) {
+          args.push('-c:v', 'libx264', '-crf', '28', '-preset', 'veryfast');
+      } else {
+          args.push('-c:v', 'copy');
+      }
+      
       args.push('-c:a', 'aac');
       args.push('-b:a', '128k');
       args.push('-ar', '44100');
@@ -279,12 +287,22 @@ router.post('/replace-vap-audio', upload.fields([
       args.push('-shortest');
     } else if (isMute) {
       args.push('-map', '0:v:0');
-      args.push('-c:v', 'copy');
+      // If VAP compression is enabled, compress the video stream
+      if (vapCompressionEnabled) {
+          args.push('-c:v', 'libx264', '-crf', '28', '-preset', 'veryfast');
+      } else {
+          args.push('-c:v', 'copy');
+      }
       args.push('-an');
     } else {
       args.push('-map', '0:v:0');
       args.push('-map', '0:a:0?');
-      args.push('-c:v', 'copy');
+      // If VAP compression is enabled, compress the video stream
+      if (vapCompressionEnabled) {
+          args.push('-c:v', 'libx264', '-crf', '28', '-preset', 'veryfast');
+      } else {
+          args.push('-c:v', 'copy');
+      }
       args.push('-c:a', 'copy');
     }
 

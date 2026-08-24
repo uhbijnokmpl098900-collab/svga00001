@@ -135,6 +135,7 @@ export const fastReplaceAudioInVap = async (
       duration?: number;
       vapConfig?: any;
       mute?: boolean;
+      vapCompression?: boolean;
       onProgress?: (progress: number) => void;
       onStatus?: (status: string) => void;
     }
@@ -157,6 +158,9 @@ export const fastReplaceAudioInVap = async (
       }
       if (options?.vapConfig) {
         formData.append('vapConfig', JSON.stringify(options.vapConfig));
+      }
+      if (options?.vapCompression) {
+        formData.append('vapCompressionEnabled', 'true');
       }
 
       const responseBlob = await new Promise<Blob>((resolve, reject) => {

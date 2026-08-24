@@ -455,6 +455,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   const [unmultiplyAlpha, setUnmultiplyAlpha] = useState<boolean>(true);
   const [alphaThreshold, setAlphaThreshold] = useState<number>(8);
   const [compressionLevel, setCompressionLevel] = useState<number>(0);
+  const [vapCompressionEnabled, setVapCompressionEnabled] = useState<boolean>(false); // New state for VAP compression
   const [exportStats, setExportStats] = useState<{original: number, compressed: number, savedPct: string} | null>(null);
   const [svgaFormat, setSvgaFormat] = useState<'webp' | 'png' | 'jpeg'>('webp');
   const [resolutionScale, setResolutionScale] = useState<number>(1.0);
@@ -1000,6 +1001,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
               {
                 duration: videoDuration > 0 ? videoDuration : undefined,
                 vapConfig: vapConfig,
+                vapCompression: vapCompressionEnabled,
                 onProgress: (p) => setAudioProcessProgress(p)
               }
             );
@@ -2685,6 +2687,17 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
 
                   {/* Audio Controls Buttons */}
                   <div className="grid grid-cols-2 gap-2 pt-1">
+                    <button
+                      onClick={() => setVapCompressionEnabled(!vapCompressionEnabled)}
+                      className={`py-1.5 px-3 rounded-xl text-[11px] font-bold transition-all border flex items-center justify-center gap-1.5 ${
+                        vapCompressionEnabled 
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
+                          : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                      }`}
+                    >
+                      <Gauge className="w-3 h-3" />
+                      <span>{vapCompressionEnabled ? 'ضغط VAP مفعل' : 'تفعيل ضغط VAP'}</span>
+                    </button>
                     <button
                       onClick={() => audioInputRef.current?.click()}
                       className="py-1.5 px-3 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl text-[11px] font-bold transition-all border border-white/10 flex items-center justify-center gap-1.5"
