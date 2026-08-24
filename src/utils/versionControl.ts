@@ -1,9 +1,19 @@
 // Global Version Configuration and Enforcement Utilities
 
-export const CURRENT_APP_VERSION = 'v3.0.0';
-export const DEFAULT_ALLOWED_VERSION = 'v3.0.0';
+declare const __APP_VERSION__: string | undefined;
+declare const __BUILD_TIMESTAMP__: string | undefined;
+declare const __BUILD_NUMBER__: string | undefined;
+declare const __BUILD_ID__: string | undefined;
+
+export const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v3.2.0';
+export const DEFAULT_ALLOWED_VERSION = CURRENT_APP_VERSION;
+export const BUILD_TIMESTAMP = typeof __BUILD_TIMESTAMP__ !== 'undefined' ? __BUILD_TIMESTAMP__ : new Date().toISOString();
+export const BUILD_NUMBER = typeof __BUILD_NUMBER__ !== 'undefined' ? __BUILD_NUMBER__ : '2026.08.24.01';
+export const BUILD_ID = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : `build-${Date.now().toString(36)}`;
 
 export const COMMON_VERSION_PRESETS = [
+  'v3.2.0',
+  'v3.1.0',
   'v3.0.0',
   'v2.5.0',
   'v2.4.0',
@@ -11,6 +21,25 @@ export const COMMON_VERSION_PRESETS = [
   'v1.8.0',
   'v1.0.0'
 ];
+
+export interface AppVersionInfo {
+  version: string;
+  buildNumber: string;
+  buildTimestamp: string;
+  buildId: string;
+  isSimulated?: boolean;
+}
+
+export const getAppVersionInfo = (): AppVersionInfo => {
+  const simulated = localStorage.getItem('simulated_client_version');
+  return {
+    version: (simulated && simulated.trim()) ? simulated.trim() : CURRENT_APP_VERSION,
+    buildNumber: BUILD_NUMBER,
+    buildTimestamp: BUILD_TIMESTAMP,
+    buildId: BUILD_ID,
+    isSimulated: !!(simulated && simulated.trim())
+  };
+};
 
 /**
  * Get active client version (supports simulation mode for admin testing)
@@ -47,7 +76,11 @@ export const checkVersionCompatibility = (
     ? userAllowedVersion.trim() 
     : DEFAULT_ALLOWED_VERSION;
 
-  const isAllowed = activeClient.toLowerCase() === required.toLowerCase();
+  // Allow match if same string or default compatibility
+  const isAllowed = 
+    activeClient.toLowerCase() === required.toLowerCase() ||
+    required === 'v3.0.0' || // Backward compatibility for legacy default
+    required === CURRENT_APP_VERSION;
 
   return {
     isAllowed,
@@ -67,6 +100,7 @@ export const verifyAccountVersionWithServer = async (
   allowed: boolean;
   requiredVersion: string;
   installedVersion: string;
+  currentServerVersion?: string;
   message?: string;
 }> => {
   const currentClient = getActiveClientVersion();
@@ -93,6 +127,7 @@ export const verifyAccountVersionWithServer = async (
       allowed: data.allowed ?? true,
       requiredVersion: data.requiredVersion || userAllowedVersion || DEFAULT_ALLOWED_VERSION,
       installedVersion: data.installedVersion || currentClient,
+      currentServerVersion: data.currentServerVersion || CURRENT_APP_VERSION,
       message: data.message
     };
   } catch (error) {
@@ -105,3 +140,72 @@ export const verifyAccountVersionWithServer = async (
     };
   }
 };
+
+/**
+ * Check if a new server update/build has been deployed
+ */
+export const checkForServerUpdate = async (): Promise<{
+  hasUpdate: boolean;
+  serverVersion?: string;
+  serverBuildId?: string;
+  serverBuildTime?: string;
+}> => {
+  try {
+    const cacheBuster = `t=${Date.now()}`;
+    const res = await fetch(`/api/version?${cacheBuster}`, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+    });
+    if (!res.ok) return { hasUpdate: false };
+    const data = await res.json();
+    
+    // Check if build ID or timestamp differs from current bundle
+    const isNewBuild = data.buildId && data.buildId !== BUILD_ID;
+    const isNewVersion = data.version && data.version !== CURRENT_APP_VERSION;
+
+    return {
+      hasUpdate: Boolean(isNewBuild || isNewVersion),
+      serverVersion: data.version,
+      serverBuildId: data.buildId,
+      serverBuildTime: data.buildTime
+    };
+  } catch (err) {
+    return { hasUpdate: false };
+  }
+};
+
+/**
+ * Hard reload and cache-busting to immediately apply latest updates
+ */
+export const forceAppUpdateAndClearCache = () => {
+  try {
+    // Clear known transient caches in sessionStorage
+    sessionStorage.clear();
+
+    // If Service Workers exist, unregister them
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        for (const registration of registrations) {
+          registration.unregister();
+        }
+      });
+    }
+
+    // Clear caches API
+    if ('caches' in window) {
+      caches.keys().then((names) => {
+        for (const name of names) {
+          caches.delete(name);
+        }
+      });
+    }
+  } catch (e) {
+    console.warn("Error clearing cache:", e);
+  }
+
+  // Force hard reload with timestamp query param
+  const url = new URL(window.location.href);
+  url.searchParams.set('_v', Date.now().toString());
+  window.location.href = url.toString();
+};
+

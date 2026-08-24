@@ -37,6 +37,9 @@ import {
   CURRENT_APP_VERSION, 
   DEFAULT_ALLOWED_VERSION, 
   COMMON_VERSION_PRESETS,
+  BUILD_NUMBER,
+  BUILD_ID,
+  BUILD_TIMESTAMP,
   getActiveClientVersion,
   setSimulatedClientVersion 
 } from '../../utils/versionControl';
@@ -282,11 +285,21 @@ export const AccountVersionsTab: React.FC<AccountVersionsTabProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-3 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-            <Server className="w-4 h-4 text-emerald-400" />
-            <div className="text-xs">
-              <span className="text-slate-400 block text-[10px]">إصدار الموقع الحالي (Global):</span>
-              <span className="font-mono text-emerald-400 font-bold dir-ltr">{CURRENT_APP_VERSION}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2.5 bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+              <Server className="w-4 h-4 text-emerald-400" />
+              <div className="text-xs">
+                <span className="text-slate-400 block text-[10px]">إصدار الموقع (Version):</span>
+                <span className="font-mono text-emerald-400 font-bold dir-ltr">{CURRENT_APP_VERSION}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+              <Clock className="w-4 h-4 text-cyan-400" />
+              <div className="text-xs">
+                <span className="text-slate-400 block text-[10px]">رقم البناء (Build ID):</span>
+                <span className="font-mono text-cyan-300 font-bold text-[11px] dir-ltr">{BUILD_NUMBER}</span>
+              </div>
             </div>
           </div>
         </div>

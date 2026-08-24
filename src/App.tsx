@@ -38,6 +38,7 @@ import { logActivity } from './utils/logger';
 import { MaintenanceScreen } from './components/MaintenanceScreen';
 import { VersionBlockedModal } from './components/Auth/VersionBlockedModal';
 import { checkVersionCompatibility, verifyAccountVersionWithServer, getActiveClientVersion } from './utils/versionControl';
+import { AppUpdateToast } from './components/AppUpdateToast';
 
 declare var SVGA: any;
 
@@ -921,6 +922,9 @@ const App: React.FC = () => {
         onClose={() => setShowSubscriptionModal(false)}
         settings={settings}
       />
+
+      {/* Global Background App Update Notification */}
+      <AppUpdateToast />
 
       {/* Version Blocked Modal */}
       {versionBlockedState.isBlocked && (

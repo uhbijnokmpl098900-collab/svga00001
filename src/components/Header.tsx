@@ -5,8 +5,10 @@ import {
   LogOut, Settings, ShoppingBag, Image, Video, Layers, Wand2, 
   BadgeCheck, Maximize, Lock, Scissors, Menu, X as CloseIcon, 
   Zap, Sparkles, Info, Search, ChevronDown, Check, LayoutGrid, 
-  Command, Wand, Cpu, Repeat, RefreshCw, User
+  Command, Wand, Cpu, Repeat, RefreshCw, User, GitBranch
 , BookOpen } from 'lucide-react';
+import { CURRENT_APP_VERSION, BUILD_NUMBER } from '../utils/versionControl';
+import { VersionInfoModal } from './VersionInfoModal';
 
 interface HeaderProps {
   onOpenGuide?: () => void;
@@ -121,6 +123,7 @@ export const Header: React.FC<HeaderProps> = (props) => {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [infoModalTool, setInfoModalTool] = useState<ToolDefinition | null>(null);
 
@@ -261,7 +264,19 @@ export const Header: React.FC<HeaderProps> = (props) => {
             <Search className="w-5 h-5" />
           </button>
 
-          <div className="w-px h-8 bg-white/10 hidden sm:block mx-1"></div>
+          {/* Version & Build Indicator Badge */}
+          <button
+            onClick={() => setIsVersionModalOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-950/60 hover:bg-indigo-900/80 border border-indigo-500/30 hover:border-indigo-400/50 rounded-xl transition-all group shrink-0"
+            title="معلومات الإصدار وتحديثات النظام"
+          >
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_#34d399]" />
+            <span className="text-[11px] font-mono font-black text-indigo-200 group-hover:text-white dir-ltr">
+              {CURRENT_APP_VERSION}
+            </span>
+          </button>
+
+          <div className="w-px h-8 bg-white/10 hidden sm:block mx-0.5"></div>
 
           {props.isAdmin && (
             <button
@@ -492,6 +507,12 @@ export const Header: React.FC<HeaderProps> = (props) => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Version & Build Information Modal */}
+      <VersionInfoModal 
+        isOpen={isVersionModalOpen} 
+        onClose={() => setIsVersionModalOpen(false)} 
+      />
 
     </>
   );

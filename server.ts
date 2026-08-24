@@ -82,23 +82,58 @@ async function startServer() {
     }
   }));
 
+  // Server Version Metadata (Updated on each build / deploy)
+  const SERVER_APP_VERSION = 'v3.2.0';
+  const SERVER_BUILD_TIME = new Date().toISOString();
+  const SERVER_BUILD_ID = `build-${Date.now().toString(36)}`;
+
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", maintenance: serverMaintenanceState.isMaintenanceMode });
+    res.json({ 
+      status: "ok", 
+      version: SERVER_APP_VERSION,
+      buildId: SERVER_BUILD_ID,
+      buildTime: SERVER_BUILD_TIME,
+      maintenance: serverMaintenanceState.isMaintenanceMode 
+    });
   });
+
+  // Dedicated Version API for client update polling & verification
+  const sendVersionInfo = (req: express.Request, res: express.Response) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.json({
+      version: SERVER_APP_VERSION,
+      buildId: SERVER_BUILD_ID,
+      buildTime: SERVER_BUILD_TIME,
+      timestamp: Date.now(),
+      status: 'active',
+      environment: process.env.NODE_ENV || 'production'
+    });
+  };
+
+  app.get("/api/version", sendVersionInfo);
+  app.get("/api/version/info", sendVersionInfo);
+  app.get("/version.json", sendVersionInfo);
 
   // Server-side Version Control Verification Endpoint
   app.post("/api/version/verify", (req, res) => {
     const { userId, email, allowedVersion, clientVersion } = req.body;
-    const installedVersion = clientVersion || (req.headers['x-client-version'] as string) || 'v3.0.0';
-    const requiredVersion = (allowedVersion && allowedVersion.trim()) ? allowedVersion.trim() : 'v3.0.0';
+    const installedVersion = clientVersion || (req.headers['x-client-version'] as string) || SERVER_APP_VERSION;
+    const requiredVersion = (allowedVersion && allowedVersion.trim()) ? allowedVersion.trim() : SERVER_APP_VERSION;
 
-    const isAllowed = installedVersion.toLowerCase() === requiredVersion.toLowerCase();
+    // Super Admins & General users: Allow compatibility if requiredVersion is matching or default
+    const isAllowed = 
+      installedVersion.toLowerCase() === requiredVersion.toLowerCase() ||
+      requiredVersion === 'v3.0.0' || // Backward compatibility for legacy default
+      requiredVersion === SERVER_APP_VERSION;
 
     if (!isAllowed) {
       return res.status(403).json({
         allowed: false,
         requiredVersion,
         installedVersion,
+        currentServerVersion: SERVER_APP_VERSION,
         message: `هذا الإصدار (${installedVersion}) من الموقع لم يعد مدعومًا لهذا الحساب. يرجى تحديث التطبيق إلى الإصدار ${requiredVersion} للاستمرار.`
       });
     }
@@ -107,6 +142,7 @@ async function startServer() {
       allowed: true,
       requiredVersion,
       installedVersion,
+      currentServerVersion: SERVER_APP_VERSION,
       message: 'الإصدار متوافق ومسموح به'
     });
   });
@@ -124,10 +160,31 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // Serve static files in production
+    // Serve static files in production with strict cache control
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    
+    // Static assets (hashed JS, CSS, images) can be cached long-term
+    app.use('/assets', express.static(path.join(distPath, 'assets'), {
+      maxAge: '1y',
+      immutable: true
+    }));
+
+    // Other static files
+    app.use(express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html') || filePath.endsWith('version.json')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+        }
+      }
+    }));
+
+    // SPA fallback - ALWAYS send index.html with NO CACHE so new deployments reflect immediately
     app.use((req, res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
