@@ -22,27 +22,38 @@ const router = express.Router();
 // Helper to extract VAP metadata box from a Buffer
 function extractRawVapBoxFromBuffer(buffer: Buffer): Buffer | null {
   try {
-    const boxTags = [
-      Buffer.from([118, 97, 112, 99]), // 'vapc'
-      Buffer.from([121, 121, 101, 97]), // 'yyea'
-      Buffer.from([121, 121, 101, 118]), // 'yyev'
-    ];
+    const boxTags = ['vapc', 'yyea', 'yyev'];
+    for (const tagStr of boxTags) {
+      const tag = Buffer.from(tagStr, 'ascii');
+      let idx = buffer.lastIndexOf(tag);
+      while (idx >= 4) {
+        const boxSize = buffer.readUInt32BE(idx - 4);
+        
+        // Candidate 1: standard box
+        if (boxSize >= 8 && (idx - 4 + boxSize) <= buffer.length) {
+          const payload = buffer.subarray(idx + 4, idx - 4 + boxSize);
+          try {
+            const parsed = JSON.parse(payload.toString('utf-8'));
+            if (parsed && (parsed.info || parsed.v !== undefined || parsed.data)) {
+              return buffer.subarray(idx - 4, idx - 4 + boxSize);
+            }
+          } catch {}
+        }
+        
+        // Candidate 2: Box at end of file, payload runs to end of buffer
+        try {
+          const payload = buffer.subarray(idx + 4);
+          const parsed = JSON.parse(payload.toString('utf-8'));
+          if (parsed && (parsed.info || parsed.v !== undefined || parsed.data)) {
+            const jsonBytes = Buffer.from(JSON.stringify(parsed), 'utf-8');
+            const header = Buffer.alloc(8);
+            header.writeUInt32BE(8 + jsonBytes.length, 0);
+            header.write(tagStr, 4, 'ascii');
+            return Buffer.concat([header, jsonBytes]);
+          }
+        } catch {}
 
-    let offset = -1;
-    for (const tag of boxTags) {
-      const idx = buffer.indexOf(tag);
-      if (idx !== -1) {
-        offset = idx;
-        break;
-      }
-    }
-
-    if (offset >= 4) {
-      const boxSize = buffer.readUInt32BE(offset - 4);
-      if (boxSize >= 8 && boxSize <= buffer.length - (offset - 4)) {
-        return buffer.subarray(offset - 4, offset - 4 + boxSize);
-      } else {
-        return buffer.subarray(offset - 4);
+        idx = buffer.lastIndexOf(tag, idx - 1);
       }
     }
   } catch (e) {
@@ -234,7 +245,24 @@ router.post('/replace-vap-audio', upload.fields([
   const isMute = req.body.mute === 'true' || req.body.mute === '1';
 
   try {
-    const args: string[] = ['-y', '-i', videoFile.path];
+    // 1. Probe exact video duration to ensure added audio is trimmed to exact video length
+    let exactDuration: number | undefined = rawDuration && rawDuration > 0 ? rawDuration : undefined;
+    try {
+      const { stdout } = await execFilePromise('/usr/bin/ffprobe', [
+        '-v', 'error',
+        '-show_entries', 'format=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1',
+        videoFile.path
+      ]);
+      const probed = parseFloat(stdout.trim());
+      if (!isNaN(probed) && probed > 0) {
+        exactDuration = probed;
+      }
+    } catch (probeErr) {
+      console.warn('[Audio Server] ffprobe duration probe warning:', probeErr);
+    }
+
+    const args: string[] = ['-y', '-threads', '0', '-i', videoFile.path];
 
     if (audioFile && !isMute) {
       args.push('-i', audioFile.path);
@@ -242,10 +270,11 @@ router.post('/replace-vap-audio', upload.fields([
       args.push('-map', '1:a:0');
       args.push('-c:v', 'copy');
       args.push('-c:a', 'aac');
-      args.push('-b:a', '192k');
+      args.push('-b:a', '128k');
       args.push('-ar', '44100');
-      if (rawDuration && rawDuration > 0) {
-        args.push('-t', rawDuration.toFixed(3));
+      args.push('-ac', '2');
+      if (exactDuration && exactDuration > 0) {
+        args.push('-t', exactDuration.toFixed(4));
       } else {
         args.push('-shortest');
       }
@@ -265,7 +294,7 @@ router.post('/replace-vap-audio', upload.fields([
 
     args.push(outputPath);
 
-    console.log('[Audio Server] Running fast remux with args:', args.join(' '));
+    console.log('[Audio Server] Running ultra-fast remux with args:', args.join(' '));
     await execFilePromise(resolvedFfmpegPath, args);
 
     if (!fs.existsSync(outputPath)) {

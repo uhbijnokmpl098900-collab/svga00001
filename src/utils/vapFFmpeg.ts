@@ -61,41 +61,59 @@ export const buildVapBoxFromJson = (config: any): Uint8Array => {
 // Extract raw VAP config box bytes from a Blob
 export const extractRawVapBox = async (blob: Blob): Promise<Uint8Array | null> => {
   try {
-    const chunkSize = Math.min(blob.size, 8 * 1024 * 1024);
+    const chunkSize = Math.min(blob.size, 10 * 1024 * 1024);
     const start = Math.max(0, blob.size - chunkSize);
     const slice = blob.slice(start, blob.size);
     const buffer = await slice.arrayBuffer();
     const uint8 = new Uint8Array(buffer);
+    const view = new DataView(buffer);
 
-    const boxTags = [
-      [118, 97, 112, 99], // 'vapc'
-      [121, 121, 101, 97], // 'yyea' (YYEVA)
-      [121, 121, 101, 118], // 'yyev' (YYEVA)
-    ];
+    const boxTags = ['vapc', 'yyea', 'yyev'];
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder('utf-8');
 
-    let offset = -1;
-    for (const tag of boxTags) {
-      for (let i = 0; i <= uint8.length - 4; i++) {
-        if (
-          uint8[i] === tag[0] &&
-          uint8[i + 1] === tag[1] &&
-          uint8[i + 2] === tag[2] &&
-          uint8[i + 3] === tag[3]
-        ) {
-          offset = i;
-          break;
+    for (const tagStr of boxTags) {
+      const tag = encoder.encode(tagStr);
+      let idx = -1;
+      
+      // Find all indices backwards
+      for (let i = uint8.length - tag.length; i >= 4; i--) {
+        let match = true;
+        for (let j = 0; j < tag.length; j++) {
+          if (uint8[i + j] !== tag[j]) {
+            match = false;
+            break;
+          }
         }
-      }
-      if (offset !== -1) break;
-    }
-
-    if (offset >= 4) {
-      const view = new DataView(buffer);
-      const boxSize = view.getUint32(offset - 4);
-      if (boxSize > 0 && boxSize <= uint8.length - (offset - 4)) {
-        return uint8.slice(offset - 4, offset - 4 + boxSize);
-      } else {
-        return uint8.slice(offset - 4);
+        if (match) {
+          idx = i;
+          const boxSize = view.getUint32(idx - 4);
+          
+          if (boxSize >= 8 && (idx - 4 + boxSize) <= uint8.length) {
+             const payload = uint8.slice(idx + 4, idx - 4 + boxSize);
+             try {
+               const parsed = JSON.parse(decoder.decode(payload));
+               if (parsed && (parsed.info || parsed.v !== undefined || parsed.data)) {
+                  return uint8.slice(idx - 4, idx - 4 + boxSize);
+               }
+             } catch {}
+          }
+          
+          try {
+             const payload = uint8.slice(idx + 4);
+             const parsed = JSON.parse(decoder.decode(payload));
+             if (parsed && (parsed.info || parsed.v !== undefined || parsed.data)) {
+                const jsonBytes = encoder.encode(JSON.stringify(parsed));
+                const newBoxSize = 8 + jsonBytes.length;
+                const newBuffer = new ArrayBuffer(newBoxSize);
+                const newView = new DataView(newBuffer);
+                newView.setUint32(0, newBoxSize);
+                new Uint8Array(newBuffer).set(tag, 4);
+                new Uint8Array(newBuffer).set(jsonBytes, 8);
+                return new Uint8Array(newBuffer);
+             }
+          } catch {}
+        }
       }
     }
   } catch (e) {
@@ -199,8 +217,9 @@ export const fastReplaceAudioInVap = async (
           args.push('-map', '1:a:0?');
           args.push('-c:v', 'copy');
           args.push('-c:a', 'aac');
-          args.push('-b:a', '192k');
+          args.push('-b:a', '128k');
           args.push('-ar', '44100');
+          args.push('-ac', '2');
           if (options?.duration && options.duration > 0) {
             args.push('-t', options.duration.toFixed(3));
           } else {

@@ -2652,9 +2652,18 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           ملف الـ VAP جاهز مع الصوت الجديد!
                         </span>
-                        <span className="font-mono text-[10px] text-emerald-300">
-                          {(preProcessedVapBlob.size / (1024 * 1024)).toFixed(2)} MB
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {sourceFile && (
+                            <span className="text-[9px] font-mono font-medium px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                              {preProcessedVapBlob.size >= sourceFile.size 
+                                ? `+${((preProcessedVapBlob.size - sourceFile.size) / 1024).toFixed(1)} KB (حجم الصوت)`
+                                : `${((preProcessedVapBlob.size - sourceFile.size) / 1024).toFixed(1)} KB`}
+                            </span>
+                          )}
+                          <span className="font-mono text-[10px] text-emerald-300 font-bold">
+                            {(preProcessedVapBlob.size / (1024 * 1024)).toFixed(2)} MB
+                          </span>
+                        </div>
                       </div>
                       <button
                         onClick={() => {

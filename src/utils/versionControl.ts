@@ -160,12 +160,25 @@ export const checkForServerUpdate = async (): Promise<{
     if (!res.ok) return { hasUpdate: false };
     const data = await res.json();
     
-    // Check if build ID or timestamp differs from current bundle
-    const isNewBuild = data.buildId && data.buildId !== BUILD_ID;
-    const isNewVersion = data.version && data.version !== CURRENT_APP_VERSION;
+    const serverVersion = (data.version || '').trim();
+    const clientVersion = (CURRENT_APP_VERSION || '').trim();
+    const lastApplied = (localStorage.getItem('applied_app_version') || '').trim();
+
+    // If client version matches server version or user already applied this server version, no update needed
+    if (!serverVersion || serverVersion === clientVersion || serverVersion === lastApplied) {
+      return {
+        hasUpdate: false,
+        serverVersion,
+        serverBuildId: data.buildId,
+        serverBuildTime: data.buildTime
+      };
+    }
+
+    // New version detected on server
+    const isNewVersion = serverVersion !== clientVersion;
 
     return {
-      hasUpdate: Boolean(isNewBuild || isNewVersion),
+      hasUpdate: Boolean(isNewVersion),
       serverVersion: data.version,
       serverBuildId: data.buildId,
       serverBuildTime: data.buildTime

@@ -31,6 +31,10 @@ export const AppUpdateToast: React.FC = () => {
             version: parsed.version || CURRENT_APP_VERSION,
             show: true
           });
+          // Auto-hide success toast after 6 seconds
+          setTimeout(() => {
+            setJustUpdatedInfo(null);
+          }, 6000);
         }
         localStorage.removeItem('app_just_updated_msg');
       }
@@ -47,6 +51,8 @@ export const AppUpdateToast: React.FC = () => {
         serverBuildId: res.serverBuildId,
         serverBuildTime: res.serverBuildTime
       });
+    } else {
+      setUpdateAvailable(false);
     }
   };
 
@@ -56,10 +62,10 @@ export const AppUpdateToast: React.FC = () => {
       check();
     }, 3000);
 
-    // Frequent background check every 30 seconds
+    // Frequent background check every 45 seconds
     const interval = setInterval(() => {
       check();
-    }, 30 * 1000);
+    }, 45 * 1000);
 
     // Check immediately when user returns to tab
     const handleVisibility = () => {
@@ -78,17 +84,29 @@ export const AppUpdateToast: React.FC = () => {
 
   const handleApplyUpdate = () => {
     setIsUpdating(true);
+    const targetVersion = updateData.serverVersion || CURRENT_APP_VERSION;
     try {
       localStorage.setItem('app_just_updated_msg', JSON.stringify({
-        version: updateData.serverVersion || CURRENT_APP_VERSION,
+        version: targetVersion,
         timestamp: Date.now()
       }));
+      localStorage.setItem('applied_app_version', targetVersion);
     } catch (e) {}
 
     // Show brief downloading progress then reload cleanly
     setTimeout(() => {
+      setUpdateAvailable(false);
       forceAppUpdateAndClearCache();
-    }, 800);
+    }, 600);
+  };
+
+  const handleDismiss = () => {
+    setUpdateAvailable(false);
+    if (updateData.serverVersion) {
+      try {
+        localStorage.setItem('applied_app_version', updateData.serverVersion);
+      } catch (e) {}
+    }
   };
 
   return (
@@ -149,6 +167,15 @@ export const AppUpdateToast: React.FC = () => {
               <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl -z-10 pointer-events-none" />
               <div className="absolute bottom-0 left-0 w-64 h-64 bg-cyan-500/15 rounded-full blur-3xl -z-10 pointer-events-none" />
 
+              {/* Close / Dismiss Button */}
+              <button
+                onClick={handleDismiss}
+                className="absolute top-4 left-4 p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-full transition-colors cursor-pointer"
+                title="إغلاق"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
               <div className="flex items-start gap-4 mb-5">
                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shrink-0 shadow-xl shadow-indigo-500/30 animate-pulse">
                   <ArrowUpCircle className="w-8 h-8 text-white" />
@@ -189,10 +216,17 @@ export const AppUpdateToast: React.FC = () => {
                 <button
                   onClick={handleApplyUpdate}
                   disabled={isUpdating}
-                  className="w-full py-3.5 px-6 bg-gradient-to-r from-indigo-500 via-indigo-600 to-cyan-500 hover:from-indigo-600 hover:to-cyan-600 disabled:opacity-75 text-white font-black text-sm rounded-2xl shadow-xl shadow-indigo-500/30 transition-all flex items-center justify-center gap-2.5 active:scale-98 cursor-pointer"
+                  className="w-full sm:flex-1 py-3.5 px-6 bg-gradient-to-r from-indigo-500 via-indigo-600 to-cyan-500 hover:from-indigo-600 hover:to-cyan-600 disabled:opacity-75 text-white font-black text-sm rounded-2xl shadow-xl shadow-indigo-500/30 transition-all flex items-center justify-center gap-2.5 active:scale-98 cursor-pointer"
                 >
                   <RefreshCw className={`w-5 h-5 ${isUpdating ? 'animate-spin' : ''}`} />
                   <span>{isUpdating ? 'جاري تنزيل التحديث وتطبيق الملفات...' : 'تنزيل وتثبيت التحديث الآن 🔄'}</span>
+                </button>
+                <button
+                  onClick={handleDismiss}
+                  disabled={isUpdating}
+                  className="w-full sm:w-auto py-3.5 px-5 bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white font-bold text-xs rounded-2xl border border-slate-700 transition-all cursor-pointer"
+                >
+                  إغلاق
                 </button>
               </div>
             </motion.div>
