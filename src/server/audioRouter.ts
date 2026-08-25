@@ -22,38 +22,62 @@ const router = express.Router();
 // Helper to extract VAP metadata box from a Buffer
 function extractRawVapBoxFromBuffer(buffer: Buffer): Buffer | null {
   try {
-    const boxTags = ['vapc', 'yyea', 'yyev'];
+    const boxTags = ['vapc', 'yyea', 'yyev', 'udta'];
     for (const tagStr of boxTags) {
       const tag = Buffer.from(tagStr, 'ascii');
-      let idx = buffer.lastIndexOf(tag);
-      while (idx >= 4) {
-        const boxSize = buffer.readUInt32BE(idx - 4);
-        
-        // Candidate 1: standard box
-        if (boxSize >= 8 && (idx - 4 + boxSize) <= buffer.length) {
-          const payload = buffer.subarray(idx + 4, idx - 4 + boxSize);
+      let idx = buffer.indexOf(tag);
+      while (idx !== -1) {
+        if (idx >= 4) {
+          const boxSize = buffer.readUInt32BE(idx - 4);
+          // Standard MP4 box layout: [4 bytes size][4 bytes tag][payload]
+          if (boxSize >= 8 && (idx - 4 + boxSize) <= buffer.length) {
+            const rawPayload = buffer.subarray(idx + 4, idx - 4 + boxSize);
+            const str = rawPayload.toString('utf-8');
+            const start = str.indexOf('{');
+            const end = str.lastIndexOf('}');
+            if (start !== -1 && end !== -1 && end > start) {
+              try {
+                const jsonStr = str.substring(start, end + 1);
+                const parsed = JSON.parse(jsonStr);
+                if (parsed && (parsed.info || parsed.descript || parsed.v !== undefined || parsed.rgbFrame || parsed.w || parsed.width)) {
+                  return buildVapBoxFromJsonServer(parsed);
+                }
+              } catch {}
+            }
+          }
+        }
+
+        // Check if raw JSON follows the tag anywhere in the slice
+        const rawPayload = buffer.subarray(idx + 4, Math.min(buffer.length, idx + 4 + 65536));
+        const str = rawPayload.toString('utf-8');
+        const start = str.indexOf('{');
+        const end = str.lastIndexOf('}');
+        if (start !== -1 && end !== -1 && end > start) {
           try {
-            const parsed = JSON.parse(payload.toString('utf-8'));
-            if (parsed && (parsed.info || parsed.v !== undefined || parsed.data)) {
-              return buffer.subarray(idx - 4, idx - 4 + boxSize);
+            const jsonStr = str.substring(start, end + 1);
+            const parsed = JSON.parse(jsonStr);
+            if (parsed && (parsed.info || parsed.descript || parsed.v !== undefined || parsed.rgbFrame || parsed.w || parsed.width)) {
+              return buildVapBoxFromJsonServer(parsed);
             }
           } catch {}
         }
-        
-        // Candidate 2: Box at end of file, payload runs to end of buffer
-        try {
-          const payload = buffer.subarray(idx + 4);
-          const parsed = JSON.parse(payload.toString('utf-8'));
-          if (parsed && (parsed.info || parsed.v !== undefined || parsed.data)) {
-            const jsonBytes = Buffer.from(JSON.stringify(parsed), 'utf-8');
-            const header = Buffer.alloc(8);
-            header.writeUInt32BE(8 + jsonBytes.length, 0);
-            header.write(tagStr, 4, 'ascii');
-            return Buffer.concat([header, jsonBytes]);
-          }
-        } catch {}
 
-        idx = buffer.lastIndexOf(tag, idx - 1);
+        idx = buffer.indexOf(tag, idx + 1);
+      }
+    }
+
+    // Direct search for rgbFrame in buffer text
+    const fullText = buffer.subarray(Math.max(0, buffer.length - 1024 * 1024)).toString('utf-8');
+    const rgbIdx = fullText.indexOf('rgbFrame');
+    if (rgbIdx !== -1) {
+      const start = fullText.lastIndexOf('{', rgbIdx);
+      const end = fullText.indexOf('}', rgbIdx);
+      if (start !== -1 && end !== -1) {
+        const jsonStr = fullText.substring(start, fullText.indexOf('}', end) + 1);
+        try {
+          const parsed = JSON.parse(jsonStr);
+          return buildVapBoxFromJsonServer(parsed);
+        } catch {}
       }
     }
   } catch (e) {
@@ -63,17 +87,58 @@ function extractRawVapBoxFromBuffer(buffer: Buffer): Buffer | null {
 }
 
 function buildVapBoxFromJsonServer(config: any): Buffer {
-  let jsonStr = '';
+  let parsed: any = null;
   if (typeof config === 'string') {
     try {
-      const parsed = JSON.parse(config);
-      jsonStr = JSON.stringify(parsed);
+      parsed = JSON.parse(config);
     } catch {
-      jsonStr = config;
+      parsed = null;
     }
-  } else {
-    jsonStr = JSON.stringify(config);
+  } else if (typeof config === 'object' && config !== null) {
+    parsed = config;
   }
+
+  if (!parsed) {
+    parsed = {
+      info: {
+        v: 2,
+        f: 24,
+        w: 750,
+        h: 1334,
+        videoW: 1500,
+        videoH: 1334,
+        aFrame: [750, 0, 750, 1334],
+        rgbFrame: [0, 0, 750, 1334]
+      }
+    };
+  }
+
+  // Ensure standard VAP info structure
+  if (!parsed.info) {
+    const desc = parsed.descript || parsed;
+    const w = desc.w || desc.width || 750;
+    const h = desc.h || desc.height || 1334;
+    const f = desc.f || desc.fps || 24;
+    const videoW = desc.videoW || desc.videoWidth || (w * 2);
+    const videoH = desc.videoH || desc.videoHeight || h;
+    const rgbFrame = desc.rgbFrame || [0, 0, w, h];
+    const aFrame = desc.aFrame || desc.alphaFrame || [w, 0, w, h];
+    parsed = {
+      info: {
+        v: 2,
+        f,
+        w,
+        h,
+        videoW,
+        videoH,
+        rgbFrame,
+        aFrame,
+        ...desc
+      }
+    };
+  }
+
+  const jsonStr = JSON.stringify(parsed);
   const jsonBytes = Buffer.from(jsonStr, 'utf-8');
   const boxSize = 8 + jsonBytes.length;
   const header = Buffer.alloc(8);
@@ -180,6 +245,16 @@ router.post('/extract', upload.single('video'), async (req, res) => {
         args.push('-c:a', 'pcm_s16le');
       } else if (format === 'aac') {
         args.push('-c:a', 'aac', '-b:a', quality);
+      } else if (format === 'm4a') {
+        args.push('-c:a', 'aac', '-b:a', quality);
+      } else if (format === 'ogg') {
+        args.push('-c:a', 'libvorbis', '-b:a', quality);
+      } else if (format === 'flac') {
+        args.push('-c:a', 'flac');
+      } else if (format === 'opus') {
+        args.push('-c:a', 'libopus', '-b:a', quality);
+      } else {
+        args.push('-c:a', 'aac', '-b:a', quality);
       }
       args.push(outputPath);
 
@@ -205,6 +280,15 @@ router.post('/extract', upload.single('video'), async (req, res) => {
   })();
 });
 
+router.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    ffmpeg: fs.existsSync(resolvedFfmpegPath),
+    ffmpegPath: resolvedFfmpegPath,
+    supportedFormats: ['mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac', 'opus']
+  });
+});
+
 router.get('/status/:jobId', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) {
@@ -213,17 +297,45 @@ router.get('/status/:jobId', (req, res) => {
   res.json(job);
 });
 
+router.get('/stream/:jobId', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job || job.status !== 'completed' || !job.outputFile || !fs.existsSync(job.outputFile)) {
+    return res.status(404).json({ error: 'الملف غير جاهز أو غير موجود' });
+  }
+
+  const ext = path.extname(job.outputFile).toLowerCase();
+  const mimeTypes: { [key: string]: string } = {
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.aac': 'audio/aac',
+    '.m4a': 'audio/mp4',
+    '.ogg': 'audio/ogg',
+    '.flac': 'audio/flac',
+    '.opus': 'audio/opus',
+  };
+
+  const stat = fs.statSync(job.outputFile);
+  res.setHeader('Content-Type', mimeTypes[ext] || 'audio/mpeg');
+  res.setHeader('Content-Length', stat.size);
+  res.setHeader('Accept-Ranges', 'bytes');
+  fs.createReadStream(job.outputFile).pipe(res);
+});
+
 router.get('/download/:jobId', (req, res) => {
   const job = jobs.get(req.params.jobId);
-  if (!job || job.status !== 'completed' || !job.outputFile) {
+  if (!job || job.status !== 'completed' || !job.outputFile || !fs.existsSync(job.outputFile)) {
     return res.status(404).json({ error: 'الملف غير جاهز أو غير موجود' });
   }
 
   const ext = path.extname(job.outputFile);
-  const baseName = path.basename(job.originalName, path.extname(job.originalName));
+  const baseName = path.basename(job.originalName, path.extname(job.originalName)) || 'audio_export';
   const downloadName = `${baseName}${ext}`;
 
-  res.download(job.outputFile, downloadName);
+  res.download(job.outputFile, downloadName, (err) => {
+    if (err) {
+      console.warn('[Audio Download Notice]:', err.message);
+    }
+  });
 });
 
 router.post('/replace-vap-audio', upload.fields([
@@ -328,9 +440,12 @@ router.post('/replace-vap-audio', upload.fields([
       } catch (e) {}
     }
 
-    const finalBuffer = vapBox 
-      ? Buffer.concat([generatedMp4Buffer, vapBox])
-      : generatedMp4Buffer;
+    // Ensure a valid VAP box is ALWAYS appended
+    if (!vapBox) {
+      vapBox = buildVapBoxFromJsonServer(null);
+    }
+
+    const finalBuffer = Buffer.concat([generatedMp4Buffer, vapBox]);
 
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Disposition', `attachment; filename="replaced_vap.mp4"`);

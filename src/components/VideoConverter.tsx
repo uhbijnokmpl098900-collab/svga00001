@@ -34,6 +34,7 @@ declare var UPNG: any;
 declare var WebMMuxer: any;
 
 import { useAccessControl } from "../hooks/useAccessControl";
+import { extractAudioInBrowser } from "../utils/clientAudio";
 
 import { calculateSafeDimensions } from "../utils/dimensions";
 
@@ -527,32 +528,44 @@ export const VideoConverter: React.FC<VideoConverterProps> = ({
 
     try {
       const ffmpeg = ffmpegRef.current;
-      if (!ffmpeg) throw new Error("FFmpeg not loaded");
+      if (ffmpeg) {
+        const uint8 = new Uint8Array(await currentFile.arrayBuffer());
+        await ffmpeg.writeFile("input.mp4", uint8);
 
-      const uint8 = new Uint8Array(await currentFile.arrayBuffer());
-      await ffmpeg.writeFile("input.mp4", uint8);
+        // Force encoding as MP3
+        await ffmpeg.exec([
+          "-i",
+          "input.mp4",
+          "-vn",
+          "-acodec",
+          "libmp3lame",
+          "-q:a",
+          "2",
+          "output.mp3",
+        ]);
 
-      // Force encoding as MP3
-      await ffmpeg.exec([
-        "-i",
-        "input.mp4",
-        "-vn",
-        "-acodec",
-        "libmp3lame",
-        "-q:a",
-        "2",
-        "output.mp3",
-      ]);
+        const data = await ffmpeg.readFile("output.mp3");
+        const blob = new Blob([data], { type: "audio/mpeg" });
+        downloadBlob(blob, `${currentFile.name.replace(/\.[^/.]+$/, "")}.mp3`);
 
-      const data = await ffmpeg.readFile("output.mp3");
-      const blob = new Blob([data], { type: "audio/mpeg" });
-      downloadBlob(blob, `${currentFile.name.replace(/\.[^/.]+$/, "")}.mp3`);
-
-      setPhase("تم استخراج الصوت كـ MP3 بنجاح!");
-      setProgress(100);
+        setPhase("تم استخراج الصوت كـ MP3 بنجاح!");
+        setProgress(100);
+        return;
+      }
+      throw new Error("FFmpeg not loaded, falling back to Web Audio");
     } catch (e) {
-      console.error("Audio extraction failed:", e);
-      setPhase("فشل استخراج الصوت");
+      console.warn("WASM FFmpeg failed, falling back to in-browser audio extraction:", e);
+      try {
+        setPhase("جاري استخراج الصوت محلياً عبر Web Audio...");
+        setProgress(40);
+        const { wavBlob } = await extractAudioInBrowser(currentFile);
+        downloadBlob(wavBlob, `${currentFile.name.replace(/\.[^/.]+$/, "")}.wav`);
+        setPhase("تم استخراج الصوت بنجاح (WAV)!");
+        setProgress(100);
+      } catch (err: any) {
+        console.error("Audio extraction failed completely:", err);
+        setPhase("فشل استخراج الصوت");
+      }
     } finally {
       setTimeout(() => {
         setIsProcessing(false);
