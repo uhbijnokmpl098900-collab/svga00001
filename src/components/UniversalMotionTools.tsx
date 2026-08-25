@@ -1,5 +1,6 @@
 import { fastReplaceAudioInVap, extractAudioFromVap, getFFmpeg } from "../utils/vapFFmpeg";
 import { extractAudioInBrowser, getAudioChunksForMuxer } from "../utils/clientAudio";
+import { extractVapConfigFromBlob } from "../utils/vapEngine";
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Upload, X, Info, BoxSelect, FileVideo, RefreshCw, Box, Download, 
@@ -8,7 +9,7 @@ import {
   Check, RefreshCcw, Music, Volume2, VolumeX, Trash2, Plus,
   FileAudio, Headphones, Film, HelpCircle, Video,
   Stamp, Move, Square, Maximize2, SlidersHorizontal, Activity, Compass,
-  Image as ImageIcon, Camera, Lock, Unlock, Zap
+  Image as ImageIcon, Camera, Lock, Unlock, Zap, Copy
 } from 'lucide-react';
 import { UserRecord } from '../types';
 // @ts-ignore
@@ -418,6 +419,19 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isPlaybackMuted, setIsPlaybackMuted] = useState<boolean>(false);
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
+  const [copiedTooltipId, setCopiedTooltipId] = useState<string | null>(null);
+
+  const copyTooltipInstructions = (id: string, text: string) => {
+    try {
+      navigator.clipboard.writeText(text);
+      setCopiedTooltipId(id);
+      setTimeout(() => {
+        setCopiedTooltipId(null);
+      }, 2500);
+    } catch (err) {
+      console.warn("Failed to copy tooltip text:", err);
+    }
+  };
   const [isCapturingSnapshot, setIsCapturingSnapshot] = useState<boolean>(false);
   const [snapshotSuccess, setSnapshotSuccess] = useState<boolean>(false);
 
@@ -829,36 +843,11 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
     return (estimatedSizeInBytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-  // Extract VAP configuration from MP4 vapc box
+  // Extract VAP configuration from MP4 vapc / yyea box
   const extractVapConfig = async (file: File): Promise<VapConfig | null> => {
     try {
-      const buffer = await file.arrayBuffer();
-      const uint8 = new Uint8Array(buffer);
-      const vapcString = [118, 97, 112, 99]; // 'vapc'
-      let offset = -1;
-      
-      for (let i = 0; i < uint8.length - 4; i++) {
-        if (
-          uint8[i] === vapcString[0] && 
-          uint8[i+1] === vapcString[1] && 
-          uint8[i+2] === vapcString[2] && 
-          uint8[i+3] === vapcString[3]
-        ) {
-          offset = i; break;
-        }
-      }
-      
-      if (offset !== -1) {
-        const view = new DataView(buffer);
-        const boxSize = view.getUint32(offset - 4);
-        const jsonBytes = uint8.slice(offset + 4, offset + 4 + boxSize - 8);
-        const jsonString = new TextDecoder('utf-8').decode(jsonBytes);
-        const startIdx = jsonString.indexOf('{');
-        const endIdx = jsonString.lastIndexOf('}');
-        if (startIdx !== -1 && endIdx !== -1) {
-          return JSON.parse(jsonString.substring(startIdx, endIdx + 1));
-        }
-      }
+      const extracted = await extractVapConfigFromBlob(file);
+      if (extracted) return extracted as VapConfig;
     } catch (e) {
       console.error("Error extracting VAP config:", e);
     }
@@ -905,15 +894,28 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
       containerRef.current.innerHTML = '';
     }
 
-    const config = await extractVapConfig(f);
-    setVapConfig(config);
-
     const vw = tempVideo.videoWidth || 1500;
     const vh = tempVideo.videoHeight || 1334;
 
-    const w = config?.info?.w || Math.round(vw / 2);
-    const h = config?.info?.h || vh;
-    const fps = config?.info?.f || 24;
+    const rawExtracted = await extractVapConfig(f);
+    const w = rawExtracted?.info?.w || Math.round(vw / 2);
+    const h = rawExtracted?.info?.h || vh;
+    const fps = rawExtracted?.info?.f || 24;
+
+    const completeConfig: VapConfig = rawExtracted || {
+      info: {
+        v: 2,
+        f: fps,
+        w: w,
+        h: h,
+        videoW: vw,
+        videoH: vh,
+        aFrame: [w, 0, w, h],
+        rgbFrame: [0, 0, w, h]
+      }
+    };
+
+    setVapConfig(completeConfig);
 
     setVideoDimensions({ width: w, height: h });
     setCustomWidth(w);
@@ -928,18 +930,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
         loop: true,
         width: w,
         height: h,
-        config: config || {
-          "info": {
-            "v": 2,
-            "f": fps,
-            "w": w,
-            "h": h,
-            "videoW": w * 2,
-            "videoH": h,
-            "aFrame": [w, 0, w, h],
-            "rgbFrame": [0, 0, w, h]
-          }
-        }
+        config: completeConfig
       });
     } catch (err) {
       console.error("Error initializing VAP:", err);
@@ -1526,6 +1517,7 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
               duration: videoDuration > 0 ? videoDuration : undefined,
               vapConfig: vapConfig,
               mute: muteOriginalAudio && !hasCustomAudio,
+              vapCompression: vapCompressionEnabled,
               onProgress: (p) => setExportProgress(p),
               onStatus: (s) => setExportStatusText(s),
             }
@@ -2686,33 +2678,149 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                   )}
 
                   {/* Audio Controls Buttons */}
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <button
-                      onClick={() => setVapCompressionEnabled(!vapCompressionEnabled)}
-                      className={`py-1.5 px-3 rounded-xl text-[11px] font-bold transition-all border flex items-center justify-center gap-1.5 ${
-                        vapCompressionEnabled 
-                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
-                          : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
-                      }`}
-                    >
-                      <Gauge className="w-3 h-3" />
-                      <span>{vapCompressionEnabled ? 'ضغط VAP مفعل' : 'تفعيل ضغط VAP'}</span>
-                    </button>
-                    <button
-                      onClick={() => audioInputRef.current?.click()}
-                      className="py-1.5 px-3 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl text-[11px] font-bold transition-all border border-white/10 flex items-center justify-center gap-1.5"
-                    >
-                      <RefreshCw className="w-3 h-3 text-pink-400" />
-                      <span>تغيير الصوت</span>
-                    </button>
+                  <div className="space-y-2 pt-1">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-xl p-1">
+                        <button
+                          onClick={() => setVapCompressionEnabled(!vapCompressionEnabled)}
+                          className={`flex-1 py-1.5 px-2.5 rounded-lg text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                            vapCompressionEnabled 
+                              ? 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/30' 
+                              : 'hover:bg-white/10 text-slate-300'
+                          }`}
+                        >
+                          <Gauge className="w-3.5 h-3.5" />
+                          <span>{vapCompressionEnabled ? 'ضغط VAP مفعل' : 'تفعيل ضغط VAP'}</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveTooltip(activeTooltip === 'vapCompression' ? null : 'vapCompression');
+                          }}
+                          className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                            activeTooltip === 'vapCompression'
+                              ? 'bg-emerald-500 text-white border-emerald-400'
+                              : 'bg-white/5 hover:bg-white/15 text-slate-400 hover:text-emerald-300 border-white/10'
+                          }`}
+                          title="عرض وشرح وظيفة زر ضغط VAP"
+                        >
+                          <HelpCircle className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
 
-                    <button
-                      onClick={handleDownloadAudioFile}
-                      className="py-1.5 px-3 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl text-[11px] font-bold transition-all border border-white/10 flex items-center justify-center gap-1.5"
-                    >
-                      <Download className="w-3 h-3 text-indigo-400" />
-                      <span>تحميل الصوت</span>
-                    </button>
+                      <button
+                        onClick={() => audioInputRef.current?.click()}
+                        className="py-1.5 px-3 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl text-[11px] font-bold transition-all border border-white/10 flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5 text-pink-400" />
+                        <span>تغيير الصوت</span>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1">
+                      <button
+                        onClick={handleDownloadAudioFile}
+                        className="w-full py-1.5 px-3 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl text-[11px] font-bold transition-all border border-white/10 flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>تحميل الصوت</span>
+                      </button>
+                    </div>
+
+                    {/* VAP Compression Help / Tooltip Card */}
+                    {activeTooltip === 'vapCompression' && (
+                      <div 
+                        className="p-4 bg-[#111420] border border-emerald-500/40 rounded-2xl shadow-2xl space-y-3 select-text cursor-text animate-in fade-in zoom-in duration-200"
+                        dir="rtl"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                          <div className="flex items-center gap-1.5">
+                            <Gauge className="w-4 h-4 text-emerald-400" />
+                            <h5 className="text-xs font-black text-white">دليل ميزة: تفعيل ضغط VAP (Compression)</h5>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => {
+                                const text = `📋 دليل وإرشادات ميزة: تفعيل ضغط VAP (Compression)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• الوظيفة الأساسية:
+يقوم هذا الخيار بضغط وتحسين تدفق البيانات ومعدل البت (Bitrate) لملف فيديو VAP المدمج بالصوت، مع الحفاظ الكامل على شفافية الألفا ودقة الألوان وسلاسة حركة الهدية.
+
+• 🟢 عند التفعيل (فتح الزر):
+يقلل حجم ملف VAP بنسبة 40% إلى 60% ليصبح خفيفاً جداً وسريع التحميل الفوري داخل تطبيقات البث المباشر وغرف الدردشة لتفادي التقطيع وتوفير استهلاك باقة الإنترنت وذاكرة الهاتف.
+
+• ⚪ عند التعطيل (قفل الزر):
+يتم تصدير ملف VAP بأعلى جودة خام أصلية بدون أي إعادة ضغط للبيانات، مما يعطي أقصى دقة بصرية ممكنة ولكنه ينتج ملفاً بحجم أكبر.
+
+• 💡 نصيحة:
+يُوصى بتفعيله دائماً إذا كان الملف مخصصاً لتطبيقات الهواتف الذكية وتطبيقات البث لضمان عمل الهدية بسلاسة وسرعة فائقة.`;
+                                copyTooltipInstructions('vapCompression', text);
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 transition-all cursor-pointer ${
+                                copiedTooltipId === 'vapCompression'
+                                  ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30'
+                                  : 'bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white border border-white/10'
+                              }`}
+                              title="نسخ التعليمات كاملة"
+                            >
+                              {copiedTooltipId === 'vapCompression' ? (
+                                <>
+                                  <Check className="w-3 h-3 text-white" />
+                                  <span>تم النسخ بنجاح!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  <span>نسخ التعليمات</span>
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => setActiveTooltip(null)}
+                              className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                              title="إغلاق"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 text-xs text-slate-300 leading-relaxed">
+                          <p className="bg-white/5 p-2.5 rounded-xl border border-white/5 text-slate-200">
+                            <strong className="text-emerald-400 block mb-0.5 font-bold">📌 ما هي الوظيفة والفائدة؟</strong>
+                            يقوم هذا الخيار بضغط وتحسين تدفق البيانات ومعدل البت (Bitrate) لملف فيديو VAP المدمج بالصوت مع الحفاظ على شفافية الفيديو ودقة الألوان وسلاسة الحركة.
+                          </p>
+
+                          <div className="space-y-1.5 pt-0.5">
+                            <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl">
+                              <strong className="text-emerald-400 flex items-center gap-1.5 font-bold mb-1">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                                عند التفعيل (فتح الزر):
+                              </strong>
+                              <p className="text-slate-300 text-[11px] leading-relaxed">
+                                يقلل حجم ملف VAP بنسبة <strong>40% إلى 60%</strong>، مما يجعله خفيفاً وسريع التحميل جداً داخل تطبيقات البث المباشر وغرف الدردشة لتسريع العرض وتوفير استهلاك باقة الإنترنت والذاكرة.
+                              </p>
+                            </div>
+
+                            <div className="bg-slate-800/60 border border-white/10 p-2.5 rounded-xl">
+                              <strong className="text-slate-300 flex items-center gap-1.5 font-bold mb-1">
+                                <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                                عند التعطيل (قفل الزر):
+                              </strong>
+                              <p className="text-slate-400 text-[11px] leading-relaxed">
+                                يتم تصدير ملف VAP بأعلى جودة خام أصلية بدون أي إعادة ضغط للبيانات، مما يوفر أقصى دقة بصرية ممكنة ولكنه ينتج ملفاً أكبر حجماً.
+                              </p>
+                            </div>
+                          </div>
+
+                          <p className="text-[11px] text-amber-300/90 bg-amber-500/10 p-2 rounded-xl border border-amber-500/20 flex items-start gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                            <span><strong>نصيحة:</strong> يُنصح بتفعيله للتطبيقات والبث المباشر لضمان تشغيل سريع وسلس بدون أي لاق أو تقطيع.</span>
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
                 </div>
@@ -2744,7 +2852,23 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                 </span>
               </div>
               <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-2xl p-4">
-                <span className="text-sm font-bold text-slate-300">كتم الصوت الأصلي عند التصدير</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-slate-300">كتم الصوت الأصلي عند التصدير</span>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveTooltip(activeTooltip === 'muteOriginal' ? null : 'muteOriginal');
+                    }}
+                    className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                      activeTooltip === 'muteOriginal'
+                        ? 'bg-indigo-500 text-white border-indigo-400'
+                        : 'bg-white/5 hover:bg-white/15 text-slate-400 hover:text-indigo-300 border-white/10'
+                    }`}
+                    title="عرض وشرح وظيفة كتم الصوت الأصلي"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" />
+                  </button>
+                </div>
                 <button 
                   onClick={async () => {
                     const nextMute = !muteOriginalAudio;
@@ -2776,17 +2900,104 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                       }
                     }
                   }}
-                  className={`w-12 h-6 rounded-full relative transition-colors ${muteOriginalAudio ? 'bg-indigo-500' : 'bg-slate-700'}`}
+                  className={`w-12 h-6 rounded-full relative transition-colors cursor-pointer ${muteOriginalAudio ? 'bg-indigo-500' : 'bg-slate-700'}`}
                 >
                   <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${muteOriginalAudio ? 'left-1 translate-x-6' : 'left-1'}`} />
                 </button>
               </div>
 
+              {/* Mute Original Help / Tooltip Card */}
+              {activeTooltip === 'muteOriginal' && (
+                <div 
+                  className="p-4 bg-[#111420] border border-blue-500/40 rounded-2xl shadow-2xl space-y-3 select-text cursor-text animate-in fade-in zoom-in duration-200"
+                  dir="rtl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Volume2 className="w-4 h-4 text-blue-400" />
+                      <h5 className="text-xs font-black text-white">دليل خيار: كتم الصوت الأصلي لملف VAP</h5>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => {
+                          const text = `📋 دليل وإرشادات: كتم الصوت الأصلي لملف VAP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• الوظيفة الأساسية:
+التحكم في المسار الصوتي المدمج افتراضياً داخل ملف VAP الأصلي أثناء عملية المعالجة والتصدير.
+
+• 🟢 عند التفعيل (فتح الزر):
+يتم حذف وكتم المسار الصوتي الأصلي تماماً عند التصدير، ليصبح الفيديو صامتاً تماماً (أو يحتوي فقط على الصوت الجديد المخصص الذي قمت بإضافته).
+
+• ⚪ عند التعطيل (قفل الزر):
+يتم الاحتفاظ بالمسار الصوتي الأصلي لملف VAP كما هو بدون أي حذف أو تغيير.`;
+                          copyTooltipInstructions('muteOriginal', text);
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 transition-all cursor-pointer ${
+                          copiedTooltipId === 'muteOriginal'
+                            ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30'
+                            : 'bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white border border-white/10'
+                        }`}
+                        title="نسخ التعليمات كاملة"
+                      >
+                        {copiedTooltipId === 'muteOriginal' ? (
+                          <>
+                            <Check className="w-3 h-3 text-white" />
+                            <span>تم النسخ بنجاح!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>نسخ التعليمات</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => setActiveTooltip(null)}
+                        className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                        title="إغلاق"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 text-xs text-slate-300 leading-relaxed">
+                    <p className="bg-white/5 p-2.5 rounded-xl border border-white/5 text-slate-200">
+                      <strong className="text-blue-400 block mb-0.5 font-bold">📌 ما هي الوظيفة؟</strong>
+                      التحكم في المسار الصوتي المدمج افتراضياً داخل ملف VAP الأصلي أثناء عملية التصدير.
+                    </p>
+
+                    <div className="space-y-1.5 pt-0.5">
+                      <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl">
+                        <strong className="text-emerald-400 flex items-center gap-1.5 font-bold mb-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                          عند التفعيل (فتح الزر):
+                        </strong>
+                        <p className="text-slate-300 text-[11px] leading-relaxed">
+                          يتم إزالة وكتم الصوت الأصلي للفيديو نهائياً في التصدير، ليصبح ملف VAP بدون صوت قديم (أو بالصوت الجديد فقط).
+                        </p>
+                      </div>
+
+                      <div className="bg-slate-800/60 border border-white/10 p-2.5 rounded-xl">
+                        <strong className="text-slate-300 flex items-center gap-1.5 font-bold mb-1">
+                          <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                          عند التعطيل (قفل الزر):
+                        </strong>
+                        <p className="text-slate-400 text-[11px] leading-relaxed">
+                          يتم الاحتفاظ بالصوت الأصلي لملف VAP كما هو بدون أي حذف.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Download original audio extracted from VAP button */}
               <button 
                 onClick={handleDownloadOriginalAudio}
                 disabled={isExtractingAudio || !fileUrl}
-                className="w-full py-2.5 px-3 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 hover:text-white rounded-xl text-xs font-bold transition-all border border-blue-500/20 flex items-center justify-center gap-2"
+                className="w-full py-2.5 px-3 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 hover:text-white rounded-xl text-xs font-bold transition-all border border-blue-500/20 flex items-center justify-center gap-2 cursor-pointer"
               >
                 {isExtractingAudio ? (
                   <>
@@ -2805,19 +3016,122 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
             {/* Watermark Studio (العلامة المائية المتحركة المربعة) */}
             <div className="p-5 border-b border-white/5 space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Stamp className="w-3.5 h-3.5 text-pink-400" />
-                  العلامة المائية المتحركة (مربعة)
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Stamp className="w-3.5 h-3.5 text-pink-400" />
+                    العلامة المائية المتحركة (مربعة)
+                  </span>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveTooltip(activeTooltip === 'watermark' ? null : 'watermark');
+                    }}
+                    className={`p-1 rounded-md border transition-all cursor-pointer ${
+                      activeTooltip === 'watermark'
+                        ? 'bg-pink-500 text-white border-pink-400'
+                        : 'bg-white/5 hover:bg-white/15 text-slate-400 hover:text-pink-300 border-white/10'
+                    }`}
+                    title="شرح ميزة العلامة المائية المتحركة"
+                  >
+                    <HelpCircle className="w-3 h-3" />
+                  </button>
+                </div>
                 <div className="flex items-center gap-2">
                   <button 
                     onClick={() => setEnableWatermark(!enableWatermark)}
-                    className={`w-11 h-5 rounded-full relative transition-colors ${enableWatermark ? 'bg-pink-500' : 'bg-slate-700'}`}
+                    className={`w-11 h-5 rounded-full relative transition-colors cursor-pointer ${enableWatermark ? 'bg-pink-500' : 'bg-slate-700'}`}
                   >
                     <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${enableWatermark ? 'left-0.5 translate-x-6' : 'left-0.5'}`} />
                   </button>
                 </div>
               </div>
+
+              {/* Watermark Help / Tooltip Card */}
+              {activeTooltip === 'watermark' && (
+                <div 
+                  className="p-4 bg-[#111420] border border-pink-500/40 rounded-2xl shadow-2xl space-y-3 select-text cursor-text animate-in fade-in zoom-in duration-200"
+                  dir="rtl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Stamp className="w-4 h-4 text-pink-400" />
+                      <h5 className="text-xs font-black text-white">دليل: العلامة المائية المتحركة (مربعة)</h5>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => {
+                          const text = `📋 دليل وإرشادات: العلامة المائية المتحركة (مربعة)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• الوظيفة الأساسية:
+إضافة وتضمين شعار أو علامة مائية متحركة ومخصصة فوق الهدية لحفظ وتوثيق الحقوق وإبراز هوية المطور أو المصمم.
+
+• 🟢 عند التفعيل (فتح الزر):
+يتم دمج الشعار أو الصورة فوق الهدية، مع إمكانية ضبط نوع الحركة (عائمة، ارتدادية، مدارية، أو ثابتة)، والتحكم في الشفافية وسرعة الحركة وحجم وموقع العلامة المائية.
+
+• ⚪ عند التعطيل (قفل الزر):
+يتم تصدير الهدية نظيفة تماماً بدون أي شعار أو علامة مائية إضافية.`;
+                          copyTooltipInstructions('watermark', text);
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 transition-all cursor-pointer ${
+                          copiedTooltipId === 'watermark'
+                            ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30'
+                            : 'bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white border border-white/10'
+                        }`}
+                        title="نسخ التعليمات كاملة"
+                      >
+                        {copiedTooltipId === 'watermark' ? (
+                          <>
+                            <Check className="w-3 h-3 text-white" />
+                            <span>تم النسخ بنجاح!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>نسخ التعليمات</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => setActiveTooltip(null)}
+                        className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                        title="إغلاق"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 text-xs text-slate-300 leading-relaxed">
+                    <p className="bg-white/5 p-2.5 rounded-xl border border-white/5 text-slate-200">
+                      <strong className="text-pink-400 block mb-0.5 font-bold">📌 ما هي الوظيفة؟</strong>
+                      تضمين علامة مائية ذكية ومتحركة فوق الهدية لحماية الهوية وحفظ الحقوق.
+                    </p>
+
+                    <div className="space-y-1.5 pt-0.5">
+                      <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl">
+                        <strong className="text-emerald-400 flex items-center gap-1.5 font-bold mb-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                          عند التفعيل (فتح الزر):
+                        </strong>
+                        <p className="text-slate-300 text-[11px] leading-relaxed">
+                          دمج الشعار المتحرك مع الهدية مع التحكم في الحركة والموقع ونسبة الشفافية والانحناء.
+                        </p>
+                      </div>
+
+                      <div className="bg-slate-800/60 border border-white/10 p-2.5 rounded-xl">
+                        <strong className="text-slate-300 flex items-center gap-1.5 font-bold mb-1">
+                          <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                          عند التعطيل (قفل الزر):
+                        </strong>
+                        <p className="text-slate-400 text-[11px] leading-relaxed">
+                          تصدير الهدية بدون أي علامة مائية.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Hidden file input for watermark image */}
               <input
@@ -2948,23 +3262,6 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                         </span>
                         <span className="text-pink-300 font-mono font-bold">{watermarkMotionAmount}%</span>
                       </div>
-              {isProcessingAudio && (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
-                   <div className="flex justify-between items-center text-xs font-bold text-emerald-400">
-                     <span className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري معالجة ودمج الصوت...
-                     </span>
-                     <span>{audioProcessProgress}%</span>
-                   </div>
-                   <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden">
-                     <div 
-                       className="h-full bg-emerald-500 transition-all duration-300"
-                       style={{ width: `${audioProcessProgress}%` }}
-                     />
-                   </div>
-                </div>
-              )}
 
                       <input
                         type="range"
@@ -2991,23 +3288,6 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                       </span>
                       <span className="text-pink-300 font-mono font-bold">{watermarkSize}%</span>
                     </div>
-              {isProcessingAudio && (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
-                   <div className="flex justify-between items-center text-xs font-bold text-emerald-400">
-                     <span className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري معالجة ودمج الصوت...
-                     </span>
-                     <span>{audioProcessProgress}%</span>
-                   </div>
-                   <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden">
-                     <div 
-                       className="h-full bg-emerald-500 transition-all duration-300"
-                       style={{ width: `${audioProcessProgress}%` }}
-                     />
-                   </div>
-                </div>
-              )}
 
                     <input
                       type="range"
@@ -3034,23 +3314,6 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                         </span>
                         <span className="text-pink-300 font-mono font-bold">{watermarkSpeed.toFixed(1)}x</span>
                       </div>
-              {isProcessingAudio && (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
-                   <div className="flex justify-between items-center text-xs font-bold text-emerald-400">
-                     <span className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري معالجة ودمج الصوت...
-                     </span>
-                     <span>{audioProcessProgress}%</span>
-                   </div>
-                   <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden">
-                     <div 
-                       className="h-full bg-emerald-500 transition-all duration-300"
-                       style={{ width: `${audioProcessProgress}%` }}
-                     />
-                   </div>
-                </div>
-              )}
 
                       <input
                         type="range"
@@ -3080,23 +3343,6 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                         </span>
                         <span className="text-pink-300 font-mono text-[11px] font-bold">{watermarkBorderRadius}px</span>
                       </div>
-              {isProcessingAudio && (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
-                   <div className="flex justify-between items-center text-xs font-bold text-emerald-400">
-                     <span className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري معالجة ودمج الصوت...
-                     </span>
-                     <span>{audioProcessProgress}%</span>
-                   </div>
-                   <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden">
-                     <div 
-                       className="h-full bg-emerald-500 transition-all duration-300"
-                       style={{ width: `${audioProcessProgress}%` }}
-                     />
-                   </div>
-                </div>
-              )}
 
                       <input
                         type="range"
@@ -3114,23 +3360,6 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                         <span>الشفافية</span>
                         <span className="text-pink-300 font-mono text-[11px] font-bold">{watermarkOpacity}%</span>
                       </div>
-              {isProcessingAudio && (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
-                   <div className="flex justify-between items-center text-xs font-bold text-emerald-400">
-                     <span className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري معالجة ودمج الصوت...
-                     </span>
-                     <span>{audioProcessProgress}%</span>
-                   </div>
-                   <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden">
-                     <div 
-                       className="h-full bg-emerald-500 transition-all duration-300"
-                       style={{ width: `${audioProcessProgress}%` }}
-                     />
-                   </div>
-                </div>
-              )}
 
                       <input
                         type="range"
@@ -3259,24 +3488,6 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                   }`}
                 >
                   <Upload className="w-4 h-4 text-purple-300" />
-              {isProcessingAudio && (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
-                   <div className="flex justify-between items-center text-xs font-bold text-emerald-400">
-                     <span className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري معالجة ودمج الصوت...
-                     </span>
-                     <span>{audioProcessProgress}%</span>
-                   </div>
-                   <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden">
-                     <div 
-                       className="h-full bg-emerald-500 transition-all duration-300"
-                       style={{ width: `${audioProcessProgress}%` }}
-                     />
-                   </div>
-                </div>
-              )}
-
                   <input
                     ref={bgImageInputRef}
                     type="file"
@@ -3317,33 +3528,22 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                         إزالة الهالة السوداء (De-black Matte)
                       </span>
                       <button 
-                        onMouseEnter={() => setActiveTooltip('deblack')}
-                        onMouseLeave={() => setActiveTooltip(null)}
-                        className="text-slate-400 hover:text-indigo-400 transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveTooltip(activeTooltip === 'deblack' ? null : 'deblack');
+                        }}
+                        className={`p-1 rounded-md border transition-all cursor-pointer ${
+                          activeTooltip === 'deblack'
+                            ? 'bg-indigo-500 text-white border-indigo-400'
+                            : 'bg-white/5 hover:bg-white/15 text-slate-400 hover:text-indigo-300 border-white/10'
+                        }`}
+                        title="عرض وشرح وظيفة إزالة الهالة السوداء"
                       >
                         <HelpCircle className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
                   <label className="cursor-pointer">
-              {isProcessingAudio && (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
-                   <div className="flex justify-between items-center text-xs font-bold text-emerald-400">
-                     <span className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري معالجة ودمج الصوت...
-                     </span>
-                     <span>{audioProcessProgress}%</span>
-                   </div>
-                   <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden">
-                     <div 
-                       className="h-full bg-emerald-500 transition-all duration-300"
-                       style={{ width: `${audioProcessProgress}%` }}
-                     />
-                   </div>
-                </div>
-              )}
-
                     <input 
                       type="checkbox" 
                       checked={unmultiplyAlpha}
@@ -3353,13 +3553,88 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                   </label>
                 </div>
                 {activeTooltip === 'deblack' && (
-                  <div className="absolute top-full left-0 right-0 mt-2 p-3 bg-[#1A1D27] border border-indigo-500/30 rounded-xl shadow-xl z-50 animate-in fade-in zoom-in duration-200">
-                    <p className="text-xs text-slate-300 leading-relaxed">
-                      <strong className="text-indigo-400 block mb-1">ما هي إزالة الهالة السوداء؟</strong>
-                      يقوم هذا الخيار بفصل الألوان المدمجة مع الخلفية السوداء في ملف VAP الأصلي.
-                      <br/>- <strong className="text-emerald-400">عند تفعيله:</strong> ستبدو أطراف الهدية (مثل الدخان أو التوهج الساطع) نظيفة جداً على أي لون خلفية (سواء كانت خلفية التطبيق بيضاء أو ملونة).
-                      <br/>- <strong className="text-red-400">عند تعطيله:</strong> قد تلاحظ ظهور حواف سوداء مزعجة أو "هالة داكنة" حول الهدية المضيئة خاصة إذا تم تشغيلها على خلفية فاتحة.
-                    </p>
+                  <div 
+                    className="mt-2 p-4 bg-[#111420] border border-indigo-500/40 rounded-2xl shadow-2xl space-y-3 select-text cursor-text animate-in fade-in zoom-in duration-200"
+                    dir="rtl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4 text-indigo-400" />
+                        <h5 className="text-xs font-black text-white">دليل خيار: إزالة الهالة السوداء (De-black Matte)</h5>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            const text = `📋 دليل وإرشادات: إزالة الهالة السوداء (De-black Matte)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• الوظيفة الأساسية:
+يقوم هذا الخيار بفصل وتطهير الألوان المدمجة مع الخلفية السوداء في ملف VAP الأصلي (Unmultiply Alpha).
+
+• 🟢 عند التفعيل (فتح الخيار):
+ستبدو أطراف الهدية (مثل الدخان، اللهب، النيون، أو التوهج الساطع) نظيفة جداً وخالية من السواد على أي لون خلفية (سواء كانت خلفية التطبيق بيضاء أو ملونة).
+
+• ⚪ عند التعطيل (قفل الخيار):
+قد تلاحظ ظهور حواف سوداء داكنة مزعجة أو "هالة سواد" حول العناصر المضيئة خاصة إذا تم تشغيل الهدية على خلفية فاتحة.`;
+                            copyTooltipInstructions('deblack', text);
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 transition-all cursor-pointer ${
+                            copiedTooltipId === 'deblack'
+                              ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30'
+                              : 'bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white border border-white/10'
+                          }`}
+                          title="نسخ التعليمات كاملة"
+                        >
+                          {copiedTooltipId === 'deblack' ? (
+                            <>
+                              <Check className="w-3 h-3 text-white" />
+                              <span>تم النسخ بنجاح!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              <span>نسخ التعليمات</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => setActiveTooltip(null)}
+                          className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                          title="إغلاق"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 text-xs text-slate-300 leading-relaxed">
+                      <p className="bg-white/5 p-2.5 rounded-xl border border-white/5 text-slate-200">
+                        <strong className="text-indigo-400 block mb-0.5 font-bold">📌 ما هي الوظيفة؟</strong>
+                        فصل وتنقية الألوان المتداخلة مع السواد في ملف VAP لضمان شفافية نقية.
+                      </p>
+
+                      <div className="space-y-1.5 pt-0.5">
+                        <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl">
+                          <strong className="text-emerald-400 flex items-center gap-1.5 font-bold mb-1">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                            عند التفعيل (فتح الخيار):
+                          </strong>
+                          <p className="text-slate-300 text-[11px] leading-relaxed">
+                            أطراف الهدية (الدخان، التوهج، والشرر) تظهر نظيفة وشفافة تماماً فوق أي لون خلفية بدون سواد محيط.
+                          </p>
+                        </div>
+
+                        <div className="bg-slate-800/60 border border-white/10 p-2.5 rounded-xl">
+                          <strong className="text-slate-300 flex items-center gap-1.5 font-bold mb-1">
+                            <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                            عند التعطيل (قفل الخيار):
+                          </strong>
+                          <p className="text-slate-400 text-[11px] leading-relaxed">
+                            قد تظهر هالة أو حافة سواد خفيفة حول العناصر المضيئة على الخلفيات الفاتحة.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -3370,32 +3645,22 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                   <div className="flex items-center gap-2">
                     <span>تنقية غباش وضوضاء الشفافية</span>
                     <button 
-                      onMouseEnter={() => setActiveTooltip('alphaThreshold')}
-                      onMouseLeave={() => setActiveTooltip(null)}
-                      className="text-slate-400 hover:text-indigo-400 transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveTooltip(activeTooltip === 'alphaThreshold' ? null : 'alphaThreshold');
+                      }}
+                      className={`p-1 rounded-md border transition-all cursor-pointer ${
+                        activeTooltip === 'alphaThreshold'
+                          ? 'bg-indigo-500 text-white border-indigo-400'
+                          : 'bg-white/5 hover:bg-white/15 text-slate-400 hover:text-indigo-300 border-white/10'
+                      }`}
+                      title="عرض وشرح مؤشر تنقية الشفافية"
                     >
                       <HelpCircle className="w-3.5 h-3.5" />
                     </button>
                   </div>
                   <span className="text-indigo-400 font-mono">{alphaThreshold}</span>
                 </div>
-              {isProcessingAudio && (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
-                   <div className="flex justify-between items-center text-xs font-bold text-emerald-400">
-                     <span className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري معالجة ودمج الصوت...
-                     </span>
-                     <span>{audioProcessProgress}%</span>
-                   </div>
-                   <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden">
-                     <div 
-                       className="h-full bg-emerald-500 transition-all duration-300"
-                       style={{ width: `${audioProcessProgress}%` }}
-                     />
-                   </div>
-                </div>
-              )}
 
                 <input 
                   type="range" 
@@ -3413,14 +3678,91 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                 </div>
                 
                 {activeTooltip === 'alphaThreshold' && (
-                  <div className="absolute top-full left-0 right-0 mt-2 p-3 bg-[#1A1D27] border border-indigo-500/30 rounded-xl shadow-xl z-50 animate-in fade-in zoom-in duration-200">
-                    <p className="text-xs text-slate-300 leading-relaxed">
-                      <strong className="text-indigo-400 block mb-1">ما هي تنقية غباش الشفافية؟</strong>
-                      أحياناً تحتوي الفيديوهات على بيكسلات شبه شفافة داكنة تظهر كغباش حول الأطراف. هذا المؤشر يحدد مدى قوة إزالة هذه البيكسلات الضعيفة.
-                      <br/>- <strong className="text-emerald-400">إذا رفعته (قوي):</strong> سيقوم بمسح ومحو أي ضباب خفيف حول الهدية ويجعل الحواف حادة جداً. ممتاز لو الهدية فيها سواد زايد، لكن قد يمسح تفاصيل الدخان أو التوهج الخفيف.
-                      <br/>- <strong className="text-amber-400">إذا خفضته (بدون فلترة):</strong> سيحافظ على كل تفاصيل التوهج والضباب الأصلية للهدية، ولكن قد تظهر بعض البقع الداكنة الخفيفة. 
-                      <br/>- <strong className="text-indigo-300">المتوازن (8 إلى 12):</strong> هو الأفضل للغالبية العظمى من الهدايا.
-                    </p>
+                  <div 
+                    className="mt-2 p-4 bg-[#111420] border border-indigo-500/40 rounded-2xl shadow-2xl space-y-3 select-text cursor-text animate-in fade-in zoom-in duration-200"
+                    dir="rtl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <div className="flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                        <h5 className="text-xs font-black text-white">دليل مؤشر: تنقية غباش الشفافية</h5>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            const text = `📋 دليل وإرشادات: تنقية غباش وضوضاء الشفافية (Alpha Noise Threshold)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• الوظيفة الأساسية:
+تصفية ومحو البيكسلات شبه الشفافة الداكنة التي تظهر كغباش أو ضبابية حول أطراف الهدية.
+
+• 📈 عند رفع القيمة (قوي 15 - 25):
+يقوم بمسح ومحو أي ضباب خفيف حول الهدية ويجعل الحواف حادة ونظيفة جداً. ممتاز لو الهدية بها شوائب سواد، ولكن قد يقلل من نعومة الدخان الخفيف جداً.
+
+• 📉 عند خفض القيمة (بدون فلترة 0 - 5):
+يحافظ على كافة تفاصيل التوهج والضباب الأصلية بالكامل.
+
+• ⚖️ القيمة المتوازنة (8 إلى 12):
+هي الأفضل والأكثر ملاءمة لـ 95% من الهدايا.`;
+                            copyTooltipInstructions('alphaThreshold', text);
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 transition-all cursor-pointer ${
+                            copiedTooltipId === 'alphaThreshold'
+                              ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30'
+                              : 'bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white border border-white/10'
+                          }`}
+                          title="نسخ التعليمات كاملة"
+                        >
+                          {copiedTooltipId === 'alphaThreshold' ? (
+                            <>
+                              <Check className="w-3 h-3 text-white" />
+                              <span>تم النسخ بنجاح!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              <span>نسخ التعليمات</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => setActiveTooltip(null)}
+                          className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                          title="إغلاق"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 text-xs text-slate-300 leading-relaxed">
+                      <p className="bg-white/5 p-2.5 rounded-xl border border-white/5 text-slate-200">
+                        <strong className="text-indigo-400 block mb-0.5 font-bold">📌 ما هي الوظيفة؟</strong>
+                        تصفية البيكسلات الباهتة المحيطة بالهدية لمنع ظهور أي غباش أو ضبابية غير مرغوبة.
+                      </p>
+
+                      <div className="space-y-1.5 pt-0.5">
+                        <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl">
+                          <strong className="text-emerald-400 flex items-center gap-1.5 font-bold mb-1">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                            عند رفع القيمة (قوي):
+                          </strong>
+                          <p className="text-slate-300 text-[11px] leading-relaxed">
+                            حواف حادة ومسح كامل لأي ضباب أو شوائب سواد محيطة بالهدية.
+                          </p>
+                        </div>
+
+                        <div className="bg-slate-800/60 border border-white/10 p-2.5 rounded-xl">
+                          <strong className="text-slate-300 flex items-center gap-1.5 font-bold mb-1">
+                            <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                            عند خفض القيمة (بدون فلترة):
+                          </strong>
+                          <p className="text-slate-400 text-[11px] leading-relaxed">
+                            الاحتفاظ بكافة تفاصيل التوهج والدخان الخفيف كما هي.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -3462,9 +3804,16 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                     <SlidersHorizontal className="w-4 h-4" />
                     <span>ضغط الملف (Compression)</span>
                     <button 
-                      onMouseEnter={() => setActiveTooltip('compression')}
-                      onMouseLeave={() => setActiveTooltip(null)}
-                      className="text-slate-500 hover:text-indigo-400 transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveTooltip(activeTooltip === 'compression' ? null : 'compression');
+                      }}
+                      className={`p-1 rounded-md border transition-all cursor-pointer ${
+                        activeTooltip === 'compression'
+                          ? 'bg-indigo-500 text-white border-indigo-400'
+                          : 'bg-white/5 hover:bg-white/15 text-slate-400 hover:text-indigo-300 border-white/10'
+                      }`}
+                      title="عرض وشرح مؤشر ضغط الملف"
                     >
                       <HelpCircle className="w-3.5 h-3.5" />
                     </button>
@@ -3536,13 +3885,101 @@ export const UniversalMotionTools: React.FC<UniversalMotionToolsProps> = ({
                 )}
 
                 {activeTooltip === 'compression' && (
-                  <div className="absolute top-full left-0 right-0 mt-2 p-3 bg-[#1A1D27] border border-indigo-500/30 rounded-xl shadow-xl z-50 animate-in fade-in zoom-in duration-200">
-                    <p className="text-xs text-slate-300 leading-relaxed">
-                      <strong className="text-indigo-400 block mb-1">التحكم في نسبة ضغط الملف (0 - 100%):</strong>
-                      - <strong className="text-emerald-400">0%:</strong> بدون أي ضغط، الحفاظ على أعلى جودة وأعلى دقة ألوان ومطابقة كاملة للملف الأصلي.
-                      <br/>- <strong className="text-blue-400">1–99%:</strong> ضغط تدريجي ذكي يقلل تدفق البيانات وحجم الصور مع الحفاظ على نعومة الحركة.
-                      <br/>- <strong className="text-pink-400">100%:</strong> أقصى ضغط ممكن لتصغير حجم الملف لأقصى حد ملائم للبث المباشر.
-                    </p>
+                  <div 
+                    className="mt-2 p-4 bg-[#111420] border border-indigo-500/40 rounded-2xl shadow-2xl space-y-3 select-text cursor-text animate-in fade-in zoom-in duration-200"
+                    dir="rtl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <div className="flex items-center gap-1.5">
+                        <SlidersHorizontal className="w-4 h-4 text-indigo-400" />
+                        <h5 className="text-xs font-black text-white">دليل مؤشر: ضغط الملف (Compression)</h5>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            const text = `📋 دليل وإرشادات: ضغط الملف (Compression)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• الوظيفة الأساسية:
+التحكم الدقيق في نسبة ضغط وتقليص حجم الملف الناتج (من 0% إلى 100%) ليلائم متطلبات البث المباشر والهواتف المحمولة.
+
+• 🟢 نسبة 0% (الأصلي بدون ضغط):
+تصدير الملف بأقصى جودة خام وبدون أي تقليل للألوان أو معدل البت.
+
+• 🔵 نسبة 25% - 50% (خفيف إلى متوازن - موصى به):
+ضغط ذكي يخفض حجم الملف بنسبة 30% إلى 50% مع الحفاظ على وضوح فائق ونعومة كاملة للحركة.
+
+• 🟣 نسبة 75% - 100% (أقصى ضغط):
+تقليص فائق لحجم الملف ليصبح صغيراً جداً وسريع التحميل على أضعف شبكات الإنترنت وأجهزة الهواتف المحدودة.`;
+                            copyTooltipInstructions('compression', text);
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 transition-all cursor-pointer ${
+                            copiedTooltipId === 'compression'
+                              ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30'
+                              : 'bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white border border-white/10'
+                          }`}
+                          title="نسخ التعليمات كاملة"
+                        >
+                          {copiedTooltipId === 'compression' ? (
+                            <>
+                              <Check className="w-3 h-3 text-white" />
+                              <span>تم النسخ بنجاح!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              <span>نسخ التعليمات</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => setActiveTooltip(null)}
+                          className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                          title="إغلاق"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 text-xs text-slate-300 leading-relaxed">
+                      <p className="bg-white/5 p-2.5 rounded-xl border border-white/5 text-slate-200">
+                        <strong className="text-indigo-400 block mb-0.5 font-bold">📌 ما هي الوظيفة؟</strong>
+                        التحكم في نسبة تصغير حجم الملف وتدفق البيانات مع الحفاظ على سلاسة الحركة ونقاء الشفافية.
+                      </p>
+
+                      <div className="space-y-1.5 pt-0.5">
+                        <div className="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl">
+                          <strong className="text-emerald-400 flex items-center gap-1.5 font-bold mb-1">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                            0% (بدون ضغط):
+                          </strong>
+                          <p className="text-slate-300 text-[11px] leading-relaxed">
+                            أعلى جودة ومطابقة تامة للملف الأصلي بدون أي تخفيض لمعدل البت.
+                          </p>
+                        </div>
+
+                        <div className="bg-blue-500/10 border border-blue-500/20 p-2.5 rounded-xl">
+                          <strong className="text-blue-400 flex items-center gap-1.5 font-bold mb-1">
+                            <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+                            25% – 50% (متوازن - موصى به):
+                          </strong>
+                          <p className="text-slate-300 text-[11px] leading-relaxed">
+                            يقلل حجم الملف بنسبة 30% إلى 50% مع الحفاظ التام على جمال ووضوح الهدية.
+                          </p>
+                        </div>
+
+                        <div className="bg-purple-500/10 border border-purple-500/20 p-2.5 rounded-xl">
+                          <strong className="text-purple-400 flex items-center gap-1.5 font-bold mb-1">
+                            <span className="w-2 h-2 rounded-full bg-purple-400"></span>
+                            75% – 100% (أقصى ضغط):
+                          </strong>
+                          <p className="text-slate-300 text-[11px] leading-relaxed">
+                            تقليص فائق لحجم الملف لتشغيل فوري بدون أي بطء على أضعف شبكات الإنترنت.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
