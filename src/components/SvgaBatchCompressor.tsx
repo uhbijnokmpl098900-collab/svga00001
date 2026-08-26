@@ -25,7 +25,7 @@ import {
 
 declare var SVGA: any;
 
-export type SupportedFormat = 'svga' | 'vap';
+export type SupportedFormat = 'svga' | 'vap' | 'mp4';
 
 export interface BatchCompressorItem {
   id: string;
@@ -87,7 +87,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'done' | 'error'>('all');
-  const [formatFilter, setFormatFilter] = useState<'all' | 'svga' | 'vap'>('all');
+  const [formatFilter, setFormatFilter] = useState<'all' | 'svga' | 'vap' | 'mp4'>('all');
 
   // Preview & Comparison Modal State
   const [previewItem, setPreviewItem] = useState<BatchCompressorItem | null>(null);
@@ -162,9 +162,10 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
   const detectFormat = (file: File): SupportedFormat => {
     const name = file.name.toLowerCase();
     if (name.endsWith('.svga')) return 'svga';
-    if (name.endsWith('.vap') || name.endsWith('.mp4')) return 'vap';
+    if (name.endsWith('.vap')) return 'vap';
+    if (name.endsWith('.mp4')) return 'mp4';
     if (file.type.includes('svga')) return 'svga';
-    if (file.type.includes('video') || file.type.includes('mp4')) return 'vap';
+    if (file.type.includes('mp4') || file.type.includes('video')) return 'mp4';
     return 'svga';
   };
 
@@ -179,6 +180,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
         name.endsWith('.mp4') ||
         f.type.includes('svga') ||
         f.type.includes('video') ||
+        f.type.includes('mp4') ||
         f.size > 0
       );
     });
@@ -233,7 +235,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  // Process a single item (SVGA or VAP)
+  // Process a single item (SVGA, VAP, or MP4)
   const processSingleItem = async (itemId: string): Promise<boolean> => {
     const targetItem = items.find(it => it.id === itemId);
     if (!targetItem) return false;
@@ -243,20 +245,22 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
       ...it,
       status: 'processing',
       progress: 10,
-      stepMessage: targetItem.format === 'vap' ? 'فحص وتحليل ملف VAP...' : 'بدء تحليل ملف SVGA...'
+      stepMessage: targetItem.format === 'vap' ? 'فحص وتحليل ملف VAP...' : 
+                   targetItem.format === 'mp4' ? 'فحص وتحليل فيديو MP4...' : 'بدء تحليل ملف SVGA...'
     } : it));
 
     try {
       const activeQuality = targetItem.customQuality ?? quality;
 
-      if (targetItem.format === 'vap') {
-        // --- VAP COMPRESSION ENGINE ---
+      if (targetItem.format === 'vap' || targetItem.format === 'mp4') {
+        // --- VAP & MP4 COMPRESSION ENGINE ---
         const vapSettings: VapCompressionSettings = {
           quality: activeQuality,
           preset,
           scale,
           preserveAudio,
-          filenameSuffix
+          filenameSuffix,
+          format: targetItem.format
         };
 
         const result = await compressVapFile(
@@ -437,7 +441,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
   const handleDownloadSingle = (item: BatchCompressorItem) => {
     if (!item.compressedBlob) return;
     const extMatch = item.name.match(/\.(svga|vap|mp4)$/i);
-    const ext = extMatch ? extMatch[0] : (item.format === 'vap' ? '.vap' : '.svga');
+    const ext = extMatch ? extMatch[0] : (item.format === 'vap' ? '.vap' : item.format === 'mp4' ? '.mp4' : '.svga');
     const baseName = item.name.replace(/\.(svga|vap|mp4)$/i, '');
     const outName = `${baseName}${filenameSuffix}${ext}`;
     const url = URL.createObjectURL(item.compressedBlob);
@@ -474,17 +478,20 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
       const zip = new JSZip();
       const svgaFolder = zip.folder('compressed_svga_files');
       const vapFolder = zip.folder('compressed_vap_files');
+      const mp4Folder = zip.folder('compressed_mp4_files');
 
       for (let i = 0; i < doneItems.length; i++) {
         const item = doneItems[i];
         const extMatch = item.name.match(/\.(svga|vap|mp4)$/i);
-        const ext = extMatch ? extMatch[0] : (item.format === 'vap' ? '.vap' : '.svga');
+        const ext = extMatch ? extMatch[0] : (item.format === 'vap' ? '.vap' : item.format === 'mp4' ? '.mp4' : '.svga');
         const baseName = item.name.replace(/\.(svga|vap|mp4)$/i, '');
         const outName = `${baseName}${filenameSuffix}${ext}`;
         
         if (item.compressedBlob) {
           if (item.format === 'vap' && vapFolder) {
             vapFolder.file(outName, item.compressedBlob);
+          } else if (item.format === 'mp4' && mp4Folder) {
+            mp4Folder.file(outName, item.compressedBlob);
           } else if (svgaFolder) {
             svgaFolder.file(outName, item.compressedBlob);
           }
@@ -503,7 +510,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
       const url = URL.createObjectURL(zipBlob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Batch_Compressed_SVGA_VAP_${Date.now()}.zip`;
+      a.download = `Batch_Compressed_Animations_${Date.now()}.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -522,6 +529,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
     const totalFiles = items.length;
     const svgaCount = items.filter(it => it.format === 'svga').length;
     const vapCount = items.filter(it => it.format === 'vap').length;
+    const mp4Count = items.filter(it => it.format === 'mp4').length;
     const completedFiles = items.filter(it => it.status === 'done').length;
     const processingFiles = items.filter(it => it.status === 'processing' || it.status === 'validating').length;
     const errorFiles = items.filter(it => it.status === 'error').length;
@@ -542,6 +550,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
       totalFiles,
       svgaCount,
       vapCount,
+      mp4Count,
       completedFiles,
       processingFiles,
       errorFiles,
@@ -673,9 +682,9 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
     };
   }, [previewItem]);
 
-  // Synchronized video control for VAP preview
+  // Synchronized video control for VAP & MP4 preview
   useEffect(() => {
-    if (previewItem?.format === 'vap') {
+    if (previewItem?.format === 'vap' || previewItem?.format === 'mp4') {
       if (originalVideoRef.current) {
         originalVideoRef.current.playbackRate = previewSpeed;
         originalVideoRef.current.muted = previewMuted;
@@ -691,7 +700,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
 
   // Control playback in preview modal
   const togglePreviewPlay = () => {
-    if (previewItem?.format === 'vap') {
+    if (previewItem?.format === 'vap' || previewItem?.format === 'mp4') {
       if (previewPlaying) {
         originalVideoRef.current?.pause();
         compressedVideoRef.current?.pause();
@@ -757,13 +766,13 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
                 </div>
                 <div>
                   <h1 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
-                    <span>منظومة ضغط ملفات SVGA و VAP الذكية</span>
-                    <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-indigo-300 border border-indigo-500/30">
-                      SVGA + VAP Compression Hub
+                    <span>منظومة ضغط ملفات SVGA و VAP و MP4 الذكية</span>
+                    <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-gradient-to-r from-indigo-500/20 via-purple-500/20 to-emerald-500/20 text-indigo-300 border border-indigo-500/30">
+                      SVGA + VAP + MP4 Hub
                     </span>
                   </h1>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    ضغط دفعات ضخمة من ملفات SVGA و VAP مع الحفاظ التام على المسارات الصوتية والشفافية وسلاسة الحركة
+                    ضغط دفعات ضخمة من ملفات SVGA و VAP وفيديوهات MP4 مع الحفاظ التام على المسارات الصوتية والشفافية وسلاسة الحركة
                   </p>
                 </div>
               </div>
@@ -774,15 +783,15 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
           <div className="flex items-center flex-wrap gap-2.5">
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="py-2.5 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold rounded-2xl text-xs transition-all shadow-lg shadow-indigo-600/30 flex items-center gap-2 cursor-pointer"
+              className="py-2.5 px-4 bg-gradient-to-r from-indigo-600 via-purple-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white font-bold rounded-2xl text-xs transition-all shadow-lg shadow-indigo-600/30 flex items-center gap-2 cursor-pointer"
             >
               <Upload className="w-4 h-4" />
-              <span>إضافة ملفات SVGA و VAP</span>
+              <span>إضافة ملفات SVGA / VAP / MP4</span>
             </button>
             <button
               onClick={() => folderInputRef.current?.click()}
               className="py-2.5 px-3.5 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white font-bold rounded-2xl text-xs transition-all border border-white/10 flex items-center gap-2 cursor-pointer"
-              title="رفع مجلد كامل يحتوي على ملفات SVGA أو VAP"
+              title="رفع مجلد كامل يحتوي على ملفات SVGA أو VAP أو MP4"
             >
               <FileArchive className="w-4 h-4 text-purple-400" />
               <span>رفع مجلد كامل</span>
@@ -806,6 +815,8 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
               <span>SVGA: <strong className="text-indigo-300">{stats.svgaCount}</strong></span>
               <span>•</span>
               <span>VAP: <strong className="text-purple-300">{stats.vapCount}</strong></span>
+              <span>•</span>
+              <span>MP4: <strong className="text-emerald-300">{stats.mp4Count}</strong></span>
               <span>•</span>
               <span>المكتمل: <strong className="text-emerald-400">{stats.completedFiles}</strong></span>
             </div>
@@ -1238,6 +1249,15 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
                     <Film className="w-3 h-3 text-purple-400" />
                     <span>VAP ({stats.vapCount})</span>
                   </button>
+                  <button
+                    onClick={() => setFormatFilter('mp4')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                      formatFilter === 'mp4' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Video className="w-3 h-3 text-emerald-400" />
+                    <span>MP4 ({stats.mp4Count})</span>
+                  </button>
                 </div>
 
                 <div className="h-4 w-[1px] bg-white/10 mx-1 hidden sm:block"></div>
@@ -1287,11 +1307,16 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
                         ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 animate-pulse'
                         : item.status === 'error'
                         ? 'bg-red-500/10 text-red-400 border border-red-500/30'
+                        : item.format === 'mp4'
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        : item.format === 'vap'
+                        ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
                         : 'bg-white/5 text-slate-400 border border-white/10'
                     }`}>
                       {item.status === 'done' ? <CheckCircle2 className="w-5 h-5" /> :
                        item.status === 'processing' || item.status === 'validating' ? <Activity className="w-5 h-5 animate-spin" /> :
                        item.status === 'error' ? <AlertCircle className="w-5 h-5" /> :
+                       item.format === 'mp4' ? <Video className="w-5 h-5 text-emerald-400" /> :
                        item.format === 'vap' ? <Film className="w-5 h-5 text-purple-400" /> :
                        <Layers className="w-5 h-5 text-indigo-400" />}
                     </div>
@@ -1304,7 +1329,9 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
 
                         {/* Format Badge */}
                         <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase border ${
-                          item.format === 'vap' 
+                          item.format === 'mp4'
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                            : item.format === 'vap' 
                             ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' 
                             : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
                         }`}>
@@ -1461,7 +1488,9 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
               <div className="p-5 border-b border-white/10 flex items-center justify-between bg-[#13192E]">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                    {previewItem.format === 'vap' ? <Film className="w-5 h-5 text-purple-400" /> : <Eye className="w-5 h-5" />}
+                    {previewItem.format === 'vap' ? <Film className="w-5 h-5 text-purple-400" /> : 
+                     previewItem.format === 'mp4' ? <Video className="w-5 h-5 text-emerald-400" /> : 
+                     <Eye className="w-5 h-5" />}
                   </div>
                   <div>
                     <h3 className="text-base font-black text-white flex items-center gap-2">
@@ -1509,7 +1538,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
                     <span>{previewPlaying ? 'إيقاف مؤقت' : 'تشغيل الأنيميشن'}</span>
                   </button>
 
-                  {/* Audio Mute/Unmute for VAP/SVGA with Audio */}
+                  {/* Audio Mute/Unmute for VAP/MP4/SVGA with Audio */}
                   {previewItem.hasAudio && (
                     <button
                       onClick={() => setPreviewMuted(!previewMuted)}
@@ -1607,7 +1636,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
                         'bg-[radial-gradient(#ffffff15_1px,transparent_1px)] [background-size:16px_16px] bg-[#0A0D18]'
                       }`}
                     >
-                      {previewItem.format === 'vap' ? (
+                      {previewItem.format === 'vap' || previewItem.format === 'mp4' ? (
                         <video
                           ref={originalVideoRef}
                           src={previewItem.originalUrl || URL.createObjectURL(previewItem.file)}
@@ -1651,7 +1680,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
                         'bg-[radial-gradient(#ffffff15_1px,transparent_1px)] [background-size:16px_16px] bg-[#0A0D18]'
                       }`}
                     >
-                      {previewItem.format === 'vap' ? (
+                      {previewItem.format === 'vap' || previewItem.format === 'mp4' ? (
                         <video
                           ref={compressedVideoRef}
                           src={previewItem.compressedUrl}
@@ -1692,7 +1721,7 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
                         'bg-[radial-gradient(#ffffff15_1px,transparent_1px)] [background-size:16px_16px] bg-[#0A0D18]'
                       }`}
                     >
-                      {previewItem.format === 'vap' ? (
+                      {previewItem.format === 'vap' || previewItem.format === 'mp4' ? (
                         <video
                           ref={originalVideoRef}
                           src={previewItem.originalUrl || URL.createObjectURL(previewItem.file)}

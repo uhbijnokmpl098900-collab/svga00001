@@ -8,14 +8,21 @@ import crypto from 'crypto';
 
 const execFilePromise = util.promisify(execFile);
 
-// Setup resilient FFmpeg binary path
+// Setup resilient FFmpeg and FFprobe binary paths
 let resolvedFfmpegPath = '/usr/bin/ffmpeg';
 if (fs.existsSync('/usr/bin/ffmpeg')) {
   resolvedFfmpegPath = '/usr/bin/ffmpeg';
 } else {
   resolvedFfmpegPath = 'ffmpeg';
 }
-console.log('[Audio Server] Initialized FFmpeg binary at:', resolvedFfmpegPath);
+
+let resolvedFfprobePath = '/usr/bin/ffprobe';
+if (fs.existsSync('/usr/bin/ffprobe')) {
+  resolvedFfprobePath = '/usr/bin/ffprobe';
+} else {
+  resolvedFfprobePath = 'ffprobe';
+}
+console.log('[Audio Server] Initialized FFmpeg at:', resolvedFfmpegPath, 'and FFprobe at:', resolvedFfprobePath);
 
 const router = express.Router();
 
@@ -468,11 +475,11 @@ router.post('/replace-vap-audio', upload.fields([
   }
 });
 
-// Dedicated VAP Batch Compression Endpoint
+// Dedicated VAP & MP4 Batch Compression Endpoint
 router.post('/compress-vap', upload.single('file'), async (req, res) => {
   const file = req.file;
   if (!file) {
-    return res.status(400).json({ error: 'ملف VAP مطلوب للضغط' });
+    return res.status(400).json({ error: 'ملف VAP أو MP4 مطلوب للضغط' });
   }
 
   const outputId = crypto.randomUUID();
@@ -484,6 +491,7 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
   const scale = req.body.scale ? parseFloat(req.body.scale) : 1.0;
   const preserveAudio = req.body.preserveAudio !== 'false' && req.body.preserveAudio !== false;
   const passedVapConfig = req.body.vapConfig ? req.body.vapConfig : undefined;
+  const explicitFormat = req.body.format || (file.originalname.toLowerCase().endsWith('.vap') ? 'vap' : 'mp4');
 
   // Calculate target CRF
   let targetCrf = 26; // balanced default
@@ -503,7 +511,7 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
   }
 
   try {
-    // 1. Probe original VAP file with ffprobe for deep streams inspection
+    // 1. Probe original file with ffprobe for deep streams inspection
     let hasAudio = false;
     let audioCodec = '';
     let audioChannels = 0;
@@ -516,7 +524,7 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
     let totalFrames = 0;
 
     try {
-      const { stdout: probeJsonStr } = await execFilePromise('/usr/bin/ffprobe', [
+      const { stdout: probeJsonStr } = await execFilePromise(resolvedFfprobePath, [
         '-v', 'error',
         '-show_streams',
         '-show_format',
@@ -548,10 +556,10 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
         videoDuration = parseFloat(probeData.format.duration);
       }
     } catch (probeErr) {
-      console.warn('[VAP Server] ffprobe inspect notice:', probeErr);
+      console.warn('[VAP/MP4 Server] ffprobe inspect notice:', probeErr);
     }
 
-    // 2. Extract and preserve VAP Box Metadata
+    // 2. Extract and preserve VAP Box Metadata if this is a VAP file
     const originalBuffer = await fs.promises.readFile(file.path);
     let originalVapBox = extractRawVapBoxFromBuffer(originalBuffer);
     let parsedConfig: any = null;
@@ -566,22 +574,24 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
       originalVapBox = buildVapBoxFromJsonServer(parsedConfig);
     }
 
-    // 3. Build FFmpeg command with smart H.264 compression
+    const isVap = explicitFormat === 'vap' || originalVapBox !== null || Boolean(parsedConfig);
+
+    // 3. Build FFmpeg command with smart H.264 compression & even dimensions guarantee
     const ffmpegArgs: string[] = [
       '-y',
       '-threads', '0',
       '-i', file.path
     ];
 
-    // Video filter for optional scaling
+    // Video filter for optional scaling and mandatory even dimension padding for libx264
     const filters: string[] = [];
     if (scale < 0.98 && scale >= 0.3) {
       filters.push(`scale=trunc(iw*${scale}/2)*2:trunc(ih*${scale}/2)*2`);
+    } else {
+      filters.push('pad=ceil(iw/2)*2:ceil(ih/2)*2');
     }
 
-    if (filters.length > 0) {
-      ffmpegArgs.push('-vf', filters.join(','));
-    }
+    ffmpegArgs.push('-vf', filters.join(','));
 
     // High efficiency H.264 encoding with smart CRF
     ffmpegArgs.push(
@@ -595,12 +605,8 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
     // Audio stream handling: 100% Preserved when present!
     if (hasAudio && preserveAudio) {
       ffmpegArgs.push('-map', '0:v:0', '-map', '0:a:0');
-      // Try stream copy first for zero audio loss, or fallback to high quality AAC if incompatible
-      if (audioCodec === 'aac' || audioCodec === 'mp3') {
-        ffmpegArgs.push('-c:a', 'copy');
-      } else {
-        ffmpegArgs.push('-c:a', 'aac', '-b:a', '128k');
-      }
+      // Re-encoding to AAC with standard 44.1kHz ensures zero timestamp desync and flawless playback
+      ffmpegArgs.push('-c:a', 'aac', '-b:a', '128k', '-ar', '44100');
       ffmpegArgs.push('-shortest');
     } else {
       ffmpegArgs.push('-map', '0:v:0', '-an');
@@ -608,42 +614,46 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
 
     ffmpegArgs.push(outputPath);
 
-    console.log(`[VAP Compressor] Compressing ${file.originalname || 'vap'} with CRF=${targetCrf}, HasAudio=${hasAudio}, PreserveAudio=${preserveAudio}`);
+    console.log(`[VAP/MP4 Compressor] Compressing ${file.originalname || 'video'} (Format=${isVap ? 'VAP' : 'MP4'}) with CRF=${targetCrf}, HasAudio=${hasAudio}, PreserveAudio=${preserveAudio}`);
     await execFilePromise(resolvedFfmpegPath, ffmpegArgs);
 
     if (!fs.existsSync(outputPath)) {
-      throw new Error('فشل إنشاء ملف VAP المضغوط');
+      throw new Error('فشل إنشاء ملف الفيديو المضغوط');
     }
 
     // 4. Read compressed MP4
     const compressedMp4 = await fs.promises.readFile(outputPath);
 
-    // 5. Ensure VAP Box is appended / embedded at the end of the file
-    let finalVapBox = originalVapBox;
-    if (!finalVapBox) {
-      // Fallback default VAP box structure if none was found
-      finalVapBox = buildVapBoxFromJsonServer({
-        info: {
-          v: 2,
-          f: videoFps || 24,
-          w: videoWidth ? Math.floor(videoWidth / 2) : 750,
-          h: videoHeight || 1334,
-          fps: videoFps || 24,
-          videoW: videoWidth || 1500,
-          videoH: videoHeight || 1334,
-          rgbFrame: [0, 0, videoWidth ? Math.floor(videoWidth / 2) : 750, videoHeight || 1334],
-          aFrame: [videoWidth ? Math.floor(videoWidth / 2) : 750, 0, videoWidth ? Math.floor(videoWidth / 2) : 750, videoHeight || 1334]
-        }
-      });
+    // 5. If it's a VAP file, ensure VAP Box is appended at the end of the file
+    let finalBuffer: Buffer;
+    if (isVap) {
+      let finalVapBox = originalVapBox;
+      if (!finalVapBox) {
+        finalVapBox = buildVapBoxFromJsonServer({
+          info: {
+            v: 2,
+            f: videoFps || 24,
+            w: videoWidth ? Math.floor(videoWidth / 2) : 750,
+            h: videoHeight || 1334,
+            fps: videoFps || 24,
+            videoW: videoWidth || 1500,
+            videoH: videoHeight || 1334,
+            rgbFrame: [0, 0, videoWidth ? Math.floor(videoWidth / 2) : 750, videoHeight || 1334],
+            aFrame: [videoWidth ? Math.floor(videoWidth / 2) : 750, 0, videoWidth ? Math.floor(videoWidth / 2) : 750, videoHeight || 1334]
+          }
+        });
+      }
+      finalBuffer = Buffer.concat([compressedMp4, finalVapBox]);
+    } else {
+      // Standard pure MP4 video file
+      finalBuffer = compressedMp4;
     }
-
-    const finalBuffer = Buffer.concat([compressedMp4, finalVapBox]);
 
     // 6. Validation: Check compressed output
     let outHasAudio = false;
     let outDuration = 0;
     try {
-      const { stdout: outProbeStr } = await execFilePromise('/usr/bin/ffprobe', [
+      const { stdout: outProbeStr } = await execFilePromise(resolvedFfprobePath, [
         '-v', 'error',
         '-show_streams',
         '-show_format',
@@ -667,7 +677,7 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
     const savingPercent = originalSizeBytes > 0 ? Math.round((savedBytes / originalSizeBytes) * 100) : 0;
 
     res.setHeader('Content-Type', 'video/mp4');
-    res.setHeader('Content-Disposition', `attachment; filename="compressed_${file.originalname || 'animation.vap'}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="compressed_${file.originalname || (isVap ? 'animation.vap' : 'video.mp4')}"`);
     res.setHeader('x-original-size', originalSizeBytes.toString());
     res.setHeader('x-compressed-size', compressedSizeBytes.toString());
     res.setHeader('x-saved-bytes', savedBytes.toString());
@@ -679,11 +689,12 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
     res.setHeader('x-video-height', videoHeight.toString());
     res.setHeader('x-duration', (videoDuration || outDuration || 0).toFixed(2));
     res.setHeader('x-crf-used', targetCrf.toString());
+    res.setHeader('x-is-vap', isVap ? '1' : '0');
 
     res.end(finalBuffer);
   } catch (err: any) {
-    console.error('[VAP Compression Error]:', err);
-    res.status(500).json({ error: err?.message || 'فشلت معالجة وضغط ملف VAP' });
+    console.error('[VAP/MP4 Compression Error]:', err);
+    res.status(500).json({ error: err?.message || 'فشلت معالجة وضغط ملف الفيديو' });
   } finally {
     // Cleanup temporary files
     if (file && fs.existsSync(file.path)) {
@@ -695,7 +706,7 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
   }
 });
 
-// Probe VAP metadata and audio info endpoint
+// Probe VAP/MP4 metadata and audio info endpoint
 router.post('/probe-vap', upload.single('file'), async (req, res) => {
   const file = req.file;
   if (!file) {
@@ -703,7 +714,7 @@ router.post('/probe-vap', upload.single('file'), async (req, res) => {
   }
 
   try {
-    const { stdout: probeJsonStr } = await execFilePromise('/usr/bin/ffprobe', [
+    const { stdout: probeJsonStr } = await execFilePromise(resolvedFfprobePath, [
       '-v', 'error',
       '-show_streams',
       '-show_format',
@@ -756,6 +767,7 @@ router.post('/probe-vap', upload.single('file'), async (req, res) => {
       fileSize: file.size
     });
   } catch (err: any) {
+    console.error('[Probe Error]:', err);
     res.status(500).json({ error: err?.message || 'فشل فحص الملف' });
   } finally {
     if (file && fs.existsSync(file.path)) {
