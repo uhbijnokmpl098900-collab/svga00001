@@ -18,6 +18,7 @@ import { BatchImageProcessor } from './components/BatchImageProcessor';
 import { BatchImageConverter } from './components/BatchImageConverter';
 import { PagConverter } from './components/PagConverter';
 import { PagToSvgaStudio } from './components/PagToSvgaStudio';
+import { SvgaBatchCompressor } from './components/SvgaBatchCompressor';
 import { ImageEditor } from './components/ImageEditor';
 import Name3DEditor from "./components/Name3DEditor/Name3DEditor";
 import { ImageMatcher } from './components/ImageMatcher';
@@ -654,10 +655,12 @@ const App: React.FC = () => {
         onPagConverterOpen={() => setShowPagConverter(true)}
         onName3DEditorOpen={() => handleFeatureAccess(AppState.NAME_3D_EDITOR, '3D Name Editor')}
         onAudioExtractorOpen={() => handleFeatureAccess(AppState.AUDIO_EXTRACTOR, 'Audio Extractor')}
+        onSvgaBatchCompressorOpen={() => handleFeatureAccess(AppState.SVGA_BATCH_COMPRESSOR, 'SVGA Batch Compressor')}
         onBatchImageOpen={() => setShowBatchImage(true)}
         onLoginClick={() => {}}
         onProfileClick={() => {}}
         currentTab={
+          state === AppState.SVGA_BATCH_COMPRESSOR ? 'svga-compressor' :
           state === AppState.BATCH_COMPRESSOR ? 'batch' : 
           state === AppState.STORE ? 'store' : 
           state === AppState.VIDEO_CONVERTER ? 'converter' : 
@@ -714,6 +717,7 @@ const App: React.FC = () => {
                         case 'universalConverter': handleFeatureAccess(AppState.UNIVERSAL_CONVERTER, 'Universal Motion Tools'); break;
                         case 'multiSvga': handleFeatureAccess(AppState.MULTI_SVGA_VIEWER, 'Multi SVGA Preview'); break;
                         case 'batchImageProcessor': handleFeatureAccess(AppState.BATCH_IMAGE_PROCESSOR, 'Batch Image Processor'); break;
+                        case 'svgaBatchCompressor': handleFeatureAccess(AppState.SVGA_BATCH_COMPRESSOR, 'SVGA Batch Compressor'); break;
                         case 'batchCompress': handleFeatureAccess(AppState.BATCH_COMPRESSOR, 'Batch Compressor'); break;
                         case 'batchCropper': handleFeatureAccess(AppState.BATCH_CROPPER, 'Batch Cropper'); break;
                         case 'imageConverter': handleImageConverterOpen(); break;
@@ -752,6 +756,13 @@ const App: React.FC = () => {
                 onCancel={handleReset} 
                 currentUser={currentUser} 
                 onLoginRequired={() => {}}
+                onSubscriptionRequired={() => setShowSubscriptionModal(true)}
+              />
+            )}
+            {state === AppState.SVGA_BATCH_COMPRESSOR && (
+              <SvgaBatchCompressor 
+                onCancel={handleReset} 
+                currentUser={currentUser} 
                 onSubscriptionRequired={() => setShowSubscriptionModal(true)}
               />
             )}

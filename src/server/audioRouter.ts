@@ -468,4 +468,300 @@ router.post('/replace-vap-audio', upload.fields([
   }
 });
 
+// Dedicated VAP Batch Compression Endpoint
+router.post('/compress-vap', upload.single('file'), async (req, res) => {
+  const file = req.file;
+  if (!file) {
+    return res.status(400).json({ error: 'ملف VAP مطلوب للضغط' });
+  }
+
+  const outputId = crypto.randomUUID();
+  const outputPath = path.join(uploadDir, `vap-compressed-${outputId}.mp4`);
+
+  const quality = req.body.quality ? parseInt(req.body.quality, 10) : 75; // 10 - 100
+  const customCrf = req.body.crf ? parseInt(req.body.crf, 10) : undefined;
+  const presetMode = req.body.preset || 'smart';
+  const scale = req.body.scale ? parseFloat(req.body.scale) : 1.0;
+  const preserveAudio = req.body.preserveAudio !== 'false' && req.body.preserveAudio !== false;
+  const passedVapConfig = req.body.vapConfig ? req.body.vapConfig : undefined;
+
+  // Calculate target CRF
+  let targetCrf = 26; // balanced default
+  if (customCrf && customCrf >= 16 && customCrf <= 42) {
+    targetCrf = customCrf;
+  } else {
+    if (presetMode === 'max_quality') targetCrf = 19;
+    else if (presetMode === 'high_quality') targetCrf = 23;
+    else if (presetMode === 'balanced') targetCrf = 27;
+    else if (presetMode === 'high_compression') targetCrf = 31;
+    else if (presetMode === 'max_compression') targetCrf = 35;
+    else {
+      // Smart mapping from quality (10-100) -> CRF (36 down to 18)
+      const clampedQuality = Math.max(10, Math.min(100, quality));
+      targetCrf = Math.round(36 - ((clampedQuality - 10) / 90) * 18);
+    }
+  }
+
+  try {
+    // 1. Probe original VAP file with ffprobe for deep streams inspection
+    let hasAudio = false;
+    let audioCodec = '';
+    let audioChannels = 0;
+    let audioSampleRate = 0;
+    let videoWidth = 0;
+    let videoHeight = 0;
+    let videoFps = 24;
+    let videoDuration = 0;
+    let videoCodec = 'h264';
+    let totalFrames = 0;
+
+    try {
+      const { stdout: probeJsonStr } = await execFilePromise('/usr/bin/ffprobe', [
+        '-v', 'error',
+        '-show_streams',
+        '-show_format',
+        '-print_format', 'json',
+        file.path
+      ]);
+      const probeData = JSON.parse(probeJsonStr);
+      if (probeData && probeData.streams) {
+        for (const s of probeData.streams) {
+          if (s.codec_type === 'video' && !videoWidth) {
+            videoWidth = parseInt(s.width, 10) || 0;
+            videoHeight = parseInt(s.height, 10) || 0;
+            videoCodec = s.codec_name || 'h264';
+            if (s.r_frame_rate) {
+              const [num, den] = s.r_frame_rate.split('/').map(Number);
+              if (den && num) videoFps = Math.round(num / den);
+            }
+            if (s.duration) videoDuration = parseFloat(s.duration);
+            if (s.nb_frames) totalFrames = parseInt(s.nb_frames, 10);
+          } else if (s.codec_type === 'audio') {
+            hasAudio = true;
+            audioCodec = s.codec_name || 'aac';
+            audioChannels = s.channels || 2;
+            audioSampleRate = s.sample_rate || 44100;
+          }
+        }
+      }
+      if (!videoDuration && probeData.format && probeData.format.duration) {
+        videoDuration = parseFloat(probeData.format.duration);
+      }
+    } catch (probeErr) {
+      console.warn('[VAP Server] ffprobe inspect notice:', probeErr);
+    }
+
+    // 2. Extract and preserve VAP Box Metadata
+    const originalBuffer = await fs.promises.readFile(file.path);
+    let originalVapBox = extractRawVapBoxFromBuffer(originalBuffer);
+    let parsedConfig: any = null;
+
+    if (passedVapConfig) {
+      try {
+        parsedConfig = typeof passedVapConfig === 'string' ? JSON.parse(passedVapConfig) : passedVapConfig;
+      } catch {}
+    }
+
+    if (!originalVapBox && parsedConfig) {
+      originalVapBox = buildVapBoxFromJsonServer(parsedConfig);
+    }
+
+    // 3. Build FFmpeg command with smart H.264 compression
+    const ffmpegArgs: string[] = [
+      '-y',
+      '-threads', '0',
+      '-i', file.path
+    ];
+
+    // Video filter for optional scaling
+    const filters: string[] = [];
+    if (scale < 0.98 && scale >= 0.3) {
+      filters.push(`scale=trunc(iw*${scale}/2)*2:trunc(ih*${scale}/2)*2`);
+    }
+
+    if (filters.length > 0) {
+      ffmpegArgs.push('-vf', filters.join(','));
+    }
+
+    // High efficiency H.264 encoding with smart CRF
+    ffmpegArgs.push(
+      '-c:v', 'libx264',
+      '-crf', targetCrf.toString(),
+      '-preset', 'veryfast',
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart'
+    );
+
+    // Audio stream handling: 100% Preserved when present!
+    if (hasAudio && preserveAudio) {
+      ffmpegArgs.push('-map', '0:v:0', '-map', '0:a:0');
+      // Try stream copy first for zero audio loss, or fallback to high quality AAC if incompatible
+      if (audioCodec === 'aac' || audioCodec === 'mp3') {
+        ffmpegArgs.push('-c:a', 'copy');
+      } else {
+        ffmpegArgs.push('-c:a', 'aac', '-b:a', '128k');
+      }
+      ffmpegArgs.push('-shortest');
+    } else {
+      ffmpegArgs.push('-map', '0:v:0', '-an');
+    }
+
+    ffmpegArgs.push(outputPath);
+
+    console.log(`[VAP Compressor] Compressing ${file.originalname || 'vap'} with CRF=${targetCrf}, HasAudio=${hasAudio}, PreserveAudio=${preserveAudio}`);
+    await execFilePromise(resolvedFfmpegPath, ffmpegArgs);
+
+    if (!fs.existsSync(outputPath)) {
+      throw new Error('فشل إنشاء ملف VAP المضغوط');
+    }
+
+    // 4. Read compressed MP4
+    const compressedMp4 = await fs.promises.readFile(outputPath);
+
+    // 5. Ensure VAP Box is appended / embedded at the end of the file
+    let finalVapBox = originalVapBox;
+    if (!finalVapBox) {
+      // Fallback default VAP box structure if none was found
+      finalVapBox = buildVapBoxFromJsonServer({
+        info: {
+          v: 2,
+          f: videoFps || 24,
+          w: videoWidth ? Math.floor(videoWidth / 2) : 750,
+          h: videoHeight || 1334,
+          fps: videoFps || 24,
+          videoW: videoWidth || 1500,
+          videoH: videoHeight || 1334,
+          rgbFrame: [0, 0, videoWidth ? Math.floor(videoWidth / 2) : 750, videoHeight || 1334],
+          aFrame: [videoWidth ? Math.floor(videoWidth / 2) : 750, 0, videoWidth ? Math.floor(videoWidth / 2) : 750, videoHeight || 1334]
+        }
+      });
+    }
+
+    const finalBuffer = Buffer.concat([compressedMp4, finalVapBox]);
+
+    // 6. Validation: Check compressed output
+    let outHasAudio = false;
+    let outDuration = 0;
+    try {
+      const { stdout: outProbeStr } = await execFilePromise('/usr/bin/ffprobe', [
+        '-v', 'error',
+        '-show_streams',
+        '-show_format',
+        '-print_format', 'json',
+        outputPath
+      ]);
+      const outProbe = JSON.parse(outProbeStr);
+      if (outProbe && outProbe.streams) {
+        for (const s of outProbe.streams) {
+          if (s.codec_type === 'audio') outHasAudio = true;
+        }
+      }
+      if (outProbe.format && outProbe.format.duration) {
+        outDuration = parseFloat(outProbe.format.duration);
+      }
+    } catch {}
+
+    const originalSizeBytes = file.size;
+    const compressedSizeBytes = finalBuffer.length;
+    const savedBytes = Math.max(0, originalSizeBytes - compressedSizeBytes);
+    const savingPercent = originalSizeBytes > 0 ? Math.round((savedBytes / originalSizeBytes) * 100) : 0;
+
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', `attachment; filename="compressed_${file.originalname || 'animation.vap'}"`);
+    res.setHeader('x-original-size', originalSizeBytes.toString());
+    res.setHeader('x-compressed-size', compressedSizeBytes.toString());
+    res.setHeader('x-saved-bytes', savedBytes.toString());
+    res.setHeader('x-saving-percent', savingPercent.toString());
+    res.setHeader('x-has-audio', hasAudio ? '1' : '0');
+    res.setHeader('x-audio-preserved', (hasAudio && outHasAudio) ? '1' : '0');
+    res.setHeader('x-fps', videoFps.toString());
+    res.setHeader('x-video-width', videoWidth.toString());
+    res.setHeader('x-video-height', videoHeight.toString());
+    res.setHeader('x-duration', (videoDuration || outDuration || 0).toFixed(2));
+    res.setHeader('x-crf-used', targetCrf.toString());
+
+    res.end(finalBuffer);
+  } catch (err: any) {
+    console.error('[VAP Compression Error]:', err);
+    res.status(500).json({ error: err?.message || 'فشلت معالجة وضغط ملف VAP' });
+  } finally {
+    // Cleanup temporary files
+    if (file && fs.existsSync(file.path)) {
+      try { fs.unlinkSync(file.path); } catch (e) {}
+    }
+    if (fs.existsSync(outputPath)) {
+      try { fs.unlinkSync(outputPath); } catch (e) {}
+    }
+  }
+});
+
+// Probe VAP metadata and audio info endpoint
+router.post('/probe-vap', upload.single('file'), async (req, res) => {
+  const file = req.file;
+  if (!file) {
+    return res.status(400).json({ error: 'الملف مطلوب للفحص' });
+  }
+
+  try {
+    const { stdout: probeJsonStr } = await execFilePromise('/usr/bin/ffprobe', [
+      '-v', 'error',
+      '-show_streams',
+      '-show_format',
+      '-print_format', 'json',
+      file.path
+    ]);
+
+    const probeData = JSON.parse(probeJsonStr);
+    let hasAudio = false;
+    let audioInfo: any = null;
+    let videoInfo: any = null;
+
+    if (probeData && probeData.streams) {
+      for (const s of probeData.streams) {
+        if (s.codec_type === 'video' && !videoInfo) {
+          let fps = 24;
+          if (s.r_frame_rate) {
+            const [num, den] = s.r_frame_rate.split('/').map(Number);
+            if (den && num) fps = Math.round(num / den);
+          }
+          videoInfo = {
+            width: parseInt(s.width, 10),
+            height: parseInt(s.height, 10),
+            fps,
+            codec: s.codec_name,
+            duration: parseFloat(s.duration || probeData.format?.duration || 0),
+            frames: parseInt(s.nb_frames, 10) || 0
+          };
+        } else if (s.codec_type === 'audio') {
+          hasAudio = true;
+          audioInfo = {
+            codec: s.codec_name,
+            channels: s.channels,
+            sampleRate: s.sample_rate,
+            bitrate: s.bit_rate
+          };
+        }
+      }
+    }
+
+    const buffer = await fs.promises.readFile(file.path);
+    const vapBox = extractRawVapBoxFromBuffer(buffer);
+
+    res.json({
+      valid: true,
+      hasAudio,
+      audioInfo,
+      videoInfo,
+      hasVapBox: Boolean(vapBox),
+      fileSize: file.size
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'فشل فحص الملف' });
+  } finally {
+    if (file && fs.existsSync(file.path)) {
+      try { fs.unlinkSync(file.path); } catch (e) {}
+    }
+  }
+});
+
 export default router;

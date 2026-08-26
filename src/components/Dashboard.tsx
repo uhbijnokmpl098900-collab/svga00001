@@ -36,6 +36,7 @@ const categories = [
     borderColor: 'border-indigo-500/30',
     textColor: 'text-indigo-400',
     tools: [
+      { id: 'svga-compressor', label: 'SVGA & VAP Batch Compressor', icon: <Zap className="w-8 h-8" />, actionKey: 'svgaBatchCompressor', descAr: 'منظومة متقدمة لضغط دفعات ضخمة من ملفات SVGA و VAP مع الحفاظ التام على الصوت المدمج والشفافية وجودة الحركة.', descEn: 'Professional advanced batch engine to compress large batches of SVGA & VAP files preserving audio, animation quality and alpha.', highlight: true },
       { id: 'svga-ex', label: 'SVGA Editor EX', icon: <Layers className="w-8 h-8" />, actionKey: 'svgaEx', descAr: 'محرر احترافي لعمل تركيبات معقدة ومدمجة من عدة ملفات متزامنة.', descEn: 'Professional editor for complex compositions of multiple SVGA files.', highlight: true },
       { id: 'pag-to-svga', label: 'PAG to SVGA Converter', icon: <Box className="w-8 h-8" />, actionKey: 'pagConverterOpen', descAr: 'تحويل ملفات PAG إلى SVGA مع الحفاظ الكامل على الطبقات والحركة والشفافية.', descEn: 'Convert PAG files to SVGA preserving layers, keyframes and alpha.', highlight: true },
       { id: 'multi-svga', label: 'Multi SVGA Preview', icon: <LayoutGrid className="w-8 h-8" />, actionKey: 'multiSvga', descAr: 'استعراض ومقارنة عدة ملفات SVGA في نفس الوقت بخصائص دقيقة للمزامنة.', descEn: 'Preview and compare multiple SVGA files simultaneously with sync controls.' },
@@ -63,6 +64,7 @@ const categories = [
     borderColor: 'border-orange-500/30',
     textColor: 'text-orange-400',
     tools: [
+      { id: 'svga-batch-compress', label: 'SVGA & VAP Batch Compressor', icon: <Zap className="w-8 h-8" />, actionKey: 'svgaBatchCompressor', descAr: 'ضغط دفعات ضخمة من ملفات SVGA و VAP دفعة واحدة مع الحفاظ التام على الصوت المدمج والشفافية وجودة الحركة.', descEn: 'Compress huge batches of SVGA & VAP files in parallel with audio preservation & quality control.', highlight: true },
       { id: 'batch-image-processor', label: 'Batch Image Processor', icon: <Image className="w-8 h-8" />, actionKey: 'batchImageProcessor', descAr: 'تطبيق التعديلات والتحسينات على مجلد كامل من الصور بضغطة واحدة.', descEn: 'Apply enhancements and edits to a whole folder of images with one click.' },
       { id: 'batch', label: 'Batch Compress', icon: <Layers className="w-8 h-8" />, actionKey: 'batchCompress', descAr: 'ضغط وتقليل حجم كمية كبيرة من الصور بكفاءة دون فقدان ملحوظ للجودة الأصلية.', descEn: 'Compress a large batch of images efficiently without noticeable quality loss.' },
       { id: 'cropper', label: 'Batch Cropper', icon: <Scissors className="w-8 h-8" />, actionKey: 'batchCropper', descAr: 'قص واقتطاع وتغيير أحجام مجموعة صور بشكل آلي لنفس الأبعاد المطلوبة بدقة.', descEn: 'Auto-crop and resize a batch of images to the exact required dimensions.' },

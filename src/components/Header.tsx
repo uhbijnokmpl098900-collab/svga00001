@@ -35,6 +35,7 @@ interface HeaderProps {
   onPagConverterOpen: () => void;
   onName3DEditorOpen: () => void;
   onAudioExtractorOpen: () => void;
+  onSvgaBatchCompressorOpen?: () => void;
   onBatchImageOpen: () => void;
   onLoginClick: () => void;
   onProfileClick: () => void;
@@ -67,6 +68,7 @@ const categories: CategoryDefinition[] = [
     icon: <Layers className="w-5 h-5" />,
     color: 'indigo',
     tools: [
+      { id: 'svga-compressor', label: 'SVGA & VAP Batch Compressor', icon: <Zap className="w-4 h-4" />, actionKey: 'onSvgaBatchCompressorOpen' as any, descAr: 'منظومة احترافية لضغط دفعات ضخمة من ملفات SVGA و VAP مع الحفاظ التام على الصوت والشفافية', descEn: 'Professional SVGA & VAP batch compressor preserving audio & alpha.', highlight: true },
       { id: 'svga', label: 'SVGA Editor', icon: <Layers className="w-4 h-4" />, actionKey: 'onLogoClick', descAr: 'محرر متقدم لملفات SVGA مع طبقات وتعديل مباشر', descEn: 'Advanced SVGA editor with layers and direct editing.' },
       { id: 'svga-ex', label: 'SVGA Editor EX', icon: <Layers className="w-4 h-4" />, actionKey: 'onSvgaExOpen', descAr: 'محرر احترافي لعمل تركيبات معقدة ومدمجة من عدة ملفات SVGA', descEn: 'Professional editor for complex compositions of multiple SVGA files.', highlight: true },
       { id: 'multi-svga', label: 'Multi SVGA Preview', icon: <LayoutGrid className="w-4 h-4" />, actionKey: 'onMultiSvgaOpen', descAr: 'استعراض ومقارنة عدة ملفات SVGA في نفس الوقت بخصائص دقيقة', descEn: 'Preview and compare multiple SVGA files simultaneously.' },
@@ -102,6 +104,7 @@ const categories: CategoryDefinition[] = [
     icon: <Zap className="w-5 h-5" />,
     color: 'orange',
     tools: [
+      { id: 'svga-batch-compress', label: 'SVGA & VAP Batch Compressor', icon: <Zap className="w-4 h-4" />, actionKey: 'onSvgaBatchCompressorOpen' as any, descAr: 'ضغط دفعات ضخمة من ملفات SVGA و VAP دفعة واحدة بسرعة فائقة مع الحفاظ على الصوت', descEn: 'Batch compress SVGA and VAP files with audio preservation & size control.', highlight: true },
       { id: 'batch-image-processor', label: 'Batch Image Processor', icon: <Image className="w-4 h-4" />, actionKey: 'onBatchImageProcessorOpen', descAr: 'تطبيق التعديلات والتحسينات على مجلد كامل من الصور بضغطة واحدة', descEn: 'Apply enhancements and edits to a whole folder of images with one click.' },
       { id: 'batch', label: 'Batch Compress', icon: <Layers className="w-4 h-4" />, actionKey: 'onBatchOpen', descAr: 'ضغط وتقليل حجم كمية كبيرة من الصور بكفاءة دون فقدان مسموع للجودة', descEn: 'Compress a large batch of images efficiently without noticeable quality loss.' },
       { id: 'cropper', label: 'Batch Cropper', icon: <Scissors className="w-4 h-4" />, actionKey: 'onCropperOpen', descAr: 'قص واقتطاع وتغيير أحجام مجموعة صور بشكل آلي لنفس الأبعاد المطلوبة', descEn: 'Auto-crop and resize a batch of images to the exact required dimensions.' },

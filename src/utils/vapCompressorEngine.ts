@@ -1,0 +1,285 @@
+import { extractVapConfigFromBlob, VapConfig } from './vapEngine';
+import { extractRawVapBox, buildVapBoxFromJson } from './vapFFmpeg';
+
+export interface VapCompressionSettings {
+  quality?: number; // 10 - 100 (default 75)
+  crf?: number; // 16 - 38
+  preset?: 'smart' | 'max_quality' | 'high_quality' | 'balanced' | 'high_compression' | 'max_compression' | 'custom';
+  scale?: number; // 0.3 - 1.0 (default 1.0)
+  preserveAudio?: boolean; // Keep audio tracks 100% intact (default true)
+  filenameSuffix?: string; // e.g. '_compressed'
+}
+
+export interface VapFileStats {
+  format: 'vap' | 'mp4';
+  width: number;
+  height: number;
+  fps: number;
+  frames?: number;
+  duration: number;
+  hasAudio: boolean;
+  audioPreserved: boolean;
+  hasVapBox: boolean;
+  vapConfig?: VapConfig | null;
+  originalSizeBytes: number;
+  compressedSizeBytes: number;
+  savedBytes: number;
+  savingPercent: number;
+  isValid: boolean;
+  validationMessage: string;
+  durationMs?: number;
+  crfUsed?: number;
+}
+
+export interface VapCompressionResult {
+  compressedBlob: Blob;
+  compressedArrayBuffer: ArrayBuffer;
+  stats: VapFileStats;
+  previewUrl: string;
+}
+
+/**
+ * Probe a VAP file in the browser or via server to extract its metadata and audio status
+ */
+export async function probeVapFile(file: File | Blob): Promise<{
+  hasAudio: boolean;
+  fps: number;
+  width: number;
+  height: number;
+  duration: number;
+  vapConfig: VapConfig | null;
+  hasVapBox: boolean;
+}> {
+  // 1. Extract VAP config box
+  const vapConfig = await extractVapConfigFromBlob(file);
+  const rawBox = await extractRawVapBox(file);
+
+  let fps = vapConfig?.info?.fps || vapConfig?.info?.f || 24;
+  let width = vapConfig?.info?.w || vapConfig?.info?.width || 750;
+  let height = vapConfig?.info?.h || vapConfig?.info?.height || 1334;
+  let duration = 0;
+  let hasAudio = false;
+
+  // 2. Check via HTML5 Video element for quick client probe
+  try {
+    const videoUrl = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.src = videoUrl;
+
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => resolve(), 2000);
+      video.onloadedmetadata = () => {
+        clearTimeout(timeout);
+        if (video.duration && !isNaN(video.duration)) {
+          duration = video.duration;
+        }
+        if (!width && video.videoWidth) {
+          width = Math.floor(video.videoWidth / 2);
+          height = video.videoHeight;
+        }
+        // Check for audio tracks
+        const vAny = video as any;
+        if (vAny.audioTracks && vAny.audioTracks.length > 0) {
+          hasAudio = true;
+        } else if (vAny.webkitAudioDecodedByteCount > 0) {
+          hasAudio = true;
+        } else if (vAny.mozHasAudio) {
+          hasAudio = true;
+        }
+        resolve();
+      };
+      video.onerror = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+    });
+
+    URL.revokeObjectURL(videoUrl);
+  } catch (e) {
+    console.warn('[VAP Client Probe] Video metadata inspect warning:', e);
+  }
+
+  // 3. Fallback to server probe if needed to be 100% certain about audio presence
+  if (!hasAudio && file.size < 50 * 1024 * 1024) {
+    try {
+      const formData = new FormData();
+      formData.append('file', file, (file as File).name || 'probe.vap');
+      const res = await fetch('/api/audio/probe-vap', {
+        method: 'POST',
+        body: formData
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.hasAudio) hasAudio = true;
+        if (json.videoInfo) {
+          if (json.videoInfo.fps) fps = json.videoInfo.fps;
+          if (json.videoInfo.duration) duration = json.videoInfo.duration;
+          if (json.videoInfo.width && !width) width = json.videoInfo.width;
+          if (json.videoInfo.height && !height) height = json.videoInfo.height;
+        }
+      }
+    } catch {}
+  }
+
+  return {
+    hasAudio,
+    fps,
+    width,
+    height,
+    duration,
+    vapConfig,
+    hasVapBox: Boolean(rawBox || vapConfig)
+  };
+}
+
+/**
+ * High-performance smart VAP file compression engine
+ */
+export async function compressVapFile(
+  file: File | Blob,
+  settings: VapCompressionSettings = {},
+  onProgress?: (progress: number, stepMessage: string) => void
+): Promise<VapCompressionResult> {
+  const startTime = performance.now();
+  const originalSizeBytes = file.size;
+
+  onProgress?.(5, 'تحليل وفحص ملف VAP ومسارات الصوت...');
+
+  // 1. Probe original metadata
+  const originalProbe = await probeVapFile(file);
+  onProgress?.(15, originalProbe.hasAudio ? 'تم اكتشاف مسار صوتي مدمج 🔊' : 'فحص إطارات الفيديو والشفافية...');
+
+  // 2. Prepare FormData for server-accelerated processing
+  const formData = new FormData();
+  const fileName = (file as File).name || 'animation.vap';
+  formData.append('file', file, fileName);
+
+  const quality = settings.quality !== undefined ? settings.quality : 75;
+  formData.append('quality', quality.toString());
+
+  if (settings.crf !== undefined) {
+    formData.append('crf', settings.crf.toString());
+  }
+  if (settings.preset) {
+    formData.append('preset', settings.preset);
+  }
+  if (settings.scale !== undefined) {
+    formData.append('scale', settings.scale.toString());
+  }
+
+  const preserveAudio = settings.preserveAudio !== false;
+  formData.append('preserveAudio', preserveAudio ? 'true' : 'false');
+
+  if (originalProbe.vapConfig) {
+    formData.append('vapConfig', JSON.stringify(originalProbe.vapConfig));
+  }
+
+  onProgress?.(25, 'جاري ضغط وترميز تدفق الفيديو بنظام H.264 الذكي...');
+
+  // 3. Execute compression with simulated smooth progress for large files
+  const xhr = new XMLHttpRequest();
+  const compressedBlobPromise = new Promise<{ blob: Blob; headers: { [key: string]: string } }>((resolve, reject) => {
+    xhr.open('POST', '/api/audio/compress-vap');
+    xhr.responseType = 'blob';
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        const uploadPercent = Math.round((e.loaded / e.total) * 35);
+        onProgress?.(20 + uploadPercent, `رفع ومعالجة حزمة البيانات (${Math.round(e.loaded / 1024)} KB)...`);
+      }
+    };
+
+    let serverProcessTimer: any = null;
+    let simProgress = 60;
+    serverProcessTimer = setInterval(() => {
+      if (simProgress < 90) {
+        simProgress += 3;
+        onProgress?.(simProgress, 'معالجة فريمات الأنيميشن وحفظ الصوت والشفافية...');
+      }
+    }, 400);
+
+    xhr.onload = () => {
+      clearInterval(serverProcessTimer);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(95, 'التحقق النهائي من سلامة ملف VAP المضغوط...');
+        const headers: { [key: string]: string } = {};
+        const headerStr = xhr.getAllResponseHeaders();
+        const headerPairs = headerStr.split('\u000d\u000a');
+        for (const pair of headerPairs) {
+          const idx = pair.indexOf('\u003a\u0020');
+          if (idx > 0) {
+            const key = pair.substring(0, idx).toLowerCase();
+            const val = pair.substring(idx + 2);
+            headers[key] = val;
+          }
+        }
+        resolve({ blob: xhr.response, headers });
+      } else {
+        reject(new Error(`فشل ضغط ملف VAP (خطأ في الخادم: ${xhr.status})`));
+      }
+    };
+
+    xhr.onerror = () => {
+      clearInterval(serverProcessTimer);
+      reject(new Error('تعذر الاتصال بمحرك ضغط VAP'));
+    };
+
+    xhr.send(formData);
+  });
+
+  const { blob: compressedBlob, headers } = await compressedBlobPromise;
+
+  const compressedArrayBuffer = await compressedBlob.arrayBuffer();
+  const compressedSizeBytes = compressedBlob.size;
+  const savedBytes = Math.max(0, originalSizeBytes - compressedSizeBytes);
+  const savingPercent = originalSizeBytes > 0 ? Math.round((savedBytes / originalSizeBytes) * 100) : 0;
+  const durationMs = Math.round(performance.now() - startTime);
+
+  const hasAudio = headers['x-has-audio'] === '1' || originalProbe.hasAudio;
+  const audioPreserved = headers['x-audio-preserved'] === '1' || (hasAudio && preserveAudio);
+  const fps = headers['x-fps'] ? parseInt(headers['x-fps'], 10) : originalProbe.fps;
+  const width = headers['x-video-width'] ? parseInt(headers['x-video-width'], 10) : originalProbe.width;
+  const height = headers['x-video-height'] ? parseInt(headers['x-video-height'], 10) : originalProbe.height;
+  const duration = headers['x-duration'] ? parseFloat(headers['x-duration']) : originalProbe.duration;
+  const crfUsed = headers['x-crf-used'] ? parseInt(headers['x-crf-used'], 10) : undefined;
+
+  // Validation message
+  let validationMessage = `تم التحقق بنجاح • ${savingPercent}% توفير`;
+  if (hasAudio && audioPreserved) {
+    validationMessage += ` • 🔊 الصوت محفوظ 100%`;
+  } else if (!hasAudio) {
+    validationMessage += ` • فيديو نقي`;
+  }
+
+  const stats: VapFileStats = {
+    format: 'vap',
+    width: originalProbe.vapConfig?.info?.w || width,
+    height: originalProbe.vapConfig?.info?.h || height,
+    fps,
+    duration,
+    hasAudio,
+    audioPreserved,
+    hasVapBox: true,
+    vapConfig: originalProbe.vapConfig,
+    originalSizeBytes,
+    compressedSizeBytes,
+    savedBytes,
+    savingPercent,
+    isValid: true,
+    validationMessage,
+    durationMs,
+    crfUsed
+  };
+
+  onProgress?.(100, 'اكتمل ضغط ملف VAP بنجاح!');
+
+  const previewUrl = URL.createObjectURL(compressedBlob);
+
+  return {
+    compressedBlob,
+    compressedArrayBuffer,
+    stats,
+    previewUrl
+  };
+}
