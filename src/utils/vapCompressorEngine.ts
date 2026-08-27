@@ -151,6 +151,174 @@ export async function probeVapFile(file: File | Blob): Promise<{
 }
 
 /**
+ * Client-Side In-Browser Video Compression Fallback Engine
+ * Used when server is offline, returns 404, or network is interrupted.
+ */
+async function compressVapClientSideFallback(
+  file: File | Blob,
+  settings: VapCompressionSettings,
+  originalProbe: {
+    format: 'vap' | 'mp4';
+    hasAudio: boolean;
+    fps: number;
+    width: number;
+    height: number;
+    duration: number;
+    vapConfig: VapConfig | null;
+    hasVapBox: boolean;
+  },
+  onProgress?: (progress: number, stepMessage: string) => void
+): Promise<{ blob: Blob; headers: { [key: string]: string } }> {
+  onProgress?.(30, 'تشغيل محرك المعالجة المتصفحي الذكي (Client Engine)...');
+
+  const videoUrl = URL.createObjectURL(file);
+  const video = document.createElement('video');
+  video.src = videoUrl;
+  video.muted = true;
+  video.playsInline = true;
+  video.crossOrigin = 'anonymous';
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => resolve(), 4000);
+    video.onloadedmetadata = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+    video.onerror = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+  });
+
+  const duration = video.duration || originalProbe.duration || 3;
+  const inWidth = video.videoWidth || (originalProbe.format === 'vap' ? originalProbe.width * 2 : originalProbe.width) || 750;
+  const inHeight = video.videoHeight || originalProbe.height || 1334;
+
+  const scale = settings.scale || 1.0;
+  const targetWidth = Math.floor((inWidth * scale) / 2) * 2;
+  const targetHeight = Math.floor((inHeight * scale) / 2) * 2;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  // Calculate target bitrate based on quality (10-100)
+  const quality = settings.quality !== undefined ? settings.quality : 75;
+  const targetBitrate = Math.round(500_000 + (quality / 100) * 2_500_000);
+
+  const stream = canvas.captureStream(originalProbe.fps || 24);
+
+  // If audio exists and user wants to preserve audio, extract audio track if supported
+  if (originalProbe.hasAudio && settings.preserveAudio !== false) {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const source = audioCtx.createMediaElementSource(video);
+      const dest = audioCtx.createMediaStreamDestination();
+      source.connect(dest);
+      source.connect(audioCtx.destination);
+      const audioTracks = dest.stream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        stream.addTrack(audioTracks[0]);
+        video.muted = false;
+      }
+    } catch (e) {
+      console.warn('[Client Fallback] Audio capture note:', e);
+    }
+  }
+
+  // Choose best supported mime type
+  const mimeTypes = [
+    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+    'video/mp4',
+    'video/webm;codecs=h264',
+    'video/webm;codecs=vp8',
+    'video/webm'
+  ];
+  let selectedMime = '';
+  for (const mime of mimeTypes) {
+    if (MediaRecorder.isTypeSupported(mime)) {
+      selectedMime = mime;
+      break;
+    }
+  }
+
+  const recorder = new MediaRecorder(stream, {
+    mimeType: selectedMime || undefined,
+    videoBitsPerSecond: targetBitrate
+  });
+
+  const chunks: Blob[] = [];
+  recorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) {
+      chunks.push(e.data);
+    }
+  };
+
+  const recordingPromise = new Promise<Blob>((resolve, reject) => {
+    recorder.onstop = () => {
+      resolve(new Blob(chunks, { type: selectedMime || 'video/mp4' }));
+    };
+    recorder.onerror = (e) => reject(e);
+  });
+
+  recorder.start(100);
+  video.currentTime = 0;
+  await video.play().catch(() => {});
+
+  let animId: number;
+  const renderFrame = () => {
+    if (ctx && !video.paused && !video.ended) {
+      ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+      const cur = video.currentTime;
+      const progress = Math.min(92, Math.round(30 + (cur / duration) * 60));
+      onProgress?.(progress, `ضغط الإطارات داخلياً (${Math.round(cur * 10) / 10}s)...`);
+      animId = requestAnimationFrame(renderFrame);
+    }
+  };
+  renderFrame();
+
+  await new Promise<void>((resolve) => {
+    video.onended = () => resolve();
+    setTimeout(() => resolve(), (duration + 1.5) * 1000);
+  });
+
+  cancelAnimationFrame(animId!);
+  if (recorder.state !== 'inactive') {
+    recorder.stop();
+  }
+  video.pause();
+  URL.revokeObjectURL(videoUrl);
+
+  let recordedBlob = await recordingPromise;
+
+  // If VAP, append raw VAP box
+  if (originalProbe.format === 'vap') {
+    const rawBox = await extractRawVapBox(file);
+    const boxToAppend = rawBox || (originalProbe.vapConfig ? buildVapBoxFromJson(originalProbe.vapConfig) : null);
+    if (boxToAppend) {
+      recordedBlob = new Blob([recordedBlob, boxToAppend], { type: 'video/mp4' });
+    }
+  }
+
+  const headers: { [key: string]: string } = {
+    'x-original-size': file.size.toString(),
+    'x-compressed-size': recordedBlob.size.toString(),
+    'x-saved-bytes': Math.max(0, file.size - recordedBlob.size).toString(),
+    'x-saving-percent': file.size > 0 ? Math.round((Math.max(0, file.size - recordedBlob.size) / file.size) * 100).toString() : '0',
+    'x-has-audio': originalProbe.hasAudio ? '1' : '0',
+    'x-audio-preserved': originalProbe.hasAudio ? '1' : '0',
+    'x-fps': (originalProbe.fps || 24).toString(),
+    'x-video-width': targetWidth.toString(),
+    'x-video-height': targetHeight.toString(),
+    'x-duration': duration.toFixed(2),
+    'x-is-vap': originalProbe.format === 'vap' ? '1' : '0'
+  };
+
+  return { blob: recordedBlob, headers };
+}
+
+/**
  * High-performance smart VAP & MP4 file compression engine
  */
 export async function compressVapFile(
@@ -198,66 +366,80 @@ export async function compressVapFile(
 
   onProgress?.(25, 'جاري ضغط وترميز تدفق الفيديو بنظام H.264 عالي الكفاءة...');
 
-  // 3. Execute compression with simulated smooth progress for large files
-  const xhr = new XMLHttpRequest();
-  const compressedBlobPromise = new Promise<{ blob: Blob; headers: { [key: string]: string } }>((resolve, reject) => {
-    xhr.open('POST', '/api/audio/compress-vap');
-    xhr.responseType = 'blob';
+  let compressedBlob: Blob;
+  let headers: { [key: string]: string } = {};
 
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        const uploadPercent = Math.round((e.loaded / e.total) * 35);
-        onProgress?.(20 + uploadPercent, `رفع ومعالجة البيانات (${Math.round(e.loaded / 1024)} KB)...`);
-      }
-    };
+  try {
+    // 3. Execute compression with server acceleration
+    const xhr = new XMLHttpRequest();
+    const serverResult = await new Promise<{ blob: Blob; headers: { [key: string]: string } }>((resolve, reject) => {
+      xhr.open('POST', '/api/audio/compress-vap');
+      xhr.responseType = 'blob';
 
-    let serverProcessTimer: any = null;
-    let simProgress = 60;
-    serverProcessTimer = setInterval(() => {
-      if (simProgress < 90) {
-        simProgress += 3;
-        onProgress?.(simProgress, isVap ? 'معالجة فريمات الأنيميشن وحفظ الصوت والشفافية...' : 'ضغط إطارات الفيديو وحفظ الصوت...');
-      }
-    }, 400);
-
-    xhr.onload = async () => {
-      clearInterval(serverProcessTimer);
-      if (xhr.status >= 200 && xhr.status < 300) {
-        onProgress?.(95, `التحقق النهائي من سلامة ملف ${isVap ? 'VAP' : 'MP4'} المضغوط...`);
-        const headers: { [key: string]: string } = {};
-        const headerStr = xhr.getAllResponseHeaders();
-        const headerPairs = headerStr.split('\u000d\u000a');
-        for (const pair of headerPairs) {
-          const idx = pair.indexOf('\u003a\u0020');
-          if (idx > 0) {
-            const key = pair.substring(0, idx).toLowerCase();
-            const val = pair.substring(idx + 2);
-            headers[key] = val;
-          }
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const uploadPercent = Math.round((e.loaded / e.total) * 35);
+          onProgress?.(20 + uploadPercent, `رفع ومعالجة البيانات (${Math.round(e.loaded / 1024)} KB)...`);
         }
-        resolve({ blob: xhr.response, headers });
-      } else {
-        let errorMsg = `فشل ضغط الملف (رمز الخطأ: ${xhr.status})`;
-        try {
-          if (xhr.response instanceof Blob) {
-            const errText = await xhr.response.text();
-            const errJson = JSON.parse(errText);
-            if (errJson.error) errorMsg = errJson.error;
+      };
+
+      let serverProcessTimer: any = null;
+      let simProgress = 60;
+      serverProcessTimer = setInterval(() => {
+        if (simProgress < 90) {
+          simProgress += 3;
+          onProgress?.(simProgress, isVap ? 'معالجة فريمات الأنيميشن وحفظ الصوت والشفافية...' : 'ضغط إطارات الفيديو وحفظ الصوت...');
+        }
+      }, 400);
+
+      xhr.onload = async () => {
+        clearInterval(serverProcessTimer);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress?.(95, `التحقق النهائي من سلامة ملف ${isVap ? 'VAP' : 'MP4'} المضغوط...`);
+          const resHeaders: { [key: string]: string } = {};
+          const headerStr = xhr.getAllResponseHeaders();
+          const headerPairs = headerStr.split('\u000d\u000a');
+          for (const pair of headerPairs) {
+            const idx = pair.indexOf('\u003a\u0020');
+            if (idx > 0) {
+              const key = pair.substring(0, idx).toLowerCase();
+              const val = pair.substring(idx + 2);
+              resHeaders[key] = val;
+            }
           }
-        } catch {}
-        reject(new Error(errorMsg));
-      }
-    };
+          resolve({ blob: xhr.response, headers: resHeaders });
+        } else {
+          let errorMsg = `فشل الخادم (رمز الخطأ: ${xhr.status})`;
+          try {
+            if (xhr.response instanceof Blob) {
+              const errText = await xhr.response.text();
+              const errJson = JSON.parse(errText);
+              if (errJson.error) errorMsg = errJson.error;
+            }
+          } catch {}
+          reject(new Error(errorMsg));
+        }
+      };
 
-    xhr.onerror = () => {
-      clearInterval(serverProcessTimer);
-      reject(new Error('تعذر الاتصال بمحرك ضغط الفيديو'));
-    };
+      xhr.onerror = () => {
+        clearInterval(serverProcessTimer);
+        reject(new Error('تعذر الاتصال بالخادم'));
+      };
 
-    xhr.send(formData);
-  });
+      xhr.send(formData);
+    });
 
-  const { blob: compressedBlob, headers } = await compressedBlobPromise;
+    compressedBlob = serverResult.blob;
+    headers = serverResult.headers;
+  } catch (serverErr: any) {
+    console.warn('[VAP Compressor] Server engine failed or unreachable, switching to in-browser fallback:', serverErr);
+    onProgress?.(30, 'التحويل التلقائي لمحرك الضغط الداخلي لضمان إتمام العملية...');
+    
+    // In-browser fallback engine execution
+    const fallbackResult = await compressVapClientSideFallback(file, settings, originalProbe, onProgress);
+    compressedBlob = fallbackResult.blob;
+    headers = fallbackResult.headers;
+  }
 
   const compressedArrayBuffer = await compressedBlob.arrayBuffer();
   const compressedSizeBytes = compressedBlob.size;

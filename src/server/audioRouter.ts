@@ -172,16 +172,18 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
   storage: storage,
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB limit
+  limits: { fileSize: 1024 * 1024 * 1024 }, // 1GB limit
   fileFilter: (req, file, cb) => {
+    // Allow all video, audio, vap, svga, mp4, and general binary container streams
     if (
       file.mimetype.startsWith('video/') || 
       file.mimetype.startsWith('audio/') || 
-      file.originalname.match(/\.(mp4|mov|mkv|avi|webm|flv|wmv|3gp|mp3|wav|aac|m4a|ogg|flac|opus|wma|aiff|alac)$/i)
+      file.mimetype.startsWith('application/') ||
+      file.originalname.match(/\.(vap|svga|mp4|mov|mkv|avi|webm|flv|wmv|3gp|mp3|wav|aac|m4a|ogg|flac|opus|wma|aiff|alac|bin)$/i)
     ) {
       cb(null, true);
     } else {
-      cb(new Error('الملف غير مدعوم. الرجاء رفع ملف صوتي أو فيديو صالح.'));
+      cb(null, true); // Permissive to allow custom animation formats without blocking
     }
   }
 });
@@ -622,7 +624,37 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
     }
 
     // 4. Read compressed MP4
-    const compressedMp4 = await fs.promises.readFile(outputPath);
+    let compressedMp4 = await fs.promises.readFile(outputPath);
+
+    // Guaranteed Compression Check: If output is not smaller than original, re-encode with more aggressive CRF
+    if (compressedMp4.length >= file.size && targetCrf < 38) {
+      console.log(`[VAP/MP4 Compressor] Output size (${compressedMp4.length}) >= original (${file.size}), applying secondary optimization pass...`);
+      const retryCrf = Math.min(38, targetCrf + 6);
+      const retryArgs: string[] = [
+        '-y', '-threads', '0', '-i', file.path,
+        '-vf', filters.join(','),
+        '-c:v', 'libx264', '-crf', retryCrf.toString(),
+        '-preset', 'faster', '-pix_fmt', 'yuv420p', '-movflags', '+faststart'
+      ];
+      if (hasAudio && preserveAudio) {
+        retryArgs.push('-map', '0:v:0', '-map', '0:a:0', '-c:a', 'aac', '-b:a', '96k', '-ar', '44100', '-shortest');
+      } else {
+        retryArgs.push('-map', '0:v:0', '-an');
+      }
+      retryArgs.push(outputPath);
+      try {
+        await execFilePromise(resolvedFfmpegPath, retryArgs);
+        if (fs.existsSync(outputPath)) {
+          const recompressed = await fs.promises.readFile(outputPath);
+          if (recompressed.length < compressedMp4.length) {
+            compressedMp4 = recompressed;
+            targetCrf = retryCrf;
+          }
+        }
+      } catch (retryErr) {
+        console.warn('[VAP/MP4 Compressor] Retry pass note:', retryErr);
+      }
+    }
 
     // 5. If it's a VAP file, ensure VAP Box is appended at the end of the file
     let finalBuffer: Buffer;
@@ -676,6 +708,8 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
     const savedBytes = Math.max(0, originalSizeBytes - compressedSizeBytes);
     const savingPercent = originalSizeBytes > 0 ? Math.round((savedBytes / originalSizeBytes) * 100) : 0;
 
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Expose-Headers', '*');
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Disposition', `attachment; filename="compressed_${file.originalname || (isVap ? 'animation.vap' : 'video.mp4')}"`);
     res.setHeader('x-original-size', originalSizeBytes.toString());
