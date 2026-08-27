@@ -1016,19 +1016,19 @@ export const SvgaBatchCompressor: React.FC<SvgaBatchCompressorProps> = ({
                     <span className="text-[10px] text-slate-500 block">تسريع المعالجة المتزامنة</span>
                   </div>
 
-                  {/* Preserve Audio Tracks (SVGA & VAP) */}
-                  <div className="bg-amber-500/10 border border-amber-500/20 p-3.5 rounded-2xl flex items-center justify-between">
+                  {/* Preserve Audio Tracks (SVGA, VAP, MP4) */}
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 p-3.5 rounded-2xl flex items-center justify-between">
                     <div>
-                      <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                        <Volume2 className="w-3.5 h-3.5 text-amber-400" />
-                        الحفاظ على الصوت (Audio)
+                      <div className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+                        <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                        حفظ الصوت 100% (SVGA / VAP / MP4)
                       </div>
-                      <div className="text-[10px] text-amber-400/80">عدم حذف مسارات الصوت المدمجة في VAP و SVGA</div>
+                      <div className="text-[10px] text-emerald-400/80">الحفاظ التام على المسارات الصوتية المدمجة دون حذف أو كتم</div>
                     </div>
                     <button
                       onClick={() => setPreserveAudio(!preserveAudio)}
                       className={`w-10 h-5 rounded-full relative transition-colors cursor-pointer ${
-                        preserveAudio ? 'bg-amber-500' : 'bg-slate-700'
+                        preserveAudio ? 'bg-emerald-500' : 'bg-slate-700'
                       }`}
                       title={preserveAudio ? 'الصوت محفوظ 100%' : 'تعطيل الحفاظ على الصوت'}
                     >

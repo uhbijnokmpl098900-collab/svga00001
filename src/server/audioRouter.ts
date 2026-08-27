@@ -604,12 +604,11 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
       '-movflags', '+faststart'
     );
 
-    // Audio stream handling: 100% Preserved when present!
-    if (hasAudio && preserveAudio) {
-      ffmpegArgs.push('-map', '0:v:0', '-map', '0:a:0');
-      // Re-encoding to AAC with standard 44.1kHz ensures zero timestamp desync and flawless playback
+    // Audio stream handling: 100% Preserved when present without accidental stripping!
+    if (preserveAudio) {
+      // 0:a? maps any audio stream if present, safely passing through without error if silent
+      ffmpegArgs.push('-map', '0:v:0', '-map', '0:a?');
       ffmpegArgs.push('-c:a', 'aac', '-b:a', '128k', '-ar', '44100');
-      ffmpegArgs.push('-shortest');
     } else {
       ffmpegArgs.push('-map', '0:v:0', '-an');
     }
@@ -636,8 +635,8 @@ router.post('/compress-vap', upload.single('file'), async (req, res) => {
         '-c:v', 'libx264', '-crf', retryCrf.toString(),
         '-preset', 'faster', '-pix_fmt', 'yuv420p', '-movflags', '+faststart'
       ];
-      if (hasAudio && preserveAudio) {
-        retryArgs.push('-map', '0:v:0', '-map', '0:a:0', '-c:a', 'aac', '-b:a', '96k', '-ar', '44100', '-shortest');
+      if (preserveAudio) {
+        retryArgs.push('-map', '0:v:0', '-map', '0:a?', '-c:a', 'aac', '-b:a', '128k', '-ar', '44100');
       } else {
         retryArgs.push('-map', '0:v:0', '-an');
       }

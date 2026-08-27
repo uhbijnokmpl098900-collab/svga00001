@@ -3,6 +3,23 @@ import pako from 'pako';
 import JSZip from 'jszip';
 import UPNG from 'upng-js';
 import { svgaSchema } from '../svga-proto';
+import { ensureMp3WithId3 } from './svgaAudio';
+
+// Helper to check if a binary buffer is an audio track (ID3, MP3 sync, WAV, OGG, AAC, FLAC)
+function isAudioBuffer(buf: Uint8Array): boolean {
+  if (!buf || buf.length < 4) return false;
+  // ID3 header: 'ID3'
+  if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) return true;
+  // MP3 frame sync: 11 bits set (0xFF followed by 0xE0-0xFF)
+  if (buf[0] === 0xFF && (buf[1] & 0xE0) === 0xE0) return true;
+  // RIFF/WAVE header: 'RIFF'
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return true;
+  // OGG header: 'OggS'
+  if (buf[0] === 0x4F && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) return true;
+  // FLAC header: 'fLaC'
+  if (buf[0] === 0x66 && buf[1] === 0x4C && buf[2] === 0x61 && buf[3] === 0x43) return true;
+  return false;
+}
 
 // Initialize Protobuf MovieEntity
 const parsedProto = parse(svgaSchema);
@@ -229,7 +246,9 @@ function stripOrphanImages(movie: any, preserveAudio: boolean = true): { removed
   let removedCount = 0;
   const imageKeys = Object.keys(movie.images);
   for (const key of imageKeys) {
-    const isAudioFile = /\.(mp3|wav|ogg|aac|m4a|flac|wma)$/i.test(key) || key.toLowerCase().includes('audio') || key.toLowerCase().includes('sound');
+    const rawVal = movie.images[key];
+    const isAudioBinary = rawVal instanceof Uint8Array && isAudioBuffer(rawVal);
+    const isAudioFile = /\.(mp3|wav|ogg|aac|m4a|flac|wma)$/i.test(key) || key.toLowerCase().includes('audio') || key.toLowerCase().includes('sound') || isAudioBinary;
     if (!usedKeys.has(key) && (!preserveAudio || !isAudioFile)) {
       delete movie.images[key];
       removedCount++;
@@ -570,9 +589,14 @@ export async function compressSvgaFile(
 
     if (rawData && rawData.length > 0) {
       // If this key is an audio track, do NOT compress it as an image! Keep binary 100% intact!
-      const isAudioKey = audioKeys.has(key) || /\.(mp3|wav|ogg|aac|m4a|flac|wma)$/i.test(key) || key.toLowerCase().includes('audio') || key.toLowerCase().includes('sound');
+      const isAudioBinary = rawData instanceof Uint8Array && isAudioBuffer(rawData);
+      const isAudioKey = audioKeys.has(key) || /\.(mp3|wav|ogg|aac|m4a|flac|wma)$/i.test(key) || key.toLowerCase().includes('audio') || key.toLowerCase().includes('sound') || isAudioBinary;
+      
       if (isAudioKey) {
-        // Untouched audio byte buffer
+        // Untouched audio byte buffer - guarantee valid ID3 header so all players play it instantly
+        if (rawData instanceof Uint8Array) {
+          movie.images[key] = ensureMp3WithId3(rawData);
+        }
         continue;
       }
 
