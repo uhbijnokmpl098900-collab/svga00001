@@ -19,7 +19,7 @@ interface SvgaLayersListProps {
   onToggleAllLock?: (makeLocked?: boolean) => void;
   onReorderLayer: (id: string, direction: 'up' | 'down' | 'top' | 'bottom') => void;
   onMoveLayer?: (sourceId: string, targetId: string, position: 'above' | 'below') => void;
-  onDuplicateLayer: (id: string) => void;
+  onDuplicateLayer: (id: string, mirror?: boolean) => void;
   onDeleteLayer: (id: string) => void;
   onRenameLayer: (id: string, newName: string) => void;
   onAddImageLayer: (file: File) => void;
@@ -675,14 +675,21 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
           <div className="flex items-center gap-1">
             <button
               onClick={() => onDuplicateLayer(selectedLayerId)}
-              className="p-2 hover:bg-white/10 text-slate-400 hover:text-indigo-300 rounded-xl transition-colors"
+              className="p-2 hover:bg-white/10 text-slate-400 hover:text-indigo-300 rounded-xl transition-colors cursor-pointer"
               title="تكرار الطبقة (Duplicate)"
             >
               <Copy size={15} />
             </button>
             <button
+              onClick={() => onDuplicateLayer(selectedLayerId, true)}
+              className="p-2 bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/40 text-indigo-400 hover:text-indigo-200 rounded-xl transition-colors cursor-pointer"
+              title="تكرار وعكس الطبقة أفقياً (Duplicate & Mirror)"
+            >
+              <ArrowUpDown size={15} className="rotate-90" />
+            </button>
+            <button
               onClick={() => onDeleteLayer(selectedLayerId)}
-              className="p-2 hover:bg-red-500/15 text-slate-400 hover:text-red-400 rounded-xl transition-colors"
+              className="p-2 hover:bg-red-500/15 text-slate-400 hover:text-red-400 rounded-xl transition-colors cursor-pointer"
               title="حذف الطبقة (Delete)"
             >
               <Trash2 size={15} />

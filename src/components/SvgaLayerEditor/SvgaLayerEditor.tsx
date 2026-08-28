@@ -274,30 +274,51 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     });
   }, [pushHistory]);
 
-  const handleDuplicateLayer = useCallback((layerId: string) => {
+  const handleDuplicateLayer = useCallback((layerId: string, mirror: boolean = false) => {
     setLayers(prev => {
       const target = prev.find(l => l.id === layerId);
       if (!target) return prev;
 
       const newId = `layer_${Date.now()}_copy`;
-      const cloned: EditableLayer = {
-        ...JSON.parse(JSON.stringify(target)),
-        id: newId,
-        name: `${target.name} (نسخة)`,
-        transform: {
-          ...target.transform,
-          x: target.transform.x + 20,
-          y: target.transform.y + 20
+      const cloned: EditableLayer = JSON.parse(JSON.stringify(target));
+      cloned.id = newId;
+      cloned.name = `${target.name} (نسخة ${mirror ? 'معكوسة' : ''})`;
+      
+      if (mirror && project) {
+        // Mirror horizontally across the canvas center
+        cloned.transform.x = project.width - target.transform.x;
+        cloned.transform.scaleX = -target.transform.scaleX;
+        if (cloned.transform.rotation) {
+          cloned.transform.rotation = -cloned.transform.rotation;
         }
-      };
+
+        // Mirror all keyframes
+        if (cloned.keyframes) {
+          cloned.keyframes.forEach(kf => {
+            if (kf.x !== undefined) kf.x = project.width - kf.x;
+            if (kf.scaleX !== undefined) kf.scaleX = -kf.scaleX;
+            if (kf.rotation !== undefined) kf.rotation = -kf.rotation;
+          });
+        }
+      } else {
+        // Just offset slightly for normal duplicate
+        cloned.transform.x = target.transform.x + 20;
+        cloned.transform.y = target.transform.y + 20;
+        if (cloned.keyframes) {
+          cloned.keyframes.forEach(kf => {
+            if (kf.x !== undefined) kf.x += 20;
+            if (kf.y !== undefined) kf.y += 20;
+          });
+        }
+      }
 
       const updated = [cloned, ...prev];
       setSelectedLayerId(newId);
       pushHistory(updated);
-      setSuccessToast(`تم تكرار الطبقة: ${target.name}`);
+      setSuccessToast(mirror ? `تم تكرار الطبقة وعكسها أفقياً` : `تم تكرار الطبقة: ${target.name}`);
       return updated;
     });
-  }, [pushHistory]);
+  }, [pushHistory, project]);
 
   const handleDeleteLayer = useCallback((layerId: string) => {
     setLayers(prev => {
@@ -394,8 +415,8 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         if (!prev) return prev;
         return {
           ...prev,
-          images: {
-            ...prev.images,
+          rawImages: {
+            ...prev.rawImages,
             [imageKey]: bytes
           },
           imagesMap: {
@@ -447,8 +468,8 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
         if (!prev) return prev;
         return {
           ...prev,
-          images: {
-            ...prev.images,
+          rawImages: {
+            ...prev.rawImages,
             [layer.imageKey]: bytes
           },
           imagesMap: {

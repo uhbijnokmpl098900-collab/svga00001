@@ -269,7 +269,7 @@ export function createNewSvgaProject(options: {
     height,
     fps,
     totalFrames,
-    version: "2.0",
+    durationSec: totalFrames / fps,
     imagesMap: {},
     rawImages: {},
     audios: [],

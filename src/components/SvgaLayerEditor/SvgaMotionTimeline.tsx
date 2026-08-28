@@ -4,7 +4,7 @@ import {
   Play, Pause, SkipBack, SkipForward, RotateCcw, 
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ChevronRight as ChevronRightIcon,
   Plus, Diamond, Sliders, Trash2, Eye, Move, Maximize2, Minimize2, RotateCw, 
-  Sun, Clock, Film, Sparkles, SlidersHorizontal, Settings2, MoreVertical, ZoomIn, ZoomOut
+  Sun, Clock, Film, Sparkles, SlidersHorizontal, Settings2, MoreVertical, ZoomIn, ZoomOut, Copy, ClipboardPaste
 } from 'lucide-react';
 import { KeyframeEasingPanel } from './KeyframeEasingPanel';
 import { 
@@ -56,6 +56,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
   const [selectedKeyframeId, setSelectedKeyframeId] = useState<string | null>(null);
   const [showAddMenu, setShowAddMenu] = useState<boolean>(false);
   const [draggingKeyframeId, setDraggingKeyframeId] = useState<string | null>(null);
+  const [clipboardKeyframes, setClipboardKeyframes] = useState<LayerKeyframe[]>([]);
 
   // Expanded track configuration for selected layer
   const motionConfig: MotionTracksConfig = selectedLayer?.motionTracksConfig || {
@@ -137,6 +138,48 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
     const updated = deleteKeyframe(selectedLayer, keyframeId);
     onUpdateLayerKeyframes(selectedLayer.id, updated);
     if (selectedKeyframeId === keyframeId) setSelectedKeyframeId(null);
+  };
+
+  const handleCopyAllKeyframes = () => {
+    if (!selectedLayer || !selectedLayer.keyframes || selectedLayer.keyframes.length === 0) {
+      alert("لا توجد فريمات حركة لنسخها في هذه الطبقة.");
+      return;
+    }
+    // Deep copy and sort by frame
+    const copied = JSON.parse(JSON.stringify(selectedLayer.keyframes)).sort((a: any, b: any) => a.frame - b.frame);
+    setClipboardKeyframes(copied);
+    alert(`تم نسخ ${copied.length} فريم حركة بنجاح.`);
+  };
+
+  const handlePasteKeyframes = () => {
+    if (!selectedLayer) return;
+    if (clipboardKeyframes.length === 0) {
+      alert("لا يوجد فريمات منسوخة. قم بنسخ حركة أولاً.");
+      return;
+    }
+    
+    // The first frame of the copied keyframes acts as the base offset (0 relative)
+    const baseFrame = clipboardKeyframes[0].frame;
+    const newKeyframes: LayerKeyframe[] = clipboardKeyframes.map(kf => ({
+      ...kf,
+      id: `kf_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      frame: Math.min(totalFrames - 1, Math.max(0, currentFrame + (kf.frame - baseFrame)))
+    }));
+
+    // Merge new keyframes with existing (replace if exists at same frame)
+    let updatedList = [...(selectedLayer.keyframes || [])];
+    newKeyframes.forEach(nkf => {
+      const existingIdx = updatedList.findIndex(k => k.frame === nkf.frame);
+      if (existingIdx >= 0) {
+        updatedList[existingIdx] = nkf;
+      } else {
+        updatedList.push(nkf);
+      }
+    });
+
+    updatedList.sort((a, b) => a.frame - b.frame);
+    onUpdateLayerKeyframes(selectedLayer.id, updatedList);
+    alert(`تم لصق الحركة بدءاً من الفريم ${currentFrame}.`);
   };
 
   // Update specific keyframe attributes
@@ -556,13 +599,31 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
                       <Sparkles size={11} className="text-amber-400" />
                       <span>Transform</span>
                     </span>
-                    <button
-                      onClick={() => handleAddKeyframe('all')}
-                      className="p-1 hover:text-indigo-300 text-slate-500"
-                      title="إضافة فريم تحويل رئيسي"
-                    >
-                      <Diamond size={11} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={handleCopyAllKeyframes}
+                        className="p-1 hover:text-indigo-300 text-slate-500"
+                        title="نسخ جميع فريمات الحركة للطبقة"
+                      >
+                        <Copy size={11} />
+                      </button>
+                      <button
+                        onClick={handlePasteKeyframes}
+                        className={`p-1 ${clipboardKeyframes.length > 0 ? 'text-indigo-400 hover:text-indigo-300' : 'text-slate-700 cursor-not-allowed'}`}
+                        title="لصق فريمات الحركة بدءاً من الفريم الحالي"
+                        disabled={clipboardKeyframes.length === 0}
+                      >
+                        <ClipboardPaste size={11} />
+                      </button>
+                      <div className="h-3 w-px bg-white/10 mx-1"></div>
+                      <button
+                        onClick={() => handleAddKeyframe('all')}
+                        className="p-1 hover:text-indigo-300 text-slate-500"
+                        title="إضافة فريم تحويل رئيسي"
+                      >
+                        <Diamond size={11} />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Track 2: Position (X, Y) */}
