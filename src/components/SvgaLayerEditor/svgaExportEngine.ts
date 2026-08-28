@@ -2,6 +2,7 @@ import pako from 'pako';
 import protobuf from 'protobufjs';
 import { svgaSchema } from '../../svga-proto';
 import { EditableLayer, SVGAProjectData } from './types';
+import { getLayerAnimatedTransform } from './motionEngine';
 
 const root = protobuf.parse(svgaSchema).root;
 const MovieEntity = root.lookupType("com.opensource.svga.MovieEntity");
@@ -65,27 +66,28 @@ export async function exportEditedSvga(
       spriteClone.matteKey = layer.matteKey;
     }
 
-    const { x, y, scaleX, scaleY, rotation, opacity } = layer.transform;
     const initialBounds = layer.initialBounds;
-
-    // Calculate delta translation from initial state
-    const deltaX = x - initialBounds.x;
-    const deltaY = y - initialBounds.y;
-    const rad = (rotation * Math.PI) / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
-    const globalAlphaMul = Math.max(0, Math.min(1, opacity / 100));
-
     const pivotX = initialBounds.x + initialBounds.width / 2;
     const pivotY = initialBounds.y + initialBounds.height / 2;
 
-    const hasUserTransform = deltaX !== 0 || deltaY !== 0 || scaleX !== 1 || scaleY !== 1 || rotation !== 0;
-
-    // Update each frame in sprite
+    // Update each frame in sprite (evaluating keyframe animation per frame)
     if (spriteClone.frames && Array.isArray(spriteClone.frames)) {
-      spriteClone.frames = spriteClone.frames.map((frame: any) => {
+      spriteClone.frames = spriteClone.frames.map((frame: any, frameIdx: number) => {
         if (!frame) return frame;
         const newFrame = { ...frame };
+
+        // Calculate animated transform at this exact frame
+        const animTransform = getLayerAnimatedTransform(layer, frameIdx);
+        const { x, y, scaleX, scaleY, rotation, opacity } = animTransform;
+
+        const deltaX = x - initialBounds.x;
+        const deltaY = y - initialBounds.y;
+        const rad = (rotation * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const globalAlphaMul = Math.max(0, Math.min(1, opacity / 100));
+
+        const hasUserTransform = deltaX !== 0 || deltaY !== 0 || scaleX !== 1 || scaleY !== 1 || rotation !== 0;
 
         // Adjust alpha
         if (newFrame.alpha !== undefined) {
@@ -105,7 +107,6 @@ export async function exportEditedSvga(
           const fTy = currTransform.ty !== undefined ? currTransform.ty : 0;
 
           // User affine transformation around pivot:
-          // T_user = Translate(pivotX + deltaX, pivotY + deltaY) * Rotate(rad) * Scale(scaleX, scaleY) * Translate(-pivotX, -pivotY)
           const uA = scaleX * cos;
           const uB = scaleX * sin;
           const uC = -scaleY * sin;

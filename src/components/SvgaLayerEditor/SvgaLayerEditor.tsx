@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
-  EditableLayer, SVGAProjectData, CanvasTool 
+  EditableLayer, SVGAProjectData, CanvasTool, LayerKeyframe 
 } from './types';
 import { parseSvgaToProject } from './svgaParserEngine';
 import { exportEditedSvga } from './svgaExportEngine';
@@ -8,7 +8,7 @@ import { fileToImageBuffer, createImageLayer, createShapeLayer } from './layerFa
 import { SvgaDesignCanvas } from './SvgaDesignCanvas';
 import { SvgaLayersList } from './SvgaLayersList';
 import { SvgaPropertiesPanel } from './SvgaPropertiesPanel';
-import { SvgaTimelineBar } from './SvgaTimelineBar';
+import { SvgaMotionTimeline } from './SvgaMotionTimeline';
 import { 
   Upload, Layers, Download, ArrowLeft, RotateCcw, 
   Sparkles, MousePointer, Hand, ZoomIn, Grid, Compass, 
@@ -149,6 +149,19 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             ...l.transform,
             ...deltaTransform
           }
+        };
+      }
+      return l;
+    }));
+  }, []);
+
+  // Keyframes Update Handler
+  const handleUpdateLayerKeyframes = useCallback((layerId: string, keyframes: LayerKeyframe[]) => {
+    setLayers(prev => prev.map(l => {
+      if (l.id === layerId) {
+        return {
+          ...l,
+          keyframes
         };
       }
       return l;
@@ -745,14 +758,16 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               />
             </div>
 
-            {/* Bottom Timeline */}
-            <SvgaTimelineBar
+            {/* Bottom Keyframe & Motion Timeline */}
+            <SvgaMotionTimeline
               totalFrames={project.totalFrames}
               currentFrame={currentFrame}
               fps={project.fps}
               isPlaying={isPlaying}
               isLoop={isLoop}
               selectedLayer={selectedLayer}
+              layers={layers}
+              onSelectLayer={setSelectedLayerId}
               onTogglePlay={() => setIsPlaying(!isPlaying)}
               onStepFrame={(delta) => {
                 setIsPlaying(false);
@@ -763,6 +778,8 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
                 setCurrentFrame(Math.max(0, Math.min(project.totalFrames - 1, f)));
               }}
               onToggleLoop={() => setIsLoop(!isLoop)}
+              onUpdateLayerTransform={handleUpdateLayerTransform}
+              onUpdateLayerKeyframes={handleUpdateLayerKeyframes}
             />
           </main>
 

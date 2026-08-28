@@ -9,6 +9,29 @@ export interface LayerTransform {
   opacity: number;  // 0 to 100
 }
 
+export type KeyframeEasing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'cubic-bezier' | 'step';
+
+export interface LayerKeyframe {
+  id: string;
+  frame: number; // 0 to totalFrames - 1
+  x?: number;
+  y?: number;
+  scaleX?: number;
+  scaleY?: number;
+  rotation?: number;
+  opacity?: number;
+  easing: KeyframeEasing;
+  cubicBezier?: [number, number, number, number]; // [x1, y1, x2, y2] default: [0.25, 0.1, 0.25, 1.0]
+}
+
+export interface MotionTracksConfig {
+  showTransform: boolean;
+  showPosition: boolean;
+  showScale: boolean;
+  showRotation: boolean;
+  showOpacity: boolean;
+}
+
 export interface SVGAKeyframeSummary {
   startFrame: number;
   endFrame: number;
@@ -38,6 +61,11 @@ export interface EditableLayer {
   // Aspect ratio lock toggle
   aspectRatioLocked: boolean;
   
+  // Motion Animation Keyframes
+  keyframes?: LayerKeyframe[];
+  motionTracksConfig?: MotionTracksConfig;
+  isMotionExpanded?: boolean;
+
   // Associated sprite data
   spriteRef: any;
   matteKey?: string;

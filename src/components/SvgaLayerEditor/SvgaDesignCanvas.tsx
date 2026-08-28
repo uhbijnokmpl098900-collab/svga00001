@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { EditableLayer, SVGAProjectData, CanvasTool, GuideLine } from './types';
+import { getLayerAnimatedTransform } from './motionEngine';
 import { 
   ZoomIn, ZoomOut, RefreshCw, Maximize2, 
   Grid, Compass, Eye, Shield, RotateCcw
@@ -168,14 +169,16 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     return { x, y };
   }, [zoom]);
 
-  // Compute Total Matrix for a Layer at current frame
+  // Compute Total Matrix for a Layer at current frame (incorporating keyframe animations)
   const computeLayerMatrix = useCallback((layer: EditableLayer, frame: any) => {
     const initialBounds = layer.initialBounds;
-    const deltaX = layer.transform.x - initialBounds.x;
-    const deltaY = layer.transform.y - initialBounds.y;
-    const scaleX = layer.transform.scaleX;
-    const scaleY = layer.transform.scaleY;
-    const rotation = layer.transform.rotation;
+    const animTransform = getLayerAnimatedTransform(layer, currentFrame);
+
+    const deltaX = animTransform.x - initialBounds.x;
+    const deltaY = animTransform.y - initialBounds.y;
+    const scaleX = animTransform.scaleX;
+    const scaleY = animTransform.scaleY;
+    const rotation = animTransform.rotation;
 
     const pivotX = initialBounds.x + initialBounds.width / 2;
     const pivotY = initialBounds.y + initialBounds.height / 2;
@@ -204,7 +207,7 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
     const mFrame: [number, number, number, number, number, number] = [fA, fB, fC, fD, fTx, fTy];
 
     return multiplyMatrices(mUser, mFrame);
-  }, []);
+  }, [currentFrame]);
 
   // Helper to determine if a layer's frame is visible/active at given frameIndex
   const getLayerFrameState = useCallback((layer: EditableLayer, frameIdx: number) => {
@@ -287,7 +290,8 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
       ctx.save();
 
-      const layerAlpha = Math.max(0, Math.min(1, layer.transform.opacity / 100));
+      const animTransform = getLayerAnimatedTransform(layer, currentFrame);
+      const layerAlpha = Math.max(0, Math.min(1, (animTransform.opacity !== undefined ? animTransform.opacity : layer.transform.opacity) / 100));
       ctx.globalAlpha = frameAlpha * layerAlpha;
 
       // Apply Combined Total Matrix

@@ -5,7 +5,7 @@ import {
   ArrowUp, ArrowDown, ArrowUpToLine, ArrowDownToLine, 
   Search, Layers, Image as ImageIcon, Box, Shapes, Edit2, Check,
   Plus, Upload, Sparkles, Type, Circle, Square, Star, Award, SlidersHorizontal,
-  GripVertical, Maximize2, Minimize2, Move, ArrowUpDown
+  GripVertical, Maximize2, Minimize2, Move, ArrowUpDown, Diamond
 } from 'lucide-react';
 
 interface SvgaLayersListProps {
@@ -498,6 +498,12 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
                     <span className="text-[10px] text-indigo-400 font-bold bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20">
                       F{layer.keyframeSummary.startFrame}→{layer.keyframeSummary.endFrame}
                     </span>
+                    {layer.keyframes && layer.keyframes.length > 0 && (
+                      <span className="text-[9px] text-amber-300 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 flex items-center gap-0.5">
+                        <Diamond size={8} className="fill-amber-400" />
+                        <span>{layer.keyframes.length} فريم حركة</span>
+                      </span>
+                    )}
                     {isComfortable && (
                       <span className="text-[9px] text-slate-500 truncate max-w-[90px]" title={layer.imageKey}>
                         {layer.imageKey}
