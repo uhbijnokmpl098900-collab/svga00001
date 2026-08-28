@@ -14,7 +14,9 @@ interface SvgaLayersListProps {
   currentFrame: number;
   onSelectLayer: (id: string) => void;
   onToggleVisibility: (id: string) => void;
+  onToggleAllVisibility?: (makeVisible?: boolean) => void;
   onToggleLock: (id: string) => void;
+  onToggleAllLock?: (makeLocked?: boolean) => void;
   onReorderLayer: (id: string, direction: 'up' | 'down' | 'top' | 'bottom') => void;
   onMoveLayer?: (sourceId: string, targetId: string, position: 'above' | 'below') => void;
   onDuplicateLayer: (id: string) => void;
@@ -32,7 +34,9 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
   currentFrame,
   onSelectLayer,
   onToggleVisibility,
+  onToggleAllVisibility,
   onToggleLock,
+  onToggleAllLock,
   onReorderLayer,
   onMoveLayer,
   onDuplicateLayer,
@@ -186,8 +190,46 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
           </div>
         </div>
 
-        {/* View density toggle & Add Button */}
+        {/* Quick Master Controls, View density toggle & Add Button */}
         <div className="flex items-center gap-1.5">
+          {/* Quick Master Eye Toggle */}
+          {(() => {
+            const allVisible = layers.length > 0 && layers.every(l => l.visible);
+            return (
+              <button
+                type="button"
+                onClick={() => onToggleAllVisibility && onToggleAllVisibility(!allVisible)}
+                className={`p-1.5 rounded-xl border transition-all ${
+                  allVisible
+                    ? 'bg-indigo-600/20 text-indigo-400 border-indigo-500/30 hover:bg-indigo-600/30'
+                    : 'bg-white/5 text-slate-500 hover:text-slate-200 border-white/10'
+                }`}
+                title={allVisible ? 'إخفاء جميع الطبقات دفعة واحدة' : 'إظهار جميع الطبقات دفعة واحدة'}
+              >
+                {allVisible ? <Eye size={13} /> : <EyeOff size={13} />}
+              </button>
+            );
+          })()}
+
+          {/* Quick Master Lock Toggle */}
+          {(() => {
+            const allLocked = layers.length > 0 && layers.every(l => l.locked);
+            return (
+              <button
+                type="button"
+                onClick={() => onToggleAllLock && onToggleAllLock(!allLocked)}
+                className={`p-1.5 rounded-xl border transition-all ${
+                  allLocked
+                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 hover:bg-amber-500/30'
+                    : 'bg-white/5 text-slate-500 hover:text-slate-200 border-white/10'
+                }`}
+                title={allLocked ? 'فتح قفل جميع الطبقات دفعة واحدة' : 'قفل جميع الطبقات دفعة واحدة'}
+              >
+                {allLocked ? <Lock size={13} /> : <Unlock size={13} />}
+              </button>
+            );
+          })()}
+
           {/* Density toggle button */}
           <button
             onClick={() => setViewDensity(prev => prev === 'comfortable' ? 'compact' : 'comfortable')}
@@ -335,6 +377,80 @@ export const SvgaLayersList: React.FC<SvgaLayersListProps> = ({
             placeholder="بحث في أسماء الطبقات أو المفاتيح..."
             className="w-full bg-slate-900/90 border border-white/10 rounded-xl pr-9 pl-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-indigo-500 transition-all font-sans"
           />
+        </div>
+      </div>
+
+      {/* Master Global Controls Bar: Lock All & Eye All */}
+      <div className="px-3 py-2 bg-slate-900/90 border-b border-white/10 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-xs text-slate-300 font-bold">
+          <SlidersHorizontal size={13} className="text-indigo-400" />
+          <span>تحكم جماعي:</span>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {/* Master Visibility Button */}
+          {(() => {
+            const allVisible = layers.length > 0 && layers.every(l => l.visible);
+            const noneVisible = layers.length > 0 && layers.every(l => !l.visible);
+
+            return (
+              <button
+                type="button"
+                onClick={() => onToggleAllVisibility && onToggleAllVisibility(!allVisible)}
+                className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
+                  allVisible
+                    ? 'bg-indigo-600/30 hover:bg-indigo-600/40 text-indigo-200 border-indigo-500/40 hover:scale-[1.02]'
+                    : noneVisible
+                    ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/40'
+                    : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                }`}
+                title={allVisible ? 'إخفاء كل الطبقات (إغلاق العين للجميع)' : 'إظهار كل الطبقات (فتح العين للجميع)'}
+              >
+                {allVisible ? (
+                  <>
+                    <Eye size={13} className="text-indigo-300" />
+                    <span>إخفاء الكل</span>
+                  </>
+                ) : (
+                  <>
+                    <EyeOff size={13} className="text-slate-400" />
+                    <span>إظهار الكل</span>
+                  </>
+                )}
+              </button>
+            );
+          })()}
+
+          {/* Master Lock Button */}
+          {(() => {
+            const allLocked = layers.length > 0 && layers.every(l => l.locked);
+            const noneLocked = layers.length > 0 && layers.every(l => !l.locked);
+
+            return (
+              <button
+                type="button"
+                onClick={() => onToggleAllLock && onToggleAllLock(!allLocked)}
+                className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
+                  allLocked
+                    ? 'bg-amber-500/30 hover:bg-amber-500/40 text-amber-200 border-amber-500/40 hover:scale-[1.02]'
+                    : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                }`}
+                title={allLocked ? 'فتح قفل كل الطبقات (Unlock All)' : 'قفل كل الطبقات دفعة واحدة (Lock All)'}
+              >
+                {allLocked ? (
+                  <>
+                    <Lock size={13} className="text-amber-400" />
+                    <span>فتح الكل</span>
+                  </>
+                ) : (
+                  <>
+                    <Unlock size={13} className="text-slate-400" />
+                    <span>قفل الكل</span>
+                  </>
+                )}
+              </button>
+            );
+          })()}
         </div>
       </div>
 

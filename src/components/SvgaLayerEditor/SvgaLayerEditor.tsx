@@ -176,10 +176,34 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     });
   }, [pushHistory]);
 
+  const handleToggleAllVisibility = useCallback((makeVisible?: boolean) => {
+    setLayers(prev => {
+      const targetState = makeVisible !== undefined 
+        ? makeVisible 
+        : !prev.every(l => l.visible);
+      const updated = prev.map(l => ({ ...l, visible: targetState }));
+      pushHistory(updated);
+      setSuccessToast(targetState ? 'تم إظهار جميع الطبقات' : 'تم إخفاء جميع الطبقات');
+      return updated;
+    });
+  }, [pushHistory]);
+
   const handleToggleLock = useCallback((layerId: string) => {
     setLayers(prev => {
       const updated = prev.map(l => l.id === layerId ? { ...l, locked: !l.locked } : l);
       pushHistory(updated);
+      return updated;
+    });
+  }, [pushHistory]);
+
+  const handleToggleAllLock = useCallback((makeLocked?: boolean) => {
+    setLayers(prev => {
+      const targetState = makeLocked !== undefined 
+        ? makeLocked 
+        : !prev.every(l => l.locked);
+      const updated = prev.map(l => ({ ...l, locked: targetState }));
+      pushHistory(updated);
+      setSuccessToast(targetState ? 'تم قفل جميع الطبقات' : 'تم فتح قفل جميع الطبقات');
       return updated;
     });
   }, [pushHistory]);
@@ -724,7 +748,9 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               currentFrame={currentFrame}
               onSelectLayer={setSelectedLayerId}
               onToggleVisibility={handleToggleVisibility}
+              onToggleAllVisibility={handleToggleAllVisibility}
               onToggleLock={handleToggleLock}
+              onToggleAllLock={handleToggleAllLock}
               onReorderLayer={handleReorderLayer}
               onMoveLayer={handleMoveLayer}
               onDuplicateLayer={handleDuplicateLayer}
