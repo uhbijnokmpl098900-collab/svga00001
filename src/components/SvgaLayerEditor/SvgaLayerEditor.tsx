@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   EditableLayer, SVGAProjectData, CanvasTool, LayerKeyframe 
 } from './types';
-import { parseSvgaToProject } from './svgaParserEngine';
+import { parseSvgaToProject, createNewSvgaProject } from './svgaParserEngine';
 import { exportEditedSvga } from './svgaExportEngine';
 import { fileToImageBuffer, createImageLayer, createShapeLayer } from './layerFactory';
 import { SvgaDesignCanvas } from './SvgaDesignCanvas';
@@ -13,7 +13,7 @@ import {
   Upload, Layers, Download, ArrowLeft, RotateCcw, 
   Sparkles, MousePointer, Hand, ZoomIn, Grid, Compass, 
   FileCode, Check, AlertCircle, RefreshCw, X, Shield, Eye,
-  Sliders, Play, Film, CheckCircle2, Music
+  Sliders, Play, Film, CheckCircle2, Music, Plus, FilePlus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -57,6 +57,14 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
+  const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
+  const [newProjectConfig, setNewProjectConfig] = useState({
+    name: 'مشروع SVGA جديد',
+    width: 750,
+    height: 1334,
+    fps: 30,
+    totalFrames: 30
+  });
   const [exportFileName, setExportFileName] = useState<string>('');
   const [lastExportedBlob, setLastExportedBlob] = useState<{ blob: Blob; fileName: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -557,6 +565,26 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     }
   };
 
+  // Create New Project Handler
+  const handleCreateNewProject = () => {
+    try {
+      const { project: newProj, layers: newLayers } = createNewSvgaProject(newProjectConfig);
+      setProject(newProj);
+      setLayers(newLayers);
+      setSelectedLayerId(null);
+      setCurrentFrame(0);
+      setHistory([JSON.parse(JSON.stringify(newLayers))]);
+      setHistoryIndex(0);
+      setExportFileName(newProjectConfig.name || 'custom_svga_animation');
+      setShowNewProjectModal(false);
+      setSuccessToast(`تم إنشاء المشروع "${newProjectConfig.name}" بمقاس ${newProjectConfig.width}×${newProjectConfig.height} بنجاح!`);
+      setTimeout(() => setSuccessToast(null), 3500);
+    } catch (err: any) {
+      console.error("Failed to create new project:", err);
+      alert(`فشل إنشاء المشروع: ${err.message || 'خطأ'}`);
+    }
+  };
+
   const selectedLayer = layers.find(l => l.id === selectedLayerId) || null;
 
   // Background Swatches
@@ -719,6 +747,14 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
           )}
 
           <button
+            onClick={() => setShowNewProjectModal(true)}
+            className="flex items-center gap-1.5 text-xs font-bold text-emerald-300 hover:text-white bg-emerald-500/10 hover:bg-emerald-500/20 px-3.5 py-1.5 rounded-xl border border-emerald-500/30 transition-all cursor-pointer shadow-sm hover:scale-105"
+            title="إنشاء مشروع SVGA جديد وتحديد المقاسات"
+          >
+            <Plus size={14} className="text-emerald-400" /> مشروع جديد
+          </button>
+
+          <button
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center gap-1.5 text-xs font-bold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 px-3.5 py-1.5 rounded-xl border border-white/10 transition-all cursor-pointer"
           >
@@ -824,9 +860,9 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
           </aside>
         </div>
       ) : (
-        /* Empty State / Initial Drop Zone */
+        /* Empty State / Initial Options */
         <div 
-          className="flex-1 flex flex-col items-center justify-center p-8 bg-[#070b14]"
+          className="flex-1 flex flex-col items-center justify-center p-6 bg-[#070b14]"
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
@@ -834,43 +870,229 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
             if (f) loadSvgaFile(f);
           }}
         >
-          <div className="max-w-md w-full bg-slate-900/60 border border-white/10 rounded-3xl p-8 text-center space-y-6 shadow-2xl backdrop-blur-xl">
+          <div className="max-w-xl w-full bg-slate-900/60 border border-white/10 rounded-3xl p-8 text-center space-y-6 shadow-2xl backdrop-blur-xl" dir="rtl">
             <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-indigo-500/20 to-purple-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 mx-auto shadow-glow-indigo">
               <Layers size={36} />
             </div>
 
             <div className="space-y-2">
-              <h2 className="text-2xl font-black text-white">محرر طبقات SVGA الاحترافي</h2>
-              <p className="text-slate-400 text-xs leading-relaxed">
-                افتح أي ملف SVGA لتعديل الطبقات، التحكم بالموضع والحجم والتدوير بالماوس مباشرة على الكانفاس مع الحفاظ التام على الحركة الأصلية والأصوات.
+              <h2 className="text-2xl font-black text-white">محرر وفك طبقات SVGA الاحترافي</h2>
+              <p className="text-slate-400 text-xs leading-relaxed max-w-md mx-auto">
+                أنشئ مشروعاً جديداً بمقاسات مخصصة وصمم من الصفر، أو افتح وفك ضغط أي ملف SVGA لتعديل الطبقات وإضافة حركات احترافية.
               </p>
             </div>
 
             {errorMessage && (
-              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs flex items-center gap-2 text-right" dir="rtl">
+              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs flex items-center gap-2 text-right">
                 <AlertCircle size={16} className="shrink-0" />
                 <span>{errorMessage}</span>
               </div>
             )}
 
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-indigo-500/30 hover:border-indigo-500/60 bg-indigo-500/5 hover:bg-indigo-500/10 rounded-2xl p-6 transition-all cursor-pointer space-y-2 group"
-            >
-              <Upload size={24} className="text-indigo-400 mx-auto group-hover:scale-110 transition-transform" />
-              <div className="text-xs font-bold text-white">اسحب وأفلت ملف SVGA هنا</div>
-              <div className="text-[10px] text-slate-500">أو انقر لاختيار ملف من جهازك</div>
+            {/* Quick Actions Cards: 1. New Project from Scratch, 2. Open / Decompress SVGA */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-right">
+              {/* Option 1: Create New Project */}
+              <button
+                onClick={() => setShowNewProjectModal(true)}
+                className="p-6 bg-gradient-to-b from-indigo-600/20 via-purple-600/15 to-transparent hover:from-indigo-600/30 hover:via-purple-600/25 border border-indigo-500/40 hover:border-indigo-400 rounded-2xl transition-all cursor-pointer group flex flex-col justify-between text-right shadow-lg shadow-indigo-600/10 hover:scale-[1.02]"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-600/40 group-hover:scale-110 transition-transform">
+                    <Sparkles size={20} />
+                  </div>
+                  <span className="text-[10px] font-black text-indigo-300 bg-indigo-500/20 px-2.5 py-1 rounded-full border border-indigo-500/40">
+                    تصميم جديد
+                  </span>
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white group-hover:text-indigo-300 transition-colors">إنشاء مشروع جديد من الصفر</h3>
+                  <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+                    حدد مقاس الكانفاس (750×1334، 1080×1920...) وابدأ إضافة الصور والطبقات وتصميم الحركة
+                  </p>
+                </div>
+              </button>
+
+              {/* Option 2: Open / Decompress SVGA File */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="p-6 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-indigo-400/40 rounded-2xl transition-all cursor-pointer group flex flex-col justify-between text-right shadow-lg hover:scale-[1.02]"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="w-11 h-11 rounded-2xl bg-slate-800 border border-white/10 flex items-center justify-center text-slate-300 group-hover:text-white group-hover:bg-indigo-600/30 group-hover:border-indigo-500/40 transition-all shadow-md">
+                    <Upload size={20} />
+                  </div>
+                  <span className="text-[10px] font-black text-slate-400 bg-white/5 px-2.5 py-1 rounded-full border border-white/10">
+                    فك ضغط وتحرير
+                  </span>
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white group-hover:text-indigo-300 transition-colors">فتح ملف SVGA موجود</h3>
+                  <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+                    فك ضغط ملف SVGA واستيراد جميع طبقاته وعناصره لتحريرها وتعديل مساراتها
+                  </p>
+                </div>
+              </button>
             </div>
 
-            <button
+            {/* Drop Zone Strip */}
+            <div
               onClick={() => fileInputRef.current?.click()}
-              className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-2xl text-xs font-black uppercase tracking-wider shadow-lg shadow-indigo-600/30 transition-all cursor-pointer hover:scale-[1.02]"
+              className="border border-dashed border-white/15 hover:border-indigo-500/40 bg-black/20 hover:bg-black/40 rounded-2xl p-4 transition-all cursor-pointer flex items-center justify-center gap-2 text-xs text-slate-400 hover:text-slate-200"
             >
-              اختر ملف SVGA للبدء
-            </button>
+              <Upload size={15} className="text-indigo-400" />
+              <span>أو اسحب وأفلت أي ملف SVGA هنا مباشرة للفتح الفوري</span>
+            </div>
           </div>
         </div>
       )}
+
+      {/* New Project Configuration Modal */}
+      <AnimatePresence>
+        {showNewProjectModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md" dir="rtl">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-[#0b1020] border border-white/15 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-5"
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md">
+                    <Sparkles size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">إنشاء مشروع SVGA جديد</h3>
+                    <p className="text-[11px] text-slate-400">حدد المقاسات ومعدل الإطارات للبدء بالتصميم</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowNewProjectModal(false)}
+                  className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Project Name */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">اسم المشروع:</label>
+                <input
+                  type="text"
+                  value={newProjectConfig.name}
+                  onChange={(e) => setNewProjectConfig(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="مشروع SVGA جديد"
+                  className="w-full bg-slate-900 border border-white/10 focus:border-indigo-500 rounded-2xl px-4 py-2.5 text-xs text-white outline-none"
+                />
+              </div>
+
+              {/* Dimension Presets */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-300">اختر قالباً جاهزاً للمقاس:</label>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  {[
+                    { label: '📱 ستوري / لايف', w: 750, h: 1334, desc: '750×1334' },
+                    { label: '📱 Full HD عمودي', w: 1080, h: 1920, desc: '1080×1920' },
+                    { label: '⏹️ هدية قياسية', w: 750, h: 750, desc: '750×750' },
+                    { label: '⏹️ صندوق هدية', w: 500, h: 500, desc: '500×500' },
+                    { label: '💫 إيموجي / شارة', w: 300, h: 300, desc: '300×300' },
+                    { label: '🖥️ عريض HD', w: 1280, h: 720, desc: '1280×720' },
+                  ].map(preset => {
+                    const isSelected = newProjectConfig.width === preset.w && newProjectConfig.height === preset.h;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => setNewProjectConfig(prev => ({ ...prev, width: preset.w, height: preset.h }))}
+                        className={`p-2.5 rounded-2xl border transition-all cursor-pointer text-right flex flex-col justify-between ${
+                          isSelected 
+                            ? 'bg-indigo-600/30 border-indigo-500 text-white shadow-md' 
+                            : 'bg-slate-900/60 border-white/5 text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                        }`}
+                      >
+                        <span className="text-[11px] font-bold block">{preset.label}</span>
+                        <span className="text-[10px] font-mono text-indigo-400 font-bold mt-1">{preset.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Custom Width & Height Inputs */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-300">العرض (Width - px):</label>
+                  <input
+                    type="number"
+                    min={50}
+                    max={3840}
+                    value={newProjectConfig.width}
+                    onChange={(e) => setNewProjectConfig(prev => ({ ...prev, width: Math.max(10, parseInt(e.target.value) || 750) }))}
+                    className="w-full bg-slate-900 border border-white/10 focus:border-indigo-500 rounded-2xl px-4 py-2 text-xs font-mono text-white outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-300">الارتفاع (Height - px):</label>
+                  <input
+                    type="number"
+                    min={50}
+                    max={3840}
+                    value={newProjectConfig.height}
+                    onChange={(e) => setNewProjectConfig(prev => ({ ...prev, height: Math.max(10, parseInt(e.target.value) || 1334) }))}
+                    className="w-full bg-slate-900 border border-white/10 focus:border-indigo-500 rounded-2xl px-4 py-2 text-xs font-mono text-white outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Frames & FPS Row */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-300">عدد الإطارات (Frames):</label>
+                  <select
+                    value={newProjectConfig.totalFrames}
+                    onChange={(e) => setNewProjectConfig(prev => ({ ...prev, totalFrames: parseInt(e.target.value) || 30 }))}
+                    className="w-full bg-slate-900 border border-white/10 focus:border-indigo-500 rounded-2xl px-3 py-2 text-xs font-mono text-white outline-none cursor-pointer"
+                  >
+                    <option value={15}>15 إطار (0.5 ثانية)</option>
+                    <option value={30}>30 إطار (1 ثانية)</option>
+                    <option value={60}>60 إطار (2 ثانية)</option>
+                    <option value={90}>90 إطار (3 ثواني)</option>
+                    <option value={120}>120 إطار (4 ثواني)</option>
+                    <option value={180}>180 إطار (6 ثواني)</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-300">معدل الإطارات (FPS):</label>
+                  <select
+                    value={newProjectConfig.fps}
+                    onChange={(e) => setNewProjectConfig(prev => ({ ...prev, fps: parseInt(e.target.value) || 30 }))}
+                    className="w-full bg-slate-900 border border-white/10 focus:border-indigo-500 rounded-2xl px-3 py-2 text-xs font-mono text-white outline-none cursor-pointer"
+                  >
+                    <option value={15}>15 FPS (خفيف جداً)</option>
+                    <option value={20}>20 FPS (قياسي)</option>
+                    <option value={24}>24 FPS (سينمائي)</option>
+                    <option value={30}>30 FPS (موصى به)</option>
+                    <option value={60}>60 FPS (سلس فائق)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={handleCreateNewProject}
+                  className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-black rounded-2xl shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer hover:scale-[1.02]"
+                >
+                  <Sparkles size={16} />
+                  <span>إنشاء والبدء بالتصميم الآن</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Export Confirmation & Download Modal */}
       <AnimatePresence>

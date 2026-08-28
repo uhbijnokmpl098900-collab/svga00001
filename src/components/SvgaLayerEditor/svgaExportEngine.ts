@@ -70,6 +70,20 @@ export async function exportEditedSvga(
     const pivotX = initialBounds.x + initialBounds.width / 2;
     const pivotY = initialBounds.y + initialBounds.height / 2;
 
+    // If frames are missing or empty (e.g. newly created layer), populate default frames
+    if (!spriteClone.frames || !Array.isArray(spriteClone.frames) || spriteClone.frames.length === 0) {
+      spriteClone.frames = Array.from({ length: project.totalFrames }, () => ({
+        alpha: 1,
+        transform: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 },
+        layout: { 
+          x: initialBounds.x, 
+          y: initialBounds.y, 
+          width: initialBounds.width, 
+          height: initialBounds.height 
+        }
+      }));
+    }
+
     // Update each frame in sprite (evaluating keyframe animation per frame)
     if (spriteClone.frames && Array.isArray(spriteClone.frames)) {
       spriteClone.frames = spriteClone.frames.map((frame: any, frameIdx: number) => {

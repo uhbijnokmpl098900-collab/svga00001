@@ -751,39 +751,95 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
       onWheel={handleWheel}
       style={{ cursor: activeTool === 'hand' || dragHandle === 'pan' ? 'grab' : 'default' }}
     >
-      {/* Floating Canvas Viewport Info Pill */}
-      <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-slate-900/80 backdrop-blur-md border border-white/10 px-3 py-1.5 rounded-2xl shadow-xl">
+      {/* Floating Canvas Viewport Info Pill & Preset Quick Zoom */}
+      <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-slate-900/90 backdrop-blur-md border border-white/10 px-3 py-1.5 rounded-2xl shadow-xl">
         <span className="text-[11px] font-mono font-bold text-slate-300">
           {project.width} × {project.height} px
         </span>
         <div className="h-3 w-px bg-white/10" />
         <span className="text-[11px] font-mono text-indigo-400 font-bold">{zoom}%</span>
+
+        <div className="h-3 w-px bg-white/10" />
+
+        {/* Quick presets */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onZoomChange(25)}
+            className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition-colors ${
+              zoom === 25 ? 'bg-indigo-600 text-white' : 'bg-white/5 text-slate-400 hover:text-white'
+            }`}
+            title="تصغير أقصى 25%"
+          >
+            25%
+          </button>
+          <button
+            onClick={() => onZoomChange(50)}
+            className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition-colors ${
+              zoom === 50 ? 'bg-indigo-600 text-white' : 'bg-white/5 text-slate-400 hover:text-white'
+            }`}
+            title="تصغير 50%"
+          >
+            50%
+          </button>
+          <button
+            onClick={() => onZoomChange(100)}
+            className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition-colors ${
+              zoom === 100 ? 'bg-indigo-600 text-white' : 'bg-white/5 text-slate-400 hover:text-white'
+            }`}
+            title="حجم أصلي 100%"
+          >
+            100%
+          </button>
+          <button
+            onClick={() => onZoomChange(200)}
+            className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold transition-colors ${
+              zoom === 200 ? 'bg-indigo-600 text-white' : 'bg-white/5 text-slate-400 hover:text-white'
+            }`}
+            title="تكبير 200%"
+          >
+            200%
+          </button>
+        </div>
       </div>
 
-      {/* Floating Zoom & Reset Toolbar */}
-      <div className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 bg-slate-900/80 backdrop-blur-md border border-white/10 p-1.5 rounded-2xl shadow-xl">
+      {/* Floating Zoom & Reset Toolbar with Slider and Fit */}
+      <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2 bg-slate-900/90 backdrop-blur-md border border-white/10 p-1.5 px-2.5 rounded-2xl shadow-xl">
         <button
-          onClick={() => onZoomChange(Math.max(15, zoom - 15))}
-          className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl transition-colors"
+          onClick={() => onZoomChange(Math.max(10, zoom - 20))}
+          className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer"
           title="تصغير (Zoom Out)"
         >
           <ZoomOut size={14} />
         </button>
+
+        {/* Live Smooth Zoom Slider */}
+        <div className="flex items-center gap-1.5 w-24">
+          <input
+            type="range"
+            min={10}
+            max={400}
+            step={5}
+            value={zoom}
+            onChange={(e) => onZoomChange(parseInt(e.target.value) || 100)}
+            className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+            title={`مستوى التكبير: ${zoom}%`}
+          />
+        </div>
 
         <button
           onClick={() => {
             onZoomChange(100);
             onPanChange({ x: 0, y: 0 });
           }}
-          className="px-2 py-1 bg-white/5 hover:bg-white/10 text-[10px] font-mono font-bold text-slate-300 rounded-lg transition-colors"
+          className="px-2 py-1 bg-white/5 hover:bg-white/10 text-[10px] font-mono font-bold text-slate-300 rounded-lg transition-colors cursor-pointer"
           title="إعادة ضبط الحجم (100%)"
         >
           100%
         </button>
 
         <button
-          onClick={() => onZoomChange(Math.min(500, zoom + 15))}
-          className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl transition-colors"
+          onClick={() => onZoomChange(Math.min(500, zoom + 20))}
+          className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer"
           title="تكبير (Zoom In)"
         >
           <ZoomIn size={14} />
@@ -791,10 +847,31 @@ export const SvgaDesignCanvas: React.FC<SvgaDesignCanvasProps> = ({
 
         <div className="h-3 w-px bg-white/10 mx-0.5" />
 
+        {/* Auto Fit to Screen Button */}
+        <button
+          onClick={() => {
+            if (!containerRef.current) return;
+            const cw = containerRef.current.clientWidth - 80;
+            const ch = containerRef.current.clientHeight - 80;
+            if (cw > 0 && ch > 0 && project.width > 0 && project.height > 0) {
+              const sw = cw / project.width;
+              const sh = ch / project.height;
+              const fit = Math.max(10, Math.min(300, Math.round(Math.min(sw, sh) * 100)));
+              onZoomChange(fit);
+              onPanChange({ x: 0, y: 0 });
+            }
+          }}
+          className="px-2 py-1 bg-indigo-600/30 hover:bg-indigo-600/50 text-[10px] font-bold text-indigo-300 rounded-lg transition-colors cursor-pointer flex items-center gap-1 border border-indigo-500/30"
+          title="ملاءمة الكانفاس لحجم الشاشة (Fit to View)"
+        >
+          <Maximize2 size={11} />
+          <span>ملاءمة</span>
+        </button>
+
         <button
           onClick={() => onPanChange({ x: 0, y: 0 })}
-          className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl transition-colors"
-          title="توسيط الكانفاس (Center)"
+          className="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer"
+          title="توسيط الكانفاس (Center Pan)"
         >
           <RotateCcw size={14} />
         </button>

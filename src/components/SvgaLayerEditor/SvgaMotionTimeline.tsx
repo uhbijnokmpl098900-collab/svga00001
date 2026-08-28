@@ -2,9 +2,9 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { EditableLayer, LayerKeyframe, MotionTracksConfig } from './types';
 import { 
   Play, Pause, SkipBack, SkipForward, RotateCcw, 
-  ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronRightIcon,
-  Plus, Diamond, Sliders, Trash2, Eye, Move, Maximize2, RotateCw, 
-  Sun, Clock, Film, Sparkles, SlidersHorizontal, Settings2, MoreVertical
+  ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ChevronRight as ChevronRightIcon,
+  Plus, Diamond, Sliders, Trash2, Eye, Move, Maximize2, Minimize2, RotateCw, 
+  Sun, Clock, Film, Sparkles, SlidersHorizontal, Settings2, MoreVertical, ZoomIn, ZoomOut
 } from 'lucide-react';
 import { KeyframeEasingPanel } from './KeyframeEasingPanel';
 import { 
@@ -52,6 +52,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
 
   // Timeline Zoom & Scroll state
   const [timelineZoom, setTimelineZoom] = useState<number>(1); // 1 = 100%
+  const [isTimelineCollapsed, setIsTimelineCollapsed] = useState<boolean>(false);
   const [selectedKeyframeId, setSelectedKeyframeId] = useState<string | null>(null);
   const [showAddMenu, setShowAddMenu] = useState<boolean>(false);
   const [draggingKeyframeId, setDraggingKeyframeId] = useState<string | null>(null);
@@ -357,11 +358,48 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
           <span className="text-[11px] font-bold text-slate-500 px-2 py-0.5 bg-black/40 rounded border border-white/5">
             {fps} FPS
           </span>
+
+          {/* Timeline Zoom & Collapse Controls */}
+          <div className="flex items-center gap-1 border-l border-white/10 pl-2">
+            <button
+              onClick={() => setTimelineZoom(Math.max(0.5, timelineZoom - 0.25))}
+              className="p-1 hover:bg-white/10 text-slate-400 hover:text-white rounded transition-colors cursor-pointer"
+              title="تصغير عرض المسارات (Zoom Out Tracks)"
+            >
+              <ZoomOut size={13} />
+            </button>
+            <span className="text-[10px] font-mono text-slate-400 font-bold min-w-[28px] text-center">
+              {Math.round(timelineZoom * 100)}%
+            </span>
+            <button
+              onClick={() => setTimelineZoom(Math.min(3, timelineZoom + 0.25))}
+              className="p-1 hover:bg-white/10 text-slate-400 hover:text-white rounded transition-colors cursor-pointer"
+              title="تكبير عرض المسارات (Zoom In Tracks)"
+            >
+              <ZoomIn size={13} />
+            </button>
+
+            <div className="h-4 w-px bg-white/10 mx-0.5" />
+
+            <button
+              onClick={() => setIsTimelineCollapsed(!isTimelineCollapsed)}
+              className={`p-1.5 rounded-lg border text-xs transition-all flex items-center gap-1 font-bold cursor-pointer ${
+                isTimelineCollapsed 
+                  ? 'bg-indigo-600/40 text-indigo-300 border-indigo-500/50 hover:bg-indigo-600/60' 
+                  : 'bg-white/5 text-slate-400 hover:text-white border-white/10'
+              }`}
+              title={isTimelineCollapsed ? "توسيع الخط الزمني للتحريك (Expand Timeline)" : "تصغير/طي الخط الزمني (Minimize Timeline)"}
+            >
+              {isTimelineCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              <span className="text-[10px] hidden sm:inline">{isTimelineCollapsed ? 'توسيع' : 'تصغير'}</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* 2. DEDICATED MOTION TRACKS CONTAINER */}
-      <div className="flex h-56 relative overflow-hidden">
+      {/* 2. DEDICATED MOTION TRACKS CONTAINER OR MINI SCRUBBER */}
+      {!isTimelineCollapsed ? (
+        <div className="flex h-56 relative overflow-hidden">
         {/* LEFT COLUMN: TRACK HEADERS & CONTROLS (WIDTH: 310px) */}
         <div className="w-[310px] bg-slate-950/95 border-r border-white/10 flex flex-col shrink-0 overflow-y-auto custom-scrollbar">
           {/* Top ruler header placeholder */}
@@ -863,6 +901,28 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
           </div>
         </div>
       </div>
+      ) : (
+        /* Mini Scrubber Track when collapsed */
+        <div 
+          className="h-3 bg-slate-950 hover:bg-slate-900 border-t border-white/5 transition-all cursor-pointer relative px-4 flex items-center"
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            onSeekFrame(Math.round(pct * (totalFrames - 1)));
+          }}
+        >
+          <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden relative">
+            <div 
+              className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-full transition-all"
+              style={{ width: `${playheadPct}%` }}
+            />
+          </div>
+          <div 
+            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-white border-2 border-indigo-600 shadow-md shadow-indigo-500 pointer-events-none"
+            style={{ left: `${playheadPct}%` }}
+          />
+        </div>
+      )}
 
       {/* 3. FLOATING KEYFRAME BEZIER & EASING INSPECTOR MODAL */}
       {selectedKeyframe && (

@@ -757,6 +757,10 @@ const App: React.FC = () => {
                 onFileReplace={(meta) => setFileMetadata(meta)}
                 mode={state === AppState.SVGA_EDITOR_EX ? 'ex' : 'normal'}
                 onImageConverterOpen={handleImageConverterOpen}
+                onOpenLayerEditor={(file) => {
+                  setLayerEditorInitialFile(file || fileMetadata?.originalFile || null);
+                  handleFeatureAccess(AppState.SVGA_LAYER_EDITOR, 'SVGA Layer Editor');
+                }}
               />
             )}
             {state === AppState.BATCH_COMPRESSOR && (

@@ -232,3 +232,49 @@ export async function parseSvgaToProject(file: File): Promise<{
 
   return { project, layers };
 }
+
+/**
+ * Creates a brand new, empty SVGA project with custom dimensions, FPS, and frames count.
+ */
+export function createNewSvgaProject(options: {
+  name?: string;
+  width: number;
+  height: number;
+  fps: number;
+  totalFrames: number;
+}): { project: SVGAProjectData; layers: EditableLayer[] } {
+  const width = Math.max(10, Math.min(4000, Math.round(options.width || 750)));
+  const height = Math.max(10, Math.min(4000, Math.round(options.height || 1334)));
+  const fps = Math.max(1, Math.min(120, Math.round(options.fps || 30)));
+  const totalFrames = Math.max(1, Math.min(1200, Math.round(options.totalFrames || 30)));
+  const fileName = options.name ? (options.name.endsWith('.svga') ? options.name : `${options.name}.svga`) : 'new_project.svga';
+
+  const rawMovie: any = {
+    version: "2.0",
+    params: {
+      viewBoxWidth: width,
+      viewBoxHeight: height,
+      fps: fps,
+      frames: totalFrames
+    },
+    images: {},
+    sprites: [],
+    audios: []
+  };
+
+  const project: SVGAProjectData = {
+    fileName,
+    fileSize: 0,
+    width,
+    height,
+    fps,
+    totalFrames,
+    version: "2.0",
+    imagesMap: {},
+    rawImages: {},
+    audios: [],
+    rawMovie
+  };
+
+  return { project, layers: [] };
+}

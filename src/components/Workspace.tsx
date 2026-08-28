@@ -78,6 +78,7 @@ interface WorkspaceProps {
   onFileReplace?: (meta: FileMetadata) => void;
   mode?: "normal" | "ex";
   onImageConverterOpen?: (file?: File) => void;
+  onOpenLayerEditor?: (file?: File) => void;
 }
 
 interface CustomLayer {
@@ -158,6 +159,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   onFileReplace,
   mode = "normal",
   onImageConverterOpen,
+  onOpenLayerEditor,
 }) => {
   const { checkAccess } = useAccessControl();
   const { t, dir } = useLanguage();
@@ -9101,6 +9103,30 @@ export const Workspace: React.FC<WorkspaceProps> = ({
           </div>
         </div>
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full lg:w-auto">
+          {metadata.name.toLowerCase().endsWith(".svga") && (
+            <button
+              onClick={async () => {
+                if (onOpenLayerEditor) {
+                  let fileToOpen = metadata.originalFile;
+                  if (!fileToOpen && metadata.fileUrl) {
+                    try {
+                      const res = await fetch(metadata.fileUrl);
+                      const blob = await res.blob();
+                      fileToOpen = new File([blob], metadata.name || "animation.svga", { type: "application/octet-stream" });
+                    } catch (e) {
+                      console.error("Failed to fetch file for layer editor", e);
+                    }
+                  }
+                  onOpenLayerEditor(fileToOpen);
+                }
+              }}
+              className="flex-1 lg:flex-none px-4 sm:px-6 py-3 sm:py-5 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white rounded-xl sm:rounded-[2rem] border border-indigo-400/40 shadow-lg shadow-indigo-600/30 transition-all font-black uppercase text-[8px] sm:text-[10px] tracking-widest active:scale-95 flex items-center justify-center gap-2 cursor-pointer hover:scale-105"
+              title="ÙÙƒ Ø¶ØºØ· ÙˆØªØ­Ø±ÙŠØ± Ø·Ø¨Ù‚Ø§Øª ÙˆØ­Ø±ÙƒØ§Øª Ø§Ù„Ù€ SVGA Ø¨Ø§Ø­ØªØ±Ø§ÙÙŠØ©"
+            >
+              <span className="text-sm sm:text-base animate-pulse">ğŸ”“</span>
+              <span>Ù…Ø­Ø±Ø± ÙˆÙÙƒ Ø·Ø¨Ù‚Ø§Øª SVGA</span>
+            </button>
+          )}
           <button
             onClick={() => replaceSvgaInputRef.current?.click()}
             className="flex-1 lg:flex-none px-4 sm:px-6 py-3 sm:py-5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 hover:text-sky-300 rounded-xl sm:rounded-[2rem] border border-sky-500/20 transition-all font-black uppercase text-[8px] sm:text-[10px] tracking-widest active:scale-95 flex items-center justify-center gap-2"
@@ -13122,408 +13148,15 @@ class _MyAppState extends State<MyApp> {
                     value={textOptions.size}
                     onChange={(e) =>
                       setTextOptions((p) => ({
-                        ...p,
-                        size: Number(e.target.value),
-                      }))
-                    }
-                    className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] text-slate-400 uppercase font-black">
-                    Ù„ÙˆÙ† Ø£Ùˆ ØµÙˆØ±Ø© Ø§Ù„Ù†Øµ (Color / Image)
-                  </label>
-                  <div className="flex gap-2 items-center flex-wrap">
-                    <input
-                      type="color"
-                      value={textOptions.color}
-                      onChange={(e) => {
-                        setTextOptions((p) => ({
-                          ...p,
-                          color: e.target.value,
-                          patternImgEl: null,
-                        }));
-                      }}
-                      className="w-8 h-8 rounded border border-white/10 bg-transparent cursor-pointer"
-                      title="Ø§Ø®ØªØ± Ù„ÙˆÙ†Ø§Ù‹ Ø¹Ø§Ø¯ÙŠØ§Ù‹"
-                    />
-                    <span className="text-white text-xs">
-                      {textOptions.patternImgEl ? "ØµÙˆØ±Ø©" : textOptions.color}
-                    </span>
-
-                    <label className="cursor-pointer bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded text-xs font-bold transition-colors ml-auto flex items-center gap-1">
-                      <svg
-                        className="w-3 h-3"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-                        />
-                      </svg>
-                      Ø±ÙØ¹ ØµÙˆØ±Ø© ÙƒØ®Ù„ÙÙŠØ© Ù„Ù„Ù†Øµ
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onload = (ev) => {
-                              const img = new Image();
-                              img.onload = () => {
-                                setTextOptions((p) => ({
-                                  ...p,
-                                  patternImgEl: img,
-                                }));
-                              };
-                              img.src = ev.target?.result as string;
-                            };
-                            reader.readAsDataURL(file);
-                          }
-                        }}
-                      />
-                    </label>
-                    {textOptions.patternImgEl && (
-                      <button
-                        onClick={() =>
-                          setTextOptions((p) => ({ ...p, patternImgEl: null }))
-                        }
-                        className="text-rose-400 hover:text-rose-300 text-[10px] font-bold"
-                      >
-                        Ø¥Ø²Ø§Ù„Ø© Ø§Ù„ØµÙˆØ±Ø©
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="col-span-2 space-y-2 mt-2">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={textOptions.is3D}
-                      onChange={(e) =>
-                        setTextOptions((p) => ({
-                          ...p,
-                          is3D: e.target.checked,
-                        }))
-                      }
-                      className="w-4 h-4 rounded bg-black/50 border-white/10 text-yellow-500 focus:ring-yellow-500 focus:ring-offset-0"
-                    />
-                    <span className="text-xs text-white font-bold">
-                      ØªÙØ¹ÙŠÙ„ ØªØ£Ø«ÙŠØ± 3D Ù„Ù„Ù†Øµ
-                    </span>
-                  </label>
-
-                  {textOptions.is3D && (
-                    <div className="space-y-1 pl-6">
-                      <label className="text-[10px] text-slate-400 uppercase font-black">
-                        Ù„ÙˆÙ† Ø§Ù„Ø¸Ù„ 3D (3D Color)
-                      </label>
-                      <div className="flex gap-2 items-center">
-                        <input
-                          type="color"
-                          value={textOptions.color3D}
-                          onChange={(e) =>
-                            setTextOptions((p) => ({
-                              ...p,
-                              color3D: e.target.value,
-                            }))
-                          }
-                          className="w-8 h-8 rounded border border-white/10 bg-transparent cursor-pointer"
-                        />
-                        <span className="text-white text-xs">
-                          {textOptions.color3D}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="col-span-2 grid grid-cols-2 gap-2 mt-2">
-                  <div className="space-y-1">
-                    <label className="text-[10px] text-slate-400 uppercase font-black">
-                      Ø¥Ø²Ø§Ø­Ø© Ø³ (X Offset)
-                    </label>
-                    <input
-                      type="number"
-                      value={textOptions.offsetX}
-                      onChange={(e) =>
-                        setTextOptions((p) => ({
-                          ...p,
-                          offsetX: Number(e.target.value),
-                        }))
-                      }
-                      className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] text-slate-400 uppercase font-black">
-                      Ø¥Ø²Ø§Ø­Ø© Øµ (Y Offset)
-                    </label>
-                    <input
-                      type="number"
-                      value={textOptions.offsetY}
-                      onChange={(e) =>
-                        setTextOptions((p) => ({
-                          ...p,
-                          offsetY: Number(e.target.value),
-                        }))
-                      }
-                      className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-white text-sm outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 aspect-video bg-black/50 border border-white/10 rounded-xl overflow-hidden flex items-center justify-center relative bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCI+CjxyZWN0IHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgZmlsbD0iI2ZmZiIgZmlsbC1vcGFjaXR5PSIwLjA1Ii8+CjxwYXRoIGQ9Ik0wIDEwaDIwdk0xMCAwdjIwIiBzdHJva2U9IiNmZmYiIHN0cm9rZS1vcGFjaXR5PSIwLjAyIi8+Cjwvc3ZnPg==')]">
-                {textOptions.text.trim() ? (
-                  <img
-                    src={handlePreviewTextGenerate()}
-                    alt="preview"
-                    className="max-w-full max-h-full object-contain"
-                  />
-                ) : (
-                  <span className="text-white/20 text-xs">Ù…Ø¹Ø§ÙŠÙ†Ø© Ø§Ù„Ù†Øµ</span>
-                )}
-              </div>
-            </div>
-            <div className="p-4 border-t border-white/10 bg-white/5 flex justify-end gap-2">
-              <button
-                onClick={() => setTextReplaceTarget(null)}
-                className="px-4 py-2 bg-white/10 text-white rounded-lg text-xs font-bold hover:bg-white/20 transition-colors"
-              >
-                Ø¥Ù„ØºØ§Ø¡
-              </button>
-              <button
-                onClick={handleApplyTextReplace}
-                className="px-6 py-2 bg-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.5)] hover:bg-yellow-400 text-black rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-2 min-w-[60px]"
-              >
-                Ø§Ø³ØªØ¨Ø¯Ø§Ù„ Ø§Ù„ØµÙˆØ±Ø©
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {fadeModalTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b border-white/10 bg-white/5">
-              <h3 className="text-white font-bold text-sm">
-                ØªÙ„Ø§Ø´ÙŠ Ø§Ù„Ø­ÙˆØ§Ù (Edge Fade)
-              </h3>
-              <button
-                onClick={() => setFadeModalTarget(null)}
-                className="text-white/50 hover:text-white transition-colors"
-              >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            </div>
-            <div className="p-6 space-y-6">
-              <div className="aspect-square bg-black/50 rounded-xl border border-white/5 flex items-center justify-center overflow-hidden relative">
-                {layerImages[fadeModalTarget] && (
-                  <img
-                    src={layerImages[fadeModalTarget]}
-                    className="max-w-full max-h-full object-contain transition-all duration-300"
-                    style={{
-                      maskImage: `linear-gradient(to bottom, transparent, black ${fadeModalValues.top}%, black ${100 - fadeModalValues.bottom}%, transparent), linear-gradient(to right, transparent, black ${fadeModalValues.left}%, black ${100 - fadeModalValues.right}%, transparent)`,
-                      WebkitMaskImage: `linear-gradient(to bottom, transparent, black ${fadeModalValues.top}%, black ${100 - fadeModalValues.bottom}%, transparent), linear-gradient(to right, transparent, black ${fadeModalValues.left}%, black ${100 - fadeModalValues.right}%, transparent)`,
-                      maskComposite: "intersect",
-                      WebkitMaskComposite: "source-in",
-                    }}
-                  />
-                )}
-              </div>
-              <div className="space-y-4">
-                <TransformControl
-                  label="Ø£Ø¹Ù„Ù‰ (Top)"
-                  value={fadeModalValues.top}
-                  min={0}
-                  max={50}
-                  step={1}
-                  onChange={(v) =>
-                    setFadeModalValues((p) => ({ ...p, top: v }))
-                  }
-                />
-                <TransformControl
-                  label="Ø£Ø³ÙÙ„ (Bottom)"
-                  value={fadeModalValues.bottom}
-                  min={0}
-                  max={50}
-                  step={1}
-                  onChange={(v) =>
-                    setFadeModalValues((p) => ({ ...p, bottom: v }))
-                  }
-                />
-                <TransformControl
-                  label="ÙŠØ³Ø§Ø± (Left)"
-                  value={fadeModalValues.left}
-                  min={0}
-                  max={50}
-                  step={1}
-                  onChange={(v) =>
-                    setFadeModalValues((p) => ({ ...p, left: v }))
-                  }
-                />
-                <TransformControl
-                  label="ÙŠÙ…ÙŠÙ† (Right)"
-                  value={fadeModalValues.right}
-                  min={0}
-                  max={50}
-                  step={1}
-                  onChange={(v) =>
-                    setFadeModalValues((p) => ({ ...p, right: v }))
-                  }
-                />
-              </div>
-            </div>
-            <div className="p-4 border-t border-white/10 bg-white/5 flex justify-end gap-2">
-              <button
-                onClick={() => setFadeModalTarget(null)}
-                className="px-4 py-2 bg-white/10 text-white rounded-lg text-xs font-bold hover:bg-white/20 transition-colors"
-              >
-                Ø¥Ù„ØºØ§Ø¡
-              </button>
-              <button
-                onClick={handleApplyFade}
-                className="px-6 py-2 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-400 transition-colors shadow-glow-emerald"
-              >
-                ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„ØªÙ„Ø§Ø´ÙŠ
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {exportResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-white/10 p-6 rounded-2xl w-full max-w-md shadow-2xl">
-            <h3 className="text-xl font-bold text-white mb-4 text-center">
-              ØªÙ… Ø§Ù„ØªØ­ÙˆÙŠÙ„ Ø¨Ù†Ø¬Ø§Ø­!
-            </h3>
-
-            <div className="bg-slate-800 p-4 rounded-xl mb-6">
-              <label className="text-xs text-slate-400 mb-2 block">
-                Ø§Ø³Ù… Ø§Ù„Ù…Ù„Ù
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={exportResult.filename}
-                  className="flex-1 bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
-                />
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(exportResult.filename);
-                    alert("ØªÙ… Ù†Ø³Ø® Ø§Ù„Ø§Ø³Ù…");
-                  }}
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-                >
-                  <Copy className="w-4 h-4" />
-                  Ù†Ø³Ø®
-                </button>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <a
-                href={exportResult.url}
-                download={exportResult.filename}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl text-center font-bold transition-colors flex items-center justify-center gap-2"
-                onClick={() => setExportResult(null)}
-              >
-                <Download className="w-5 h-5" />
-                ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ù„Ù
-              </a>
-              <button
-                onClick={() => setExportResult(null)}
-                className="px-4 py-3 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors"
-              >
-                Ø¥ØºÙ„Ø§Ù‚
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <AudioEditorModal
-        isOpen={showAudioModal}
-        onClose={() => setShowAudioModal(false)}
-        audioUrl={audioUrl}
-        audioFile={audioFile}
-        volume={volume}
-        onVolumeChange={setVolume}
-        onExecute={handleAudioExecute}
-        isProcessing={isProcessingVideo}
-        onReplace={(file) => {
-          setAudioFile(file);
-          setAudioUrl(URL.createObjectURL(file));
-        }}
-        onRemove={() => {
-          handleRemoveAudio();
-        }}
-        onKeep={() => {
-          setShowAudioModal(false);
-        }}
-      />
-
-      <AnimatePresence>
-        {lottiePreviewData && (
-          <LottieViewer
-            animationData={lottiePreviewData}
-            onClose={() => setLottiePreviewData(null)}
-            fileName={`${metadata.name.replace(".svga", "")}.json`}
-          />
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
-
-const TransformControl: React.FC<{
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step?: number;
-  onChange: (v: number) => void;
-}> = ({ label, value, min, max, step = 1, onChange }) => (
-  <div className="space-y-2">
-    <div className="flex justify-between items-center px-1">
-      <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
-        {label}
-      </span>
-      <span className="text-[10px] font-bold text-white bg-white/5 px-2 py-0.5 rounded-lg border border-white/5">
-        {value}
-      </span>
-    </div>
-    <input
-      type="range"
-      min={min}
-      max={max}
-      step={step}
-      value={value}
-      onChange={(e) => onChange(parseFloat(e.target.value))}
-      className="w-full h-1.5 bg-slate-800 rounded-full appearance-none accent-sky-500 cursor-pointer"
-    />
-  </div>
-);
+     xœìÛrÛÆõİ_±eÓj
+$EUVD{dÉµ’í*¾Êã‰—ÀŠ„„[ğfœÆÔıŠN&ãÄm’qİL›~	ø7=» ±’vì±;AbØëÙ³ç~vÊ=årÙ[>“/çO`>$èjÇn_!åû-–»Øê%Y¯Ó¥%aÍ©°T·p\Å6i”zêQÇ²P³¥6-¬Ÿ¬Ô5Ôt}ƒøñÚk›!Y©hÈw;AÕj!¯¯Ö7P«($ı7á¯ÜNh™Q×!%Áô+çr…›+†Ù=w&_Åi`ëD¨•R~hmá&±ÒíH÷*š×¿ƒgá¨«š†:G|¹NÈ/¡Ñ£/GOPôÕèKı8ú2z}‹¢gPü$ú)Û®åúhíÚ¸ED»°¹Â ‚<µÀ#‹ôQ{€Y@©¨:qBØZ®ö|ìI@Ü4¯Jh#x0´NÁí}q5†G×¼Ğt ÌÚ‹É!×Ùnc§]²„çĞPNÍ$¼1VQ<Ö^‘w˜Å@¾´”e¢‹Î®İºhm ^Ş8é“ÉĞ‘á§uÔ†1·È˜	ø-ô±íÃ#½ã®¯z®I·[¶K¡Z0Eô,ú>z½ˆ	(ñ¯(ú	J=¥âî¶£Ï&€àäx&ÅÑı@Bseè%ct•N)¡4']m®P`r€Uæ¸;‹4ŠÒ1zÛn—øã’ª–T‰ôª”ëãmŠ—×‚º=&…Ye È¶TÜ	]ÆŒYö¤+–IÅİ–”Ü2¤SÒ©Év¡#Ó²%™\åOúî	G¥¬í"®¾7Iï‚Ûo”4¤¡ê*ü/k+[,v¾]À|¢=P	:ö%†q9DéöÇ°³sw¸ma»1¬Êx”>F£´¿Š*kİ
+®¡,YÓà·]Ñ&Ÿj­«VluU]·àÏª…{ëhİ†÷n¥*CÂ^Œ¨»-Yeôbô(úi¢UF¾®~Œü-eo¦bdÉüDêÉÖuâ…’IU×ÊoåSTÚ6ƒ8ò¦¨*É ¤tMPc"Ïéwp¾|O»/“Äô1B[.ÎÌáLåp9¤‡.A·V H…=x·²ëX.6 ·Bº35™Ô´[ñŒÌ8˜5¢RsÍ5Ó+iØä™¥i“'«@ÊÙ
+ôè¸É<è|ÒF7&óeŸ+D8 Œo:­âAfÌï/ıÙ
+vpˆoìqª*ê'—1RA¦~å¶a‘~ığC¤ÈÄB³†®SÄŸ–©Ÿ {R2)«²âD#°©¤N}ä(›¶=|7à&:Wâ“²š«ñØ¢ëêÅuVôuôOjÁÇ†|"¥"œãT<Ş’hi±G#)éè€Å¡R[ü€Äç©";T«s:>b¥:mg¾º3Ñ&úIÓíË0Ïê‰‘õ(Ì ¶3¯Cñ6İ	
+WÊ›ˆa/ôdÂ<şÁ*y«ÿ çxO¬XFìbYnO­ñ¹z'Ø 2ORê~Tígğ ÀN™ÌV“Z2Ï©%3z:ú^£¯¢¿ƒ	óÕvŠ­˜ÄâÕÄ‚QP—£*¹<”Fg©kr“ı…è“„¨Üù ÀWà³Ôe„U¨&æ# 5Ã˜œ+ˆ@Y AÎùô™›ûéóŠæÎ<¦Nê"¡…"qÀj‹¬ß·6(pN^Ïÿ§Ïb[-çw^+Tš…Uíû
+J¶å›ûC}ı€0æ‘kÜ…“oRpK&úZ2/‘r]c:@L’…bdµï°˜ôAD®î¼‹Z?mÑ@ûk«ÿ·n—p¿”¡ŞMÒş)wßEÒ¾ûî’öİ_H{v±XWLó èU„è¡Ú5â.²Ê¾…¨#{Díu<D;Ah’OŸ Ë˜]Bç¹×ñ-å#‡xƒÇé‚nëã¾m}Ò>Z[]¾~åjõppaµy»ßÑj&¾r é;nw¯fÔŒA½¶?¨wu[ïîoõö·Ï>4lİÜ½bx‡WÜëŸîö·w[øò-ï°ÚÖâï·ûƒÃÛWµíZ‡¶4w4s·zhšñ÷v¥«_¾tŒïÔ¡]oïx«²k®Ó1{wï¸»—ÿxv÷Dëíî\ìáİq¢õ÷··zÆñno×¼ğĞ¸òû.®Ş<»k^µí» ëUM·Ïú‡ŸæÆğq{]½vè\o5-İˆ“ßÒ÷rè›¶²„Î½†MÓÇë_o«‹\÷	SÎ½Lâƒ€S„ „°6Jo/¦â4¥á¾3}móW·yLIO™‰MaìUÀKhC¼<¹Å7N”P£oô˜&•À£{’JwÊ¸ÜÚÜ&*šb4ø,æ£Pdüò÷:g „gˆcp{-·õ²XX6–ˆàâK“LV*4¢%ØÑ4°}€–É®tê)%ÇRr.Ÿ_¤¨¦3NÓG{ô58‘ÿ%ù·úÅ!«™áä½åyÖ …“YxXã!˜ÚØ€×{ÚgÚg•º×ÿÌo5±R­­.W~wvy}Y+×—îOğ÷\M¢|L¾ã0Ÿ£›)YcÃŞt€Íî­Qe,?‹^FÏ£o¢(EÅhÏşTAæh.~aƒì»¶8If£9Ÿßìƒßh:, „ÂÌFÆX‹­wÁ¯á»”t|ª})/bTØn&è, †şvãUMË0Ü4@Tuıº‚é÷géÈ*(É”Øë©¶‘Sš19Ñ¦laìLl{©X¤È‘Ğ$aÀÀ)¡Ó,:yéÒ®Iç…rSF ”¢ç@EÏ¢r‚úêÙèR.-‚.¶§m±Í•víÕ%Ü¥,1Í!ßRz¡‰ÆÇVÚââJ’	Ï‘uÔVë"Wœı7ï=OÆ[hTJ³Üóç·ÈlÏ“Ó¦Ùì5TYß«¬£5x[³*U$ÎQÏ\	òÒsÊ/‘â^g*òaÕéÖ±)ü©ƒ}’±¥SF³HdÔgË´i±‘˜Ò"»ĞÂâ³ÔlpoJØŞ—Å”‹­Ã¢gÅ›ÇøK³†Ú±8®i’°,pCe¥ƒğz@½-ì«-&`S	ÁÑqìe”
+;.#®š?˜(¨[Ô±ÛÚõN3©®€*WÑt#>"m—si	&÷ÍV;œsn‹…³'g#NÏı@æß&Í3ÜÿCRQêÙvmÏ’ü”X : z-ÍÆiº_àv|Ú’~Â¼ºÈé™Ã‘Ç¸VBbóÅÃ‘ëÛÛÀ¾k	 a¡§F)ú*ú	Ü¤¿ å†ë-	µ#‰¨BĞ¬ÔÆPÖà~cXV!ñÃŠ¨*“êJcRiSƒ—Kı¸¨+‰å')Ÿ…úrôÌnåc‹Eğ3Ò{„ZñÛÃîè)¸6Ï¢HÙé°n™4y0Ká}›x=¦¡¤Pyºb¹ ~0Ë ~-Ô¾gÁ¢Å]©ÿ÷PÅÈü1"b[-Œƒ¤3‹åâ?q E€¸å¨yı;úØõsîŠ=ó7İá/CÒ÷\?<à‡ßjdgVÔ†§ëÎjÒÌuöŠ"7“HÍtlF1¡áœl¸„Sƒİ–aß’Ã+°Mãı¢Á~ôè›Ñ“è4iø«©=¢¡“Bi2^øº¦±PÊXN­8ñ™œš$=¡7½å
+S4¶¯4Æ£G9šæ5å'~D&¬,ıÉSŸ\‘~¢‡b¯9Ö@®ºÒ4ÌNm; ŒHÕLAªV^/MØÙÃiô \q²P¤Í¥e§$¾Øsvp×láĞõËºezMûF¹ç<4l®1#9SŒ-â‡J‰Ñ3ïËè{NÖŒ2JÂNBw(KÌ¦c˜-W]ÓR·aâ²)¹;QNÓğÌxÓ&†Ù±ç
+·sœ/¤¶ízÁÙÈ’8­ËQ#ˆcIÔ—Ô¦˜.¦‹¨åç&oûähŠ:¾•ß‡ìTÿÜ,#d˜DõeöT¢La?ki–’¤?C%¿Áy+ébj¥bIÀ“;1¢D1aY0Ùÿ˜Ë~¹Å¯nëÍ^…ĞĞ«ÍŠd&æW5-wg­şjF^ô_*9FŸ¿Ó%~ÛÜê¦{Ñ0Aú1;xÜÁ®y¼” íöX#V=ÁÅ¯~?Í´T°Š1­ºé[aò6UG¯òÄ•ôuRÛu­ìÈÿ¦A¸ÅJß`¸•kr±OôNHÆ6.[//;M-öºïê$L§Õ¦¿nÑ3"éñâ4*¬›ßXšÒ* ÃV²‚üí“¤¯Ü<Ø+ë ˜Cr……Ç×UR=N³3Û@W"UÆ—ÆëÙøŠlŒ?êCæGmŸ`˜•sâá9Åë>	ˆ£“	µ-7Íäh½Œ3ƒßÜc-nA5ñ3”Ì•À*´[#?R–iód¸7İAÄëÑŒÍ‡>Ú$ÄôPN™
+ğ²Ï7X)•ƒn—–Q©´tZ>\çAzŒ”½¹"ÄÈ˜÷ §Ÿœ9Ão”MG 6ĞÁzX¾´½Iw†ÙŠ©‹QÌP£×sèA0Z`›Næ÷ÓŸ4Zp>]Ä6ÒMÊÎº®i `çè=µ!Ÿw™Ï¶LçX¦#/³ñ Eey<:åÁƒ3ò(lbÂ
+Uótò6£ª@úN)ŠÏ¹Ü;;¹:Äâà))\ÏœPñ«ŸĞ[=àæ ,¥	•.w²é#1’Y§n,¥5uJâüUª=´ÉÍdj‹	3aixŞEğ¤xÆ	à†¿O7$Q*,º’aXL	ş$ß<Dÿ&%±™<wû3)P<ìäèöpú<â˜ò‡	Ûì’vÆ5KğÂê1ì†eèÜîgZÅÁÉ€m¦è|<cÁ/ÀZÿ  ÿÿ 8:òÿ
