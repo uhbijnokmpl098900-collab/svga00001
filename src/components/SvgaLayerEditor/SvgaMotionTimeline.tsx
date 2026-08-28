@@ -29,6 +29,7 @@ interface SvgaMotionTimelineProps {
   onToggleLoop: () => void;
   onUpdateLayerTransform: (layerId: string, transform: Partial<EditableLayer['transform']>) => void;
   onUpdateLayerKeyframes: (layerId: string, keyframes: LayerKeyframe[]) => void;
+  onUpdateProjectDuration?: (seconds: number) => void;
 }
 
 export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
@@ -45,7 +46,8 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
   onSeekFrame,
   onToggleLoop,
   onUpdateLayerTransform,
-  onUpdateLayerKeyframes
+  onUpdateLayerKeyframes,
+  onUpdateProjectDuration
 }) => {
   const rulerRef = useRef<HTMLDivElement>(null);
   const timelineTracksRef = useRef<HTMLDivElement>(null);
@@ -381,7 +383,18 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
           <div className="flex items-center gap-1 text-slate-400 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10">
             <Clock size={12} className="text-indigo-400" />
             <span className="text-white font-bold">{currentTimeSec}s</span>
-            <span>/ {durationSec}s</span>
+            <span className="px-1">/</span>
+            <input
+              type="number"
+              min={0.1}
+              max={60}
+              step={0.1}
+              value={durationSec}
+              onChange={(e) => onUpdateProjectDuration && onUpdateProjectDuration(parseFloat(e.target.value) || 2)}
+              className="w-12 bg-transparent text-slate-300 outline-none hover:bg-white/10 focus:bg-white/10 focus:text-white rounded px-1 transition-colors"
+              title="مدة المشروع بالثواني"
+            />
+            <span>s</span>
           </div>
 
           {/* Frame Counter with direct input */}

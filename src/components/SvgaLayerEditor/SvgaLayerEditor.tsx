@@ -63,7 +63,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
     width: 750,
     height: 1334,
     fps: 30,
-    totalFrames: 30
+    durationSec: 2
   });
   const [exportFileName, setExportFileName] = useState<string>('');
   const [lastExportedBlob, setLastExportedBlob] = useState<{ blob: Blob; fileName: string } | null>(null);
@@ -174,6 +174,22 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
       }
       return l;
     }));
+  }, []);
+
+  const handleUpdateProjectDuration = useCallback((durationSec: number) => {
+    setProject(prev => {
+      if (!prev) return prev;
+      const validDuration = Math.max(0.1, Math.min(60, durationSec));
+      const totalFrames = Math.max(1, Math.min(3600, Math.round(validDuration * prev.fps)));
+      
+      setCurrentFrame(curr => Math.min(curr, totalFrames - 1));
+
+      return {
+        ...prev,
+        durationSec: validDuration,
+        totalFrames
+      };
+    });
   }, []);
 
   const handleToggleVisibility = useCallback((layerId: string) => {
@@ -863,6 +879,7 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               onToggleLoop={() => setIsLoop(!isLoop)}
               onUpdateLayerTransform={handleUpdateLayerTransform}
               onUpdateLayerKeyframes={handleUpdateLayerKeyframes}
+              onUpdateProjectDuration={handleUpdateProjectDuration}
             />
           </main>
 
@@ -1069,19 +1086,16 @@ export const SvgaLayerEditor: React.FC<SvgaLayerEditorProps> = ({
               {/* Frames & FPS Row */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-slate-300">عدد الإطارات (Frames):</label>
-                  <select
-                    value={newProjectConfig.totalFrames}
-                    onChange={(e) => setNewProjectConfig(prev => ({ ...prev, totalFrames: parseInt(e.target.value) || 30 }))}
-                    className="w-full bg-slate-900 border border-white/10 focus:border-indigo-500 rounded-2xl px-3 py-2 text-xs font-mono text-white outline-none cursor-pointer"
-                  >
-                    <option value={15}>15 إطار (0.5 ثانية)</option>
-                    <option value={30}>30 إطار (1 ثانية)</option>
-                    <option value={60}>60 إطار (2 ثانية)</option>
-                    <option value={90}>90 إطار (3 ثواني)</option>
-                    <option value={120}>120 إطار (4 ثواني)</option>
-                    <option value={180}>180 إطار (6 ثواني)</option>
-                  </select>
+                  <label className="text-[11px] font-bold text-slate-300">مدة المشروع (بالثواني):</label>
+                  <input
+                    type="number"
+                    min={0.1}
+                    max={60}
+                    step={0.1}
+                    value={newProjectConfig.durationSec}
+                    onChange={(e) => setNewProjectConfig(prev => ({ ...prev, durationSec: parseFloat(e.target.value) || 2 }))}
+                    className="w-full bg-slate-900 border border-white/10 focus:border-indigo-500 rounded-2xl px-3 py-2 text-xs font-mono text-white outline-none"
+                  />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-300">معدل الإطارات (FPS):</label>

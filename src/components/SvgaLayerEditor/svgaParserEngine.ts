@@ -241,12 +241,13 @@ export function createNewSvgaProject(options: {
   width: number;
   height: number;
   fps: number;
-  totalFrames: number;
+  durationSec: number;
 }): { project: SVGAProjectData; layers: EditableLayer[] } {
   const width = Math.max(10, Math.min(4000, Math.round(options.width || 750)));
   const height = Math.max(10, Math.min(4000, Math.round(options.height || 1334)));
   const fps = Math.max(1, Math.min(120, Math.round(options.fps || 30)));
-  const totalFrames = Math.max(1, Math.min(1200, Math.round(options.totalFrames || 30)));
+  const durationSec = Math.max(0.1, Math.min(60, options.durationSec || 2));
+  const totalFrames = Math.max(1, Math.min(3600, Math.round(durationSec * fps)));
   const fileName = options.name ? (options.name.endsWith('.svga') ? options.name : `${options.name}.svga`) : 'new_project.svga';
 
   const rawMovie: any = {
