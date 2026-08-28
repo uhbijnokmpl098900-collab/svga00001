@@ -4,9 +4,10 @@ import { UserRecord, AppSettings } from '../types';
 import {  
   LogOut, Settings, ShoppingBag, Image, Video, Layers, Wand2, 
   BadgeCheck, Maximize, Lock, Scissors, Menu, X as CloseIcon, 
-  Zap, Sparkles, Info, Search, ChevronDown, Check, LayoutGrid, 
-  Command, Wand, Cpu, Repeat, RefreshCw, User, GitBranch
-, BookOpen } from 'lucide-react';
+  Zap, Sparkles, Info, Search, ChevronDown, ChevronUp, Check, LayoutGrid, 
+  Command, Wand, Cpu, Repeat, RefreshCw, User, GitBranch, Pin, PinOff,
+  BookOpen, Eye, EyeOff
+} from 'lucide-react';
 import { CURRENT_APP_VERSION, BUILD_NUMBER } from '../utils/versionControl';
 import { VersionInfoModal } from './VersionInfoModal';
 
@@ -36,6 +37,7 @@ interface HeaderProps {
   onName3DEditorOpen: () => void;
   onAudioExtractorOpen: () => void;
   onSvgaBatchCompressorOpen?: () => void;
+  onSvgaLayerEditorOpen?: () => void;
   onBatchImageOpen: () => void;
   onLoginClick: () => void;
   onProfileClick: () => void;
@@ -68,6 +70,7 @@ const categories: CategoryDefinition[] = [
     icon: <Layers className="w-5 h-5" />,
     color: 'indigo',
     tools: [
+      { id: 'svga-layer-editor', label: 'تحرير طبقات SVGA', icon: <Layers className="w-4 h-4 text-cyan-400" />, actionKey: 'onSvgaLayerEditorOpen' as any, descAr: 'محرر طبقات SVGA احترافي للتحكم بالماوس في الكانفاس، وتغيير الحجم والتدوير والموضع والترتيب مع الحفاظ التام على الحركة والأصوات', descEn: 'Visual SVGA Layer Editor with drag & drop, resize, rotation, layer reordering and audio preservation.', highlight: true },
       { id: 'svga-compressor', label: 'SVGA & VAP Batch Compressor', icon: <Zap className="w-4 h-4" />, actionKey: 'onSvgaBatchCompressorOpen' as any, descAr: 'منظومة احترافية لضغط دفعات ضخمة من ملفات SVGA و VAP مع الحفاظ التام على الصوت والشفافية', descEn: 'Professional SVGA & VAP batch compressor preserving audio & alpha.', highlight: true },
       { id: 'svga', label: 'SVGA Editor', icon: <Layers className="w-4 h-4" />, actionKey: 'onLogoClick', descAr: 'محرر متقدم لملفات SVGA مع طبقات وتعديل مباشر', descEn: 'Advanced SVGA editor with layers and direct editing.' },
       { id: 'svga-ex', label: 'SVGA Editor EX', icon: <Layers className="w-4 h-4" />, actionKey: 'onSvgaExOpen', descAr: 'محرر احترافي لعمل تركيبات معقدة ومدمجة من عدة ملفات SVGA', descEn: 'Professional editor for complex compositions of multiple SVGA files.', highlight: true },
@@ -129,6 +132,38 @@ export const Header: React.FC<HeaderProps> = (props) => {
   const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [infoModalTool, setInfoModalTool] = useState<ToolDefinition | null>(null);
+
+  // Auto-hide & Hover Reveal State
+  const [isHovered, setIsHovered] = useState<boolean>(false);
+  const [isPinned, setIsPinned] = useState<boolean>(() => {
+    // Default to auto-hide if in specific heavy workspace tools or user preference
+    const saved = localStorage.getItem('header_pinned');
+    return saved === 'true';
+  });
+  const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleMouseEnterHeader = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+    setIsHovered(true);
+  };
+
+  const handleMouseLeaveHeader = () => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => {
+      setIsHovered(false);
+    }, 350);
+  };
+
+  const togglePin = () => {
+    const next = !isPinned;
+    setIsPinned(next);
+    localStorage.setItem('header_pinned', String(next));
+  };
+
+  const isHeaderVisible = isPinned || isHovered || isSearchOpen || isMobileMenuOpen || isVersionModalOpen;
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -219,7 +254,38 @@ export const Header: React.FC<HeaderProps> = (props) => {
 
   return (
     <>
-      <header className="fixed top-4 left-4 right-4 h-16 md:h-20 glass-panel rounded-2xl z-[1000] px-3 md:px-6 flex items-center justify-between transition-all duration-300 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
+      {/* Invisible Top Hover Zone - reveals header when mouse moves to very top of window */}
+      {!isPinned && (
+        <div 
+          onMouseEnter={handleMouseEnterHeader}
+          className="fixed top-0 left-0 right-0 h-3 z-[999] pointer-events-auto"
+        />
+      )}
+
+      {/* Floating Trigger Notch / Pill - appears when header is auto-hidden */}
+      {!isPinned && !isHeaderVisible && (
+        <div 
+          onMouseEnter={handleMouseEnterHeader}
+          onClick={handleMouseEnterHeader}
+          className="fixed top-1.5 left-1/2 -translate-x-1/2 z-[1001] cursor-pointer group flex items-center gap-2 bg-slate-950/85 hover:bg-[#0f172a]/95 border border-indigo-500/30 hover:border-indigo-400/60 shadow-[0_4px_20px_rgba(0,0,0,0.6)] backdrop-blur-xl px-3.5 py-1.5 rounded-full transition-all duration-300 hover:scale-105 select-none"
+        >
+          <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse shadow-[0_0_8px_#818cf8]" />
+          <span className="text-[11px] font-bold text-slate-300 group-hover:text-white">شريط الأدوات</span>
+          <ChevronDown className="w-3.5 h-3.5 text-indigo-400 group-hover:translate-y-0.5 transition-transform" />
+        </div>
+      )}
+
+      <header 
+        onMouseEnter={handleMouseEnterHeader}
+        onMouseLeave={handleMouseLeaveHeader}
+        style={{
+          transform: isHeaderVisible ? 'translateY(0)' : 'translateY(-140%)',
+          opacity: isHeaderVisible ? 1 : 0,
+          pointerEvents: isHeaderVisible ? 'auto' : 'none',
+          transition: 'all 0.35s cubic-bezier(0.16, 1, 0.3, 1)'
+        }}
+        className="fixed top-3 left-4 right-4 h-16 md:h-20 glass-panel rounded-2xl z-[1000] px-3 md:px-6 flex items-center justify-between shadow-[0_8px_32px_rgba(0,0,0,0.5)] border border-white/10"
+      >
         
         {/* Logo */}
         <div className="flex items-center shrink-0">
@@ -244,8 +310,8 @@ export const Header: React.FC<HeaderProps> = (props) => {
         {/* Scrollable Horizontal Navigation */}
         <TopLevelNavigation />
 
-        {/* Right Side Controls (Search, Admin, Profile) */}
-        <div className="flex items-center gap-1 sm:gap-3 shrink-0">
+        {/* Right Side Controls (Search, Pin Toggle, Admin, Profile) */}
+        <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
           
           {/* Search Trigger */}
           <button
@@ -265,6 +331,19 @@ export const Header: React.FC<HeaderProps> = (props) => {
             className="sm:hidden p-2.5 rounded-xl bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
           >
             <Search className="w-5 h-5" />
+          </button>
+
+          {/* Pin / Auto-hide Toggle Button */}
+          <button
+            onClick={togglePin}
+            className={`p-2.5 rounded-xl transition-all duration-300 border ${
+              isPinned 
+                ? 'bg-indigo-600/20 text-indigo-400 border-indigo-500/30 shadow-[0_0_12px_rgba(99,102,241,0.25)]' 
+                : 'text-slate-400 hover:text-white hover:bg-white/5 border-transparent hover:border-white/10'
+            }`}
+            title={isPinned ? 'الشريط مثبت دائماً (انقر للتبديل إلى الإخفاء التلقائي)' : 'الشريط في وضع الإخفاء التلقائي (انقر لتثبيته دائماً)'}
+          >
+            {isPinned ? <Pin className="w-5 h-5 text-indigo-400" /> : <PinOff className="w-5 h-5 opacity-70" />}
           </button>
 
           {/* Version & Build Indicator Badge */}

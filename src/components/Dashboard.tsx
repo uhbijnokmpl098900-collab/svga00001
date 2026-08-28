@@ -36,6 +36,7 @@ const categories = [
     borderColor: 'border-indigo-500/30',
     textColor: 'text-indigo-400',
     tools: [
+      { id: 'svga-layer-editor', label: 'تحرير طبقات SVGA', icon: <Layers className="w-8 h-8" />, actionKey: 'svgaLayerEditor', descAr: 'محرر طبقات SVGA احترافي للتحكم بالماوس في الكانفاس، وتغيير الحجم والتدوير والموضع والترتيب مع الحفاظ التام على الحركة والأصوات.', descEn: 'Professional visual SVGA Layer Editor with interactive mouse canvas manipulation, reordering & audio preservation.', highlight: true },
       { id: 'svga-compressor', label: 'SVGA & VAP Batch Compressor', icon: <Zap className="w-8 h-8" />, actionKey: 'svgaBatchCompressor', descAr: 'منظومة متقدمة لضغط دفعات ضخمة من ملفات SVGA و VAP مع الحفاظ التام على الصوت المدمج والشفافية وجودة الحركة.', descEn: 'Professional advanced batch engine to compress large batches of SVGA & VAP files preserving audio, animation quality and alpha.', highlight: true },
       { id: 'svga-ex', label: 'SVGA Editor EX', icon: <Layers className="w-8 h-8" />, actionKey: 'svgaEx', descAr: 'محرر احترافي لعمل تركيبات معقدة ومدمجة من عدة ملفات متزامنة.', descEn: 'Professional editor for complex compositions of multiple SVGA files.', highlight: true },
       { id: 'pag-to-svga', label: 'PAG to SVGA Converter', icon: <Box className="w-8 h-8" />, actionKey: 'pagConverterOpen', descAr: 'تحويل ملفات PAG إلى SVGA مع الحفاظ الكامل على الطبقات والحركة والشفافية.', descEn: 'Convert PAG files to SVGA preserving layers, keyframes and alpha.', highlight: true },

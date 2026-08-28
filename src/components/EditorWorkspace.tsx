@@ -14,6 +14,7 @@ interface WorkspaceProps {
   globalQuality: 'low' | 'medium' | 'high';
   onFileReplace: (files: File[]) => void;
   mode: 'editor' | 'viewer';
+  onOpenLayerEditor?: (file?: File) => void;
 }
 
 export const EditorWorkspace: React.FC<WorkspaceProps> = ({
@@ -25,7 +26,8 @@ export const EditorWorkspace: React.FC<WorkspaceProps> = ({
   onSubscriptionRequired,
   globalQuality,
   onFileReplace,
-  mode
+  mode,
+  onOpenLayerEditor
 }) => {
   const fileInfo = {
     url: metadata.fileUrl || '',
@@ -67,6 +69,7 @@ export const EditorWorkspace: React.FC<WorkspaceProps> = ({
           file={fileInfo} 
           onClear={onCancel} 
           originalFile={metadata.originalFile}
+          onOpenLayerEditor={onOpenLayerEditor}
         />
       </div>
     </motion.div>

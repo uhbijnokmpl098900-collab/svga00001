@@ -51,6 +51,7 @@ interface SVGAViewerProps {
   onClear: () => void;
   originalFile?: File;
   onOpenEditor?: (file?: File) => void;
+  onOpenLayerEditor?: (file?: File) => void;
   onTabChange?: (tab: string) => void;
 }
 
@@ -59,6 +60,7 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({
   onClear, 
   originalFile,
   onOpenEditor,
+  onOpenLayerEditor,
   onTabChange
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -906,13 +908,16 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({
             { id: 'image', label: 'Image Processing' },
             { id: 'ai', label: 'AI Generation' },
             { id: 'product', label: 'Product Deck' },
+            { id: 'layer-editor', label: 'تحرير طبقات SVGA' },
             { id: 'editor', label: 'SVGA Editor' },
           ].map(tab => (
             <button
               key={tab.id}
               onClick={() => {
                 setActiveHeaderTab(tab.id);
-                if (tab.id === 'editor' && onOpenEditor) {
+                if (tab.id === 'layer-editor' && onOpenLayerEditor) {
+                  onOpenLayerEditor(originalFile);
+                } else if (tab.id === 'editor' && onOpenEditor) {
                   onOpenEditor(originalFile);
                 } else if (onTabChange) {
                   onTabChange(tab.id);
@@ -1521,22 +1526,25 @@ export const SVGAViewer: React.FC<SVGAViewerProps> = ({
               </div>
             </div>
 
-            {/* Quick Action Buttons to Open Editor */}
-            <div className="pt-1 flex gap-2">
+            {/* Quick Action Buttons to Open Layer Editor */}
+            <div className="pt-1 space-y-2">
               <button
                 type="button"
-                onClick={() => onOpenEditor ? onOpenEditor(originalFile) : onClear()}
-                className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black uppercase transition-all shadow-md shadow-indigo-600/30 flex items-center justify-center gap-1.5 cursor-pointer"
+                onClick={() => onOpenLayerEditor ? onOpenLayerEditor(originalFile) : onOpenEditor ? onOpenEditor(originalFile) : onClear()}
+                className="w-full py-2.5 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white rounded-xl text-xs font-black uppercase transition-all shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
               >
-                <Zap size={13} /> Continue in SVGA Editor
+                <Layers size={14} className="text-cyan-200" /> تحرير طبقات SVGA (Layer Editor)
               </button>
-              <button
-                type="button"
-                onClick={() => onOpenEditor ? onOpenEditor(originalFile) : onClear()}
-                className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
-              >
-                Open editor
-              </button>
+              
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => onOpenEditor ? onOpenEditor(originalFile) : onClear()}
+                  className="flex-1 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Zap size={12} className="text-indigo-400" /> SVGA Editor EX
+                </button>
+              </div>
             </div>
           </div>
 
