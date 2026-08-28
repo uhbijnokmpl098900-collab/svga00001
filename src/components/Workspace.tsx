@@ -1132,14 +1132,19 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
-        if (json && (json.sprites || json.layers || json.version || json.name)) {
+        if (
+          json &&
+          (json.sprites || json.layers || json.version || json.name)
+        ) {
           setAeJsonData(json);
           setSelectedFormat("SVGA 2.0");
           alert(
             "âœ… ØªÙ… Ø§Ø³ØªÙŠØ±Ø§Ø¯ ÙˆØ±Ø¨Ø· Ø¨ÙŠØ§Ù†Ø§Øª After Effects Ø¨Ù†Ø¬Ø§Ø­! Ø¬Ø§Ù‡Ø² Ù„Ù„ØªØµØ¯ÙŠØ± ÙˆØ§Ù„ØªØ¬Ù…ÙŠØ¹.",
           );
         } else {
-          alert("âŒ Ø§Ù„Ù…Ù„Ù Ù„Ø§ ÙŠØ­ØªÙˆÙŠ Ø¹Ù„Ù‰ Ø¨ÙŠØ§Ù†Ø§Øª Ø·Ø¨Ù‚Ø§Øª Ø£Ùˆ Ø­Ø±ÙƒØ§Øª After Effects ØµØ§Ù„Ø­Ø©.");
+          alert(
+            "âŒ Ø§Ù„Ù…Ù„Ù Ù„Ø§ ÙŠØ­ØªÙˆÙŠ Ø¹Ù„Ù‰ Ø¨ÙŠØ§Ù†Ø§Øª Ø·Ø¨Ù‚Ø§Øª Ø£Ùˆ Ø­Ø±ÙƒØ§Øª After Effects ØµØ§Ù„Ø­Ø©.",
+          );
         }
       } catch (err) {
         alert("âŒ Ø®Ø·Ø£ ÙÙŠ Ù‚Ø±Ø§Ø¡Ø© Ù…Ù„Ù JSON.");
@@ -1324,8 +1329,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   }, [zoomMode, customZoom, scale]);
 
   const dimensionRatioLabel = useMemo(() => {
-    const gcd = (a: number, b: number): number =>
-      b === 0 ? a : gcd(b, a % b);
+    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
     const d = gcd(Math.round(videoWidth), Math.round(videoHeight));
     const rW = Math.round(videoWidth) / (d || 1);
     const rH = Math.round(videoHeight) / (d || 1);
@@ -1833,12 +1837,12 @@ export const Workspace: React.FC<WorkspaceProps> = ({
       audioRef.current.pause();
       audioRef.current.src = "";
     }
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       (window as any).__svgaMuted = true;
       if ((window as any).Howler) {
         try {
           (window as any).Howler.stop();
-        } catch(e) {}
+        } catch (e) {}
       }
     }
     onCancel();
@@ -1893,7 +1897,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
 
     // Also mute global Howler (used by SVGA player for internal audio)
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       (window as any).__svgaMuted = isMuted;
       if ((window as any).Howler) {
         try {
@@ -1903,7 +1907,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             // Stop all sounds so browser media controls disappear
             (window as any).Howler.stop();
           }
-        } catch(e) {}
+        } catch (e) {}
       }
     }
   }, [isPlaying, audioUrl, volume, isMuted]);
@@ -4642,42 +4646,41 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
 
     if (audioUrl && audioUrl !== originalAudioUrl) {
-            const audioKey = "quantum_audio_track_" + Date.now() + ".mp3"; // Force .mp3 for compatibility
-            let bytes: Uint8Array | null = null;
-            try {
-              if (audioFile) {
-                const arrayBuffer = await audioFile.arrayBuffer();
-                bytes = new Uint8Array(arrayBuffer);
-              } else {
-                const response = await fetch(audioUrl);
-                if (!response.ok) throw new Error("Fetch failed");
-                const arrayBuffer = await response.arrayBuffer();
-                bytes = new Uint8Array(arrayBuffer);
-              }
-            } catch (e) {
-              console.error("Failed to fetch audio", e);
-              alert(
-                "ÙØ´Ù„ ØªØ¶Ù…ÙŠÙ† Ø§Ù„ØµÙˆØª Ø¯Ø§Ø®Ù„ Ù…Ù„Ù SVGA. ÙŠØ±Ø¬Ù‰ Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø§Ù„Ù…Ù„Ù ÙˆØ¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø©.",
-              );
-            }
-            if (bytes) {
-              const taggedBytes = ensureMp3WithId3(bytes);
-              message.images[audioKey] = taggedBytes;
-              message.audios = [
-                {
-                  audioKey: audioKey,
-                  startFrame: 0,
-                  endFrame: message.params.frames || 0,
-                  startTime: 0,
-                  totalTime: Math.floor(
-                    ((message.params.frames || 0) /
-                      (message.params.fps || 30)) *
-                      1000,
-                  ),
-                },
-              ];
-            }
-          } else if (!audioUrl) {
+      const audioKey = "quantum_audio_track_" + Date.now() + ".mp3"; // Force .mp3 for compatibility
+      let bytes: Uint8Array | null = null;
+      try {
+        if (audioFile) {
+          const arrayBuffer = await audioFile.arrayBuffer();
+          bytes = new Uint8Array(arrayBuffer);
+        } else {
+          const response = await fetch(audioUrl);
+          if (!response.ok) throw new Error("Fetch failed");
+          const arrayBuffer = await response.arrayBuffer();
+          bytes = new Uint8Array(arrayBuffer);
+        }
+      } catch (e) {
+        console.error("Failed to fetch audio", e);
+        alert(
+          "ÙØ´Ù„ ØªØ¶Ù…ÙŠÙ† Ø§Ù„ØµÙˆØª Ø¯Ø§Ø®Ù„ Ù…Ù„Ù SVGA. ÙŠØ±Ø¬Ù‰ Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø§Ù„Ù…Ù„Ù ÙˆØ¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø©.",
+        );
+      }
+      if (bytes) {
+        const taggedBytes = ensureMp3WithId3(bytes);
+        message.images[audioKey] = taggedBytes;
+        message.audios = [
+          {
+            audioKey: audioKey,
+            startFrame: 0,
+            endFrame: message.params.frames || 0,
+            startTime: 0,
+            totalTime: Math.floor(
+              ((message.params.frames || 0) / (message.params.fps || 30)) *
+                1000,
+            ),
+          },
+        ];
+      }
+    } else if (!audioUrl) {
       message.audios = [];
     } else if (audioUrl === originalAudioUrl && metadata.videoItem?.audios) {
       // Preserve original audio metadata, no need to touch images map as it's already inherited
@@ -6058,7 +6061,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
     }
 
     const validation = await validateMp3File(file);
-    
+
     if (!validation.isValid) {
       alert(validation.message);
       e.target.value = "";
@@ -6070,7 +6073,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
 
     if (audioDuration > animationDuration + 0.5) {
       alert(
-        `ØªÙ†Ø¨ÙŠÙ‡: Ù…Ø¯Ø© Ø§Ù„Ù…Ù„Ù Ø§Ù„ØµÙˆØªÙŠ (${audioDuration.toFixed(1)} Ø«Ø§Ù†ÙŠØ©) Ø£Ø·ÙˆÙ„ Ù…Ù† Ù…Ø¯Ø© Ø§Ù„Ø£Ù†ÙŠÙ…ÙŠØ´Ù† (${animationDuration.toFixed(1)} Ø«Ø§Ù†ÙŠØ©). Ù‚Ø¯ ÙŠØ¤Ø¯ÙŠ Ø°Ù„Ùƒ Ø¥Ù„Ù‰ Ù‚Ø·Ø¹ Ø§Ù„ØµÙˆØª ÙÙŠ Ø§Ù„Ù…Ù†ØµØ§Øª Ø§Ù„Ø±Ø³Ù…ÙŠØ©.`
+        `ØªÙ†Ø¨ÙŠÙ‡: Ù…Ø¯Ø© Ø§Ù„Ù…Ù„Ù Ø§Ù„ØµÙˆØªÙŠ (${audioDuration.toFixed(1)} Ø«Ø§Ù†ÙŠØ©) Ø£Ø·ÙˆÙ„ Ù…Ù† Ù…Ø¯Ø© Ø§Ù„Ø£Ù†ÙŠÙ…ÙŠØ´Ù† (${animationDuration.toFixed(1)} Ø«Ø§Ù†ÙŠØ©). Ù‚Ø¯ ÙŠØ¤Ø¯ÙŠ Ø°Ù„Ùƒ Ø¥Ù„Ù‰ Ù‚Ø·Ø¹ Ø§Ù„ØµÙˆØª ÙÙŠ Ø§Ù„Ù…Ù†ØµØ§Øª Ø§Ù„Ø±Ø³Ù…ÙŠØ©.`,
       );
     }
 
@@ -8186,20 +8189,24 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                 if (aeSprite.keyframes) {
                   sprite.frames = aeSprite.keyframes.map((kf: any) => ({
                     alpha: kf.a !== undefined ? kf.a : 1.0,
-                    layout: kf.l ? {
-                      x: kf.l.x || 0,
-                      y: kf.l.y || 0,
-                      width: kf.l.width || 0,
-                      height: kf.l.height || 0
-                    } : null,
-                    transform: kf.t ? {
-                      a: kf.t.a ?? 1,
-                      b: kf.t.b ?? 0,
-                      c: kf.t.c ?? 0,
-                      d: kf.t.d ?? 1,
-                      tx: kf.t.tx ?? 0,
-                      ty: kf.t.ty ?? 0
-                    } : null
+                    layout: kf.l
+                      ? {
+                          x: kf.l.x || 0,
+                          y: kf.l.y || 0,
+                          width: kf.l.width || 0,
+                          height: kf.l.height || 0,
+                        }
+                      : null,
+                    transform: kf.t
+                      ? {
+                          a: kf.t.a ?? 1,
+                          b: kf.t.b ?? 0,
+                          c: kf.t.c ?? 0,
+                          d: kf.t.d ?? 1,
+                          tx: kf.t.tx ?? 0,
+                          ty: kf.t.ty ?? 0,
+                        }
+                      : null,
                   }));
                 } else if (aeSprite.frames) {
                   sprite.frames = aeSprite.frames;
@@ -8906,15 +8913,13 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               imagesData[audioKey] = taggedBytes;
               audioList.length = 0; // Clear existing audio if any
               audioList.push({
-                  audioKey: audioKey,
-                  startFrame: 0,
-                  endFrame: metadata.frames || 0,
-                  startTime: 0,
-                  totalTime: Math.floor(
-                    ((metadata.frames || 0) /
-                      (metadata.fps || 30)) *
-                      1000,
-                  ),
+                audioKey: audioKey,
+                startFrame: 0,
+                endFrame: metadata.frames || 0,
+                startTime: 0,
+                totalTime: Math.floor(
+                  ((metadata.frames || 0) / (metadata.fps || 30)) * 1000,
+                ),
               });
             }
           } else if (!audioUrl) {
@@ -9112,7 +9117,11 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                     try {
                       const res = await fetch(metadata.fileUrl);
                       const blob = await res.blob();
-                      fileToOpen = new File([blob], metadata.name || "animation.svga", { type: "application/octet-stream" });
+                      fileToOpen = new File(
+                        [blob],
+                        metadata.name || "animation.svga",
+                        { type: "application/octet-stream" },
+                      );
                     } catch (e) {
                       console.error("Failed to fetch file for layer editor", e);
                     }
@@ -9480,7 +9489,7 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             {/* Scaled Bounds Sizer for Scroll Calculations */}
             <div
               className="relative flex items-center justify-center flex-shrink-0 transition-all duration-150 m-auto"
-              style={{ 
+              style={{
                 width: `${Math.round(videoWidth * effectiveScale)}px`,
                 height: `${Math.round(videoHeight * effectiveScale)}px`,
                 minWidth: `${Math.round(videoWidth * effectiveScale)}px`,
@@ -9499,33 +9508,32 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                   style={{
                     width: `${videoWidth}px`,
                     height: `${videoHeight}px`,
-                  backgroundImage:
-                    previewBg && previewBgType === "image"
-                      ? `url(${previewBg})`
-                      : previewBg
-                        ? "none"
-                        : canvasBgTheme === "checker"
-                          ? `
+                    backgroundImage:
+                      previewBg && previewBgType === "image"
+                        ? `url(${previewBg})`
+                        : previewBg
+                          ? "none"
+                          : canvasBgTheme === "checker"
+                            ? `
                         linear-gradient(45deg, #334155 25%, transparent 25%), 
                         linear-gradient(-45deg, #334155 25%, transparent 25%), 
                         linear-gradient(45deg, transparent 75%, #334155 75%), 
                         linear-gradient(-45deg, transparent 75%, #334155 75%)
                       `
-                          : "none",
-                  backgroundSize:
-                    previewBg && previewBgType === "image"
-                      ? `${bgScale}%`
-                      : "20px 20px",
-                  backgroundRepeat:
-                    previewBg && previewBgType === "image"
-                      ? "no-repeat"
-                      : "repeat",
-                  backgroundPosition:
-                    previewBg && previewBgType === "image"
-                      ? `${bgPos.x}% ${bgPos.y}%`
-                      : "0 0, 0 10px, 10px -10px, -10px 0px",
-                  backgroundColor:
-                    previewBg
+                            : "none",
+                    backgroundSize:
+                      previewBg && previewBgType === "image"
+                        ? `${bgScale}%`
+                        : "20px 20px",
+                    backgroundRepeat:
+                      previewBg && previewBgType === "image"
+                        ? "no-repeat"
+                        : "repeat",
+                    backgroundPosition:
+                      previewBg && previewBgType === "image"
+                        ? `${bgPos.x}% ${bgPos.y}%`
+                        : "0 0, 0 10px, 10px -10px, -10px 0px",
+                    backgroundColor: previewBg
                       ? "transparent"
                       : canvasBgTheme === "dark"
                         ? "#0f172a"
@@ -9536,198 +9544,198 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                             : canvasBgTheme === "slate"
                               ? "#1e293b"
                               : "#0f172a",
-                  boxShadow:
-                    "0 0 100px rgba(0,0,0,0.5), inset 0 0 50px rgba(0,0,0,0.5)",
-                  border: previewBg
-                    ? "none"
-                    : "2px solid rgba(255,255,255,0.05)",
-                  maskImage:
-                    fadeConfig.top > 0 ||
-                    fadeConfig.bottom > 0 ||
-                    fadeConfig.left > 0 ||
-                    fadeConfig.right > 0 ||
-                    cropConfig.top > 0 ||
-                    cropConfig.bottom > 0 ||
-                    cropConfig.left > 0 ||
-                    cropConfig.right > 0
-                      ? `
+                    boxShadow:
+                      "0 0 100px rgba(0,0,0,0.5), inset 0 0 50px rgba(0,0,0,0.5)",
+                    border: previewBg
+                      ? "none"
+                      : "2px solid rgba(255,255,255,0.05)",
+                    maskImage:
+                      fadeConfig.top > 0 ||
+                      fadeConfig.bottom > 0 ||
+                      fadeConfig.left > 0 ||
+                      fadeConfig.right > 0 ||
+                      cropConfig.top > 0 ||
+                      cropConfig.bottom > 0 ||
+                      cropConfig.left > 0 ||
+                      cropConfig.right > 0
+                        ? `
                         linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100 - fadeConfig.right}%, transparent 100%), 
                         linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100 - fadeConfig.bottom}%, transparent 100%),
                         linear-gradient(to right, transparent 0%, transparent ${cropConfig.left}%, black ${cropConfig.left + cropFeather.left}%, black ${100 - cropConfig.right - cropFeather.right}%, transparent ${100 - cropConfig.right}%, transparent 100%),
                         linear-gradient(to bottom, transparent 0%, transparent ${cropConfig.top}%, black ${cropConfig.top + cropFeather.top}%, black ${100 - cropConfig.bottom - cropFeather.bottom}%, transparent ${100 - cropConfig.bottom}%, transparent 100%)
                       `
-                      : "none",
-                  maskComposite: "intersect",
-                }}
-              >
-                {previewBg && previewBgType === "video" && (
-                  <video
-                    src={previewBg}
-                    autoPlay
-                    loop
-                    muted
-                    playsInline
-                    crossOrigin="anonymous"
-                    className="absolute pointer-events-none z-0"
-                    style={{
-                      width: `${bgScale}%`,
-                      left: `${bgPos.x}%`,
-                      top: `${bgPos.y}%`,
-                      transform: `translate(-${bgPos.x}%, -${bgPos.y}%)`,
-                    }}
-                  />
-                )}
-
-                {/* Back Layers */}
-                {customLayers
-                  .filter((l) => l.zIndexMode === "back")
-                  .map((layer) => (
-                    <div
-                      key={layer.id}
-                      className="absolute z-[5] pointer-events-none transition-transform duration-200"
-                      style={{
-                        left: 0,
-                        top: 0,
-                        transform: `translate(${layer.x}px, ${layer.y}px)`,
-                        width: layer.width * layer.scale,
-                        height: layer.height * layer.scale,
-                      }}
-                    >
-                      <img
-                        src={layer.url}
-                        className={`w-full h-full pointer-events-auto cursor-pointer ${selectedLayerId === layer.id ? "ring-2 ring-sky-500 shadow-glow-sky" : ""}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedLayerId(layer.id);
-                        }}
-                      />
-                    </div>
-                  ))}
-
-                {/* Background Main SVGA Player played in the back of the Composition Editor */}
-                {activeCompositionId !== "main" && (
-                  <div className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none opacity-100">
-                    <div
-                      ref={backgroundPlayerRef}
-                      className="w-full h-full relative flex items-center justify-center overflow-visible"
-                    />
-                  </div>
-                )}
-
-                <div
-                  className={`w-full h-full relative z-10 flex items-center justify-center ${isDragging ? "" : "transition-transform duration-300"}`}
-                  style={{
-                    transform: `translate(${svgaPos.x}px, ${svgaPos.y}px) scale(${svgaScale}) rotate(${svgaRotation}deg)`,
-                    opacity: svgaOpacity,
+                        : "none",
+                    maskComposite: "intersect",
                   }}
                 >
-                  <div
-                    key={`${videoWidth}-${videoHeight}`}
-                    ref={playerRef}
-                    id="svga-player-container"
-                    className="w-full h-full relative flex items-center justify-center overflow-visible select-none"
-                    style={{
-                      WebkitMaskImage:
-                        fadeConfig.top > 0 ||
-                        fadeConfig.bottom > 0 ||
-                        fadeConfig.left > 0 ||
-                        fadeConfig.right > 0 ||
-                        cropConfig.top > 0 ||
-                        cropConfig.bottom > 0 ||
-                        cropConfig.left > 0 ||
-                        cropConfig.right > 0
-                          ? `
-                                    linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100 - fadeConfig.bottom}%, transparent 100%), 
-                                    linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100 - fadeConfig.right}%, transparent 100%),
-                                    linear-gradient(to right, transparent 0%, transparent ${cropConfig.left}%, black ${cropConfig.left + cropFeather.left}%, black ${100 - cropConfig.right - cropFeather.right}%, transparent ${100 - cropConfig.right}%, transparent 100%),
-                                    linear-gradient(to bottom, transparent 0%, transparent ${cropConfig.top}%, black ${cropConfig.top + cropFeather.top}%, black ${100 - cropConfig.bottom - cropFeather.bottom}%, transparent ${100 - cropConfig.bottom}%, transparent 100%)
-                                `
-                          : "none",
-                      maskImage:
-                        fadeConfig.top > 0 ||
-                        fadeConfig.bottom > 0 ||
-                        fadeConfig.left > 0 ||
-                        fadeConfig.right > 0 ||
-                        cropConfig.top > 0 ||
-                        cropConfig.bottom > 0 ||
-                        cropConfig.left > 0 ||
-                        cropConfig.right > 0
-                          ? `
-                                    linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100 - fadeConfig.bottom}%, transparent 100%), 
-                                    linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100 - fadeConfig.right}%, transparent 100%),
-                                    linear-gradient(to right, transparent 0%, transparent ${cropConfig.left}%, black ${cropConfig.left + cropFeather.left}%, black ${100 - cropConfig.right - cropFeather.right}%, transparent ${100 - cropConfig.right}%, transparent 100%),
-                                    linear-gradient(to bottom, transparent 0%, transparent ${cropConfig.top}%, black ${cropConfig.top + cropFeather.top}%, black ${100 - cropConfig.bottom - cropFeather.bottom}%, transparent ${100 - cropConfig.bottom}%, transparent 100%)
-                                `
-                          : "none",
-                      WebkitMaskComposite: "source-in",
-                      maskComposite: "intersect",
-                    }}
-                  >
-                    {/* Precise interactive outline handles with native mouse/touch listeners */}
-                    {activeCompositionId !== "main" && (
-                      <div
-                        onMouseDown={handleDragStart}
-                        onTouchStart={handleTouchStart}
-                        className="absolute -inset-2 border-2 border-dashed border-sky-400 hover:border-sky-300 bg-sky-500/5 transition-colors cursor-move z-30 flex items-center justify-center rounded-xl"
-                        title="Ø§Ø³Ø­Ø¨ Ù„ØªØ­Ø±ÙŠÙƒ ÙˆØªØ¹Ø¯ÙŠÙ„ Ù…ÙˆØ¶Ø¹ Ø§Ù„ØªØ±ÙƒÙŠØ¨Ø© Ø¨Ø§Ø­ØªØ±Ø§ÙÙŠØ©"
-                      >
-                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-sky-500/95 text-white whitespace-nowrap px-3 py-1 text-[11px] font-black rounded-lg shadow-xl flex items-center gap-1.5 select-none pointer-events-none">
-                          <span>ğŸŒŒ</span> Ø³Ø­Ø¨ Ù„ØªØ­Ø±ÙŠÙƒ Ø§Ù„ØªØ±ÙƒÙŠØ¨Ø©
-                        </div>
-
-                        {/* Corner handles */}
-                        <div className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
-                        <div className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
-                        <div className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
-                        <div className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                {watermark && (
-                  <div
-                    className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center p-0 transition-transform duration-200"
-                    style={{
-                      transform: `translate(${wmPos.x}px, ${wmPos.y}px)`,
-                    }}
-                  >
-                    <img
-                      src={watermark}
-                      className="object-contain filter drop-shadow-2xl opacity-70"
-                      style={{ width: `${wmScale * 100}%` }}
-                      alt="Watermark"
-                    />
-                  </div>
-                )}
-                {/* Front Layers */}
-                {customLayers
-                  .filter((l) => l.zIndexMode === "front")
-                  .map((layer) => (
-                    <div
-                      key={layer.id}
-                      className="absolute z-25 pointer-events-none transition-transform duration-200"
+                  {previewBg && previewBgType === "video" && (
+                    <video
+                      src={previewBg}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      crossOrigin="anonymous"
+                      className="absolute pointer-events-none z-0"
                       style={{
-                        left: 0,
-                        top: 0,
-                        transform: `translate(${layer.x}px, ${layer.y}px)`,
-                        width: layer.width * layer.scale,
-                        height: layer.height * layer.scale,
+                        width: `${bgScale}%`,
+                        left: `${bgPos.x}%`,
+                        top: `${bgPos.y}%`,
+                        transform: `translate(-${bgPos.x}%, -${bgPos.y}%)`,
+                      }}
+                    />
+                  )}
+
+                  {/* Back Layers */}
+                  {customLayers
+                    .filter((l) => l.zIndexMode === "back")
+                    .map((layer) => (
+                      <div
+                        key={layer.id}
+                        className="absolute z-[5] pointer-events-none transition-transform duration-200"
+                        style={{
+                          left: 0,
+                          top: 0,
+                          transform: `translate(${layer.x}px, ${layer.y}px)`,
+                          width: layer.width * layer.scale,
+                          height: layer.height * layer.scale,
+                        }}
+                      >
+                        <img
+                          src={layer.url}
+                          className={`w-full h-full pointer-events-auto cursor-pointer ${selectedLayerId === layer.id ? "ring-2 ring-sky-500 shadow-glow-sky" : ""}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedLayerId(layer.id);
+                          }}
+                        />
+                      </div>
+                    ))}
+
+                  {/* Background Main SVGA Player played in the back of the Composition Editor */}
+                  {activeCompositionId !== "main" && (
+                    <div className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none opacity-100">
+                      <div
+                        ref={backgroundPlayerRef}
+                        className="w-full h-full relative flex items-center justify-center overflow-visible"
+                      />
+                    </div>
+                  )}
+
+                  <div
+                    className={`w-full h-full relative z-10 flex items-center justify-center ${isDragging ? "" : "transition-transform duration-300"}`}
+                    style={{
+                      transform: `translate(${svgaPos.x}px, ${svgaPos.y}px) scale(${svgaScale}) rotate(${svgaRotation}deg)`,
+                      opacity: svgaOpacity,
+                    }}
+                  >
+                    <div
+                      key={`${videoWidth}-${videoHeight}`}
+                      ref={playerRef}
+                      id="svga-player-container"
+                      className="w-full h-full relative flex items-center justify-center overflow-visible select-none"
+                      style={{
+                        WebkitMaskImage:
+                          fadeConfig.top > 0 ||
+                          fadeConfig.bottom > 0 ||
+                          fadeConfig.left > 0 ||
+                          fadeConfig.right > 0 ||
+                          cropConfig.top > 0 ||
+                          cropConfig.bottom > 0 ||
+                          cropConfig.left > 0 ||
+                          cropConfig.right > 0
+                            ? `
+                                    linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100 - fadeConfig.bottom}%, transparent 100%), 
+                                    linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100 - fadeConfig.right}%, transparent 100%),
+                                    linear-gradient(to right, transparent 0%, transparent ${cropConfig.left}%, black ${cropConfig.left + cropFeather.left}%, black ${100 - cropConfig.right - cropFeather.right}%, transparent ${100 - cropConfig.right}%, transparent 100%),
+                                    linear-gradient(to bottom, transparent 0%, transparent ${cropConfig.top}%, black ${cropConfig.top + cropFeather.top}%, black ${100 - cropConfig.bottom - cropFeather.bottom}%, transparent ${100 - cropConfig.bottom}%, transparent 100%)
+                                `
+                            : "none",
+                        maskImage:
+                          fadeConfig.top > 0 ||
+                          fadeConfig.bottom > 0 ||
+                          fadeConfig.left > 0 ||
+                          fadeConfig.right > 0 ||
+                          cropConfig.top > 0 ||
+                          cropConfig.bottom > 0 ||
+                          cropConfig.left > 0 ||
+                          cropConfig.right > 0
+                            ? `
+                                    linear-gradient(to bottom, transparent 0%, black ${fadeConfig.top}%, black ${100 - fadeConfig.bottom}%, transparent 100%), 
+                                    linear-gradient(to right, transparent 0%, black ${fadeConfig.left}%, black ${100 - fadeConfig.right}%, transparent 100%),
+                                    linear-gradient(to right, transparent 0%, transparent ${cropConfig.left}%, black ${cropConfig.left + cropFeather.left}%, black ${100 - cropConfig.right - cropFeather.right}%, transparent ${100 - cropConfig.right}%, transparent 100%),
+                                    linear-gradient(to bottom, transparent 0%, transparent ${cropConfig.top}%, black ${cropConfig.top + cropFeather.top}%, black ${100 - cropConfig.bottom - cropFeather.bottom}%, transparent ${100 - cropConfig.bottom}%, transparent 100%)
+                                `
+                            : "none",
+                        WebkitMaskComposite: "source-in",
+                        maskComposite: "intersect",
+                      }}
+                    >
+                      {/* Precise interactive outline handles with native mouse/touch listeners */}
+                      {activeCompositionId !== "main" && (
+                        <div
+                          onMouseDown={handleDragStart}
+                          onTouchStart={handleTouchStart}
+                          className="absolute -inset-2 border-2 border-dashed border-sky-400 hover:border-sky-300 bg-sky-500/5 transition-colors cursor-move z-30 flex items-center justify-center rounded-xl"
+                          title="Ø§Ø³Ø­Ø¨ Ù„ØªØ­Ø±ÙŠÙƒ ÙˆØªØ¹Ø¯ÙŠÙ„ Ù…ÙˆØ¶Ø¹ Ø§Ù„ØªØ±ÙƒÙŠØ¨Ø© Ø¨Ø§Ø­ØªØ±Ø§ÙÙŠØ©"
+                        >
+                          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-sky-500/95 text-white whitespace-nowrap px-3 py-1 text-[11px] font-black rounded-lg shadow-xl flex items-center gap-1.5 select-none pointer-events-none">
+                            <span>ğŸŒŒ</span> Ø³Ø­Ø¨ Ù„ØªØ­Ø±ÙŠÙƒ Ø§Ù„ØªØ±ÙƒÙŠØ¨Ø©
+                          </div>
+
+                          {/* Corner handles */}
+                          <div className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
+                          <div className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
+                          <div className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
+                          <div className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-white border-2 border-sky-500 rounded-full shadow-md"></div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {watermark && (
+                    <div
+                      className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center p-0 transition-transform duration-200"
+                      style={{
+                        transform: `translate(${wmPos.x}px, ${wmPos.y}px)`,
                       }}
                     >
                       <img
-                        src={layer.url}
-                        className={`w-full h-full pointer-events-auto cursor-pointer ${selectedLayerId === layer.id ? "ring-2 ring-sky-500 shadow-glow-sky" : ""}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedLayerId(layer.id);
-                        }}
+                        src={watermark}
+                        className="object-contain filter drop-shadow-2xl opacity-70"
+                        style={{ width: `${wmScale * 100}%` }}
+                        alt="Watermark"
                       />
                     </div>
-                  ))}
+                  )}
+                  {/* Front Layers */}
+                  {customLayers
+                    .filter((l) => l.zIndexMode === "front")
+                    .map((layer) => (
+                      <div
+                        key={layer.id}
+                        className="absolute z-25 pointer-events-none transition-transform duration-200"
+                        style={{
+                          left: 0,
+                          top: 0,
+                          transform: `translate(${layer.x}px, ${layer.y}px)`,
+                          width: layer.width * layer.scale,
+                          height: layer.height * layer.scale,
+                        }}
+                      >
+                        <img
+                          src={layer.url}
+                          className={`w-full h-full pointer-events-auto cursor-pointer ${selectedLayerId === layer.id ? "ring-2 ring-sky-500 shadow-glow-sky" : ""}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedLayerId(layer.id);
+                          }}
+                        />
+                      </div>
+                    ))}
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
           {/* Quick Unified Controller Panel for Secondary Composition Group */}
           {activeCompositionId !== "main" && (
@@ -11165,7 +11173,6 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                       />
                     </div>
 
-
                     <button
                       type="button"
                       onClick={handleAutoCenterFitSvga}
@@ -12059,7 +12066,9 @@ export const Workspace: React.FC<WorkspaceProps> = ({
                       </div>
 
                       <button
-                        onClick={() => handleExportStandardVideo({ decrement: true })}
+                        onClick={() =>
+                          handleExportStandardVideo({ decrement: true })
+                        }
                         className="w-full py-5 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-black text-sm uppercase tracking-widest shadow-glow-red transition-all active:scale-95 flex items-center justify-center gap-3"
                       >
                         <span className="w-3 h-3 bg-white rounded-full animate-pulse"></span>
@@ -12615,7 +12624,6 @@ class _MyAppState extends State<MyApp> {
                       </span>
                     </div>
 
-
                     <button
                       type="button"
                       onClick={handleAutoCenterFitSvga}
@@ -13137,26 +13145,11 @@ class _MyAppState extends State<MyApp> {
                     <option value="Verdana">Verdana</option>
                     <option value="Tahoma">Tahoma</option>
                   </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] text-slate-400 uppercase font-black">
-                    Ø­Ø¬Ù… Ø§Ù„Ø®Ø· (Size)
-                  </label>
-                  <input
-                    type="number"
-                    value={textOptions.size}
-                    onChange={(e) =>
-                      setTextOptions((p) => ({
-     xœìÛrÛÆõİ_±eÓj
-$EUVD{dÉµ’í*¾Êã‰—ÀŠ„„[ğfœÆÔıŠN&ãÄm’qİL›~	ø7=» ±’vì±;AbØëÙ³ç~vÊ=årÙ[>“/çO`>$èjÇn_!åû-–»Øê%Y¯Ó¥%aÍ©°T·p\Å6i”zêQÇ²P³¥6-¬Ÿ¬Ô5Ôt}ƒøñÚk›!Y©hÈw;AÕj!¯¯Ö7P«($ı7á¯ÜNh™Q×!%Áô+çr…›+†Ù=w&_Åi`ëD¨•R~hmá&±ÒíH÷*š×¿ƒgá¨«š†:G|¹NÈ/¡Ñ£/GOPôÕèKı8ú2z}‹¢gPü$ú)Û®åúhíÚ¸ED»°¹Â ‚<µÀ#‹ôQ{€Y@©¨:qBØZ®ö|ìI@Ü4¯Jh#x0´NÁí}q5†G×¼Ğt ÌÚ‹É!×Ùnc§]²„çĞPNÍ$¼1VQ<Ö^‘w˜Å@¾´”e¢‹Î®İºhm ^Ş8é“ÉĞ‘á§uÔ†1·È˜	ø-ô±íÃ#½ã®¯z®I·[¶K¡Z0Eô,ú>z½ˆ	(ñ¯(ú	J=¥âî¶£Ï&€àäx&ÅÑı@Bseè%ct•N)¡4']m®P`r€Uæ¸;‹4ŠÒ1zÛn—øã’ª–T‰ôª”ëãmŠ—×‚º=&…Ye È¶TÜ	]ÆŒYö¤+–IÅİ–”Ü2¤SÒ©Év¡#Ó²%™\åOúî	G¥¬í"®¾7Iï‚Ûo”4¤¡ê*ü/k+[,v¾]À|¢=P	:ö%†q9DéöÇ°³sw¸ma»1¬Êx”>F£´¿Š*kİ
-®¡,YÓà·]Ñ&Ÿj­«VluU]·àÏª…{ëhİ†÷n¥*CÂ^Œ¨»-Yeôbô(úi¢UF¾®~Œü-eo¦bdÉüDêÉÖuâ…’IU×ÊoåSTÚ6ƒ8ò¦¨*É ¤tMPc"Ïéwp¾|O»/“Äô1B[.ÎÌáLåp9¤‡.A·V H…=x·²ëX.6 ·Bº35™Ô´[ñŒÌ8˜5¢RsÍ5Ó+iØä™¥i“'«@ÊÙ
-ôè¸É<è|ÒF7&óeŸ+D8 Œo:­âAfÌï/ıÙ
-vpˆoìqª*ê'—1RA¦~å¶a‘~ığC¤ÈÄB³†®SÄŸ–©Ÿ {R2)«²âD#°©¤N}ä(›¶=|7à&:Wâ“²š«ñØ¢ëêÅuVôuôOjÁÇ†|"¥"œãT<Ş’hi±G#)éè€Å¡R[ü€Äç©";T«s:>b¥:mg¾º3Ñ&úIÓíË0Ïê‰‘õ(Ì ¶3¯Cñ6İ	
-WÊ›ˆa/ôdÂ<şÁ*y«ÿ çxO¬XFìbYnO­ñ¹z'Ø 2ORê~Tígğ ÀN™ÌV“Z2Ï©%3z:ú^£¯¢¿ƒ	óÕvŠ­˜ÄâÕÄ‚QP—£*¹<”Fg©kr“ı…è“„¨Üù ÀWà³Ôe„U¨&æ# 5Ã˜œ+ˆ@Y AÎùô™›ûéóŠæÎ<¦Nê"¡…"qÀj‹¬ß·6(pN^Ïÿ§Ïb[-çw^+Tš…Uíû
-J¶å›ûC}ı€0æ‘kÜ…“oRpK&úZ2/‘r]c:@L’…bdµï°˜ôAD®î¼‹Z?mÑ@ûk«ÿ·n—p¿”¡ŞMÒş)wßEÒ¾ûî’öİ_H{v±XWLó èU„è¡Ú5â.²Ê¾…¨#{Díu<D;Ah’OŸ Ë˜]Bç¹×ñ-å#‡xƒÇé‚nëã¾m}Ò>Z[]¾~åjõppaµy»ßÑj&¾r é;nw¯fÔŒA½¶?¨wu[ïîoõö·Ï>4lİÜ½bx‡WÜëŸîö·w[øò-ï°ÚÖâï·ûƒÃÛWµíZ‡¶4w4s·zhšñ÷v¥«_¾tŒïÔ¡]oïx«²k®Ó1{wï¸»—ÿxv÷Dëíî\ìáİq¢õ÷··zÆñno×¼ğĞ¸òû.®Ş<»k^µí» ëUM·Ïú‡ŸæÆğq{]½vè\o5-İˆ“ßÒ÷rè›¶²„Î½†MÓÇë_o«‹\÷	SÎ½Lâƒ€S„ „°6Jo/¦â4¥á¾3}móW·yLIO™‰MaìUÀKhC¼<¹Å7N”P£oô˜&•À£{’JwÊ¸ÜÚÜ&*šb4ø,æ£Pdüò÷:g „gˆcp{-·õ²XX6–ˆàâK“LV*4¢%ØÑ4°}€–É®tê)%ÇRr.Ÿ_¤¨¦3NÓG{ô58‘ÿ%ù·úÅ!«™áä½åyÖ …“YxXã!˜ÚØ€×{ÚgÚg•º×ÿÌo5±R­­.W~wvy}Y+×—îOğ÷\M¢|L¾ã0Ÿ£›)YcÃŞt€Íî­Qe,?‹^FÏ£o¢(EÅhÏşTAæh.~aƒì»¶8If£9Ÿßìƒßh:, „ÂÌFÆX‹­wÁ¯á»”t|ª})/bTØn&è, †şvãUMË0Ü4@Tuıº‚é÷géÈ*(É”Øë©¶‘Sš19Ñ¦laìLl{©X¤È‘Ğ$aÀÀ)¡Ó,:yéÒ®Iç…rSF ”¢ç@EÏ¢r‚úêÙèR.-‚.¶§m±Í•víÕ%Ü¥,1Í!ßRz¡‰ÆÇVÚââJ’	Ï‘uÔVë"Wœı7ï=OÆ[hTJ³Üóç·ÈlÏ“Ó¦Ùì5TYß«¬£5x[³*U$ÎQÏ\	òÒsÊ/‘â^g*òaÕéÖ±)ü©ƒ}’±¥SF³HdÔgË´i±‘˜Ò"»ĞÂâ³ÔlpoJØŞ—Å”‹­Ã¢gÅ›ÇøK³†Ú±8®i’°,pCe¥ƒğz@½-ì«-&`S	ÁÑqìe”
-;.#®š?˜(¨[Ô±ÛÚõN3©®€*WÑt#>"m—si	&÷ÍV;œsn‹…³'g#NÏı@æß&Í3ÜÿCRQêÙvmÏ’ü”X : z-ÍÆiº_àv|Ú’~Â¼ºÈé™Ã‘Ç¸VBbóÅÃ‘ëÛÛÀ¾k	 a¡§F)ú*ú	Ü¤¿ å†ë-	µ#‰¨BĞ¬ÔÆPÖà~cXV!ñÃŠ¨*“êJcRiSƒ—Kı¸¨+‰å')Ÿ…úrôÌnåc‹Eğ3Ò{„ZñÛÃîè)¸6Ï¢HÙé°n™4y0Ká}›x=¦¡¤Pyºb¹ ~0Ë ~-Ô¾gÁ¢Å]©ÿ÷PÅÈü1"b[-Œƒ¤3‹åâ?q E€¸å¨yı;úØõsîŠ=ó7İá/CÒ÷\?<à‡ßjdgVÔ†§ëÎjÒÌuöŠ"7“HÍtlF1¡áœl¸„Sƒİ–aß’Ã+°Mãı¢Á~ôè›Ñ“è4iø«©=¢¡“Bi2^øº¦±PÊXN­8ñ™œš$=¡7½å
-S4¶¯4Æ£G9šæ5å'~D&¬,ıÉSŸ\‘~¢‡b¯9Ö@®ºÒ4ÌNm; ŒHÕLAªV^/MØÙÃiô \q²P¤Í¥e§$¾Øsvp×láĞõËºezMûF¹ç<4l®1#9SŒ-â‡J‰Ñ3ïËè{NÖŒ2JÂNBw(KÌ¦c˜-W]ÓR·aâ²)¹;QNÓğÌxÓ&†Ù±ç
-·sœ/¤¶ízÁÙÈ’8­ËQ#ˆcIÔ—Ô¦˜.¦‹¨åç&oûähŠ:¾•ß‡ìTÿÜ,#d˜DõeöT¢La?ki–’¤?C%¿Áy+ébj¥bIÀ“;1¢D1aY0Ùÿ˜Ë~¹Å¯nëÍ^…ĞĞ«ÍŠd&æW5-wg­şjF^ô_*9FŸ¿Ó%~ÛÜê¦{Ñ0Aú1;xÜÁ®y¼” íöX#V=ÁÅ¯~?Í´T°Š1­ºé[aò6UG¯òÄ•ôuRÛu­ìÈÿ¦A¸ÅJß`¸•kr±OôNHÆ6.[//;M-öºïê$L§Õ¦¿nÑ3"éñâ4*¬›ßXšÒ* ÃV²‚üí“¤¯Ü<Ø+ë ˜Cr……Ç×UR=N³3Û@W"UÆ—ÆëÙøŠlŒ?êCæGmŸ`˜•sâá9Åë>	ˆ£“	µ-7Íäh½Œ3ƒßÜc-nA5ñ3”Ì•À*´[#?R–iód¸7İAÄëÑŒÍ‡>Ú$ÄôPN™
-ğ²Ï7X)•ƒn—–Q©´tZ>\çAzŒ”½¹"ÄÈ˜÷ §Ÿœ9Ão”MG 6ĞÁzX¾´½Iw†ÙŠ©‹QÌP£×sèA0Z`›Næ÷ÓŸ4Zp>]Ä6ÒMÊÎº®i `çè=µ!Ÿw™Ï¶LçX¦#/³ñ Eey<:åÁƒ3ò(lbÂ
-Uótò6£ª@úN)ŠÏ¹Ü;;¹:Äâà))\ÏœPñ«ŸĞ[=àæ ,¥	•.w²é#1’Y§n,¥5uJâüUª=´ÉÍdj‹	3aixŞEğ¤xÆ	à†¿O7$Q*,º’aXL	ş$ß<Dÿ&%±™<wû3)P<ìäèöpú<â˜ò‡	Ûì’vÆ5KğÂê1ì†eèÜîgZÅÁÉ€m¦è|<cÁ/ÀZÿ  ÿÿ 8:òÿ
+     xœì[ërÛÆşï§Ø²i5’¢*+¢=¶ä‹ZÉvå»<d	¬HH¸ oæè‡SÛ“ºOÑÉdœ¸¹ŒëfÒôIÀ·éÙ]€ˆ]´cİ	‹Àîb÷ìÙóÛ._›+†Ù=sêšº6¡é‚+Ø&Ràa¨µR:“k­-Ü$Vº}Hú¡z¯¢yıûˆİ‰ºªi¨ãyÄ×q@Ğ¡ë„jÓÂú±°W„¢ï¢oGQôlô(ú>ú	)×ÍdIDÀ
+£@H›éxPØ}8ğ€T§c7‰_¶èb«CC:ƒ«^hºNP€„ac×Ùjc§í²„â)!ğÆ¤?Eñh[¤%Í*—ËŞ²´–Ò³®°I(¤b¿EÂ2#|IöÖÉ’ˆ‰P.,M-kO=ìXj¶ø²­Ô5Ôt}ƒøñÚk›!Y©hÈw;AÕj!¯¯Ö7P«\X“X(lävBËtˆê¸­ÁJï¶Ì¾=AÑ—£/Pôãè‹èEô“àÑ“èG¤l¹–ë£´cãÖÂ¢<5ÁC‹ôQ{ÀY`©¨:qBXZ®ö|ìIH,€D
+’)Æ„¬½X|òÀ@rY_³àâKIÛ@Yh½àá¸èìØ­Ör@àå­IŸÈ@&cGOë¨ÿb´ÈÀx}ì€@û°ÂHïøë«kÒå–­Rh†=Õù<z&HâßQô3”ş0zJÄ¯`G¯M ÁÉa&…è~ ‘9„2ò’æ1:‹J	RJhÍ)W›+”`•9tg™FY:foÛíc\RÕÒŠ*Ñ^•r}¼LñTceàZPB—Ç¤4«Œä Ù–Š;¡ËÀ˜…'E¬X'qw[RqËˆND§&[}„MËë&Ñ«ü
+Bß=æÌ¡’µU„zÀ½Izçİ~£¤!UWáY[Ùä`z°òíğqŠvÁ$èØk”Çå¥ÛÁÊÎıÂmÓÛaU†QzÒŞ*ª¬u+¸†j0eMƒßvE›<ªµ®Z±ÕUuİ‚?«6î®£uî»•ªœ	¼˜Pw[²ÊèÅèaôóÄªŒş}¨~@ş†Â›™YÇE:?Ñú 2Â‚uxa£dRÓµò{yÃ””¶MÃ ¼é¦jr'©\Ô˜èsúœ-ßÓîË41½ÌC¤Ğ–K…#$cøS=Ü@é¡‹ğÚ>+P¤Ê_üµ²ëX.6àm…tgNj2¨i·â™s0k0D_H5×H¯da“k–¥M®¬*g¿T`GÇMæaGàëT6º±pœ-û$èX!Â¾é´Š;™1F¼¾ôç\°C|s—KUÑ{r#udæWîÙ×?DŠL-4;aè:Eø´LıàYÑĞK&V\h>•4¡—œeÓ¾‡ïÜEçF|RVÓb3{ôc[½¸ÍŠ¾ŠşÅbPîÈ'úWªÂ9OÅı-‰¦G4’â™x*õ… Hb*²Cµ:gà#vQªÓ~æ«m¢7İ¾Œó¬ÙˆÂjÛóo3œ t¥¢‰˜öÂA Ì¬‚“·:‰r÷Ä‹eÂ> –åöÔ:ÿ¡«w‚ªó$¥îá!ğGÕ~ |á”Ë<šÔ“yN=™ÑÓÑ#¸¾Œş	.ÌTÛ.öb_T+FA]NªäúPšA@¥®É]ö7”J W’N zç?À. _ÌS—	V¡™˜;P@Ôgr®$½d‰9òé57úéõŠîÎ<®NLê"©…"uÀj‹¼ß·“6(N^/ş§×bK-Ç;¯ÍÂ*õ}#ÛòMƒı¡±~@xäw¡Ää›Ô'Ü“‰¾£ÌK¤ÜAW™‹d¡™Ãì%Ö…ØçéÎ»hõcÒM´¿¶ùÛév	ú¥€z7EûG¤Ü}Eûî»+ÚwíÙÅb[1°«ÑCµkÄ]d–}Ñ@öúë<y&È u‚Ğ<$>È˜]BÇ¹×ñ-å#‡xƒçé‚nëã¾m}Ò­­._»|¥z08¿Ú¼İïè4_Ş×ôm·»[3jÆ ^ÛÔ»º­w÷Îõö¶N?0lİÜ¹lx—÷İk×w{[;-|é–wPmkñóÇ[GıÁÁí+ÚŒv­Û
+šÛš¹S=°Ìøy«ÒÕ/]<ÂwöëĞ®·{t®²c®Ó>{wïì»;—ş|zçXëíl_èáíq¬õ÷¶ÎõŒ£Şyşqù]\½yzÇ¼bØwÖ+šnŸö®çúğ~{]½và\k5-İ¨“né}9ôM[YBg…QÃ¦i‹óõ¯7†€jÃ"×|Bsç¹—ˆC|PpŠ0€¶ÂFÉãíÅRœ–4ÜWc ÑÛ6¿u›GTôtĞ™Øæ^@XBâéÉ=¾ñF	uúFé¦DtORÛ2.7wÚDES@ó g1B‘óËïë@	fˆcp-·ô²\X6–¨à}â¤É¦+šÑ¬hšØ>PËtWzë)¥ÇRz.¿¿$Ø¢šŞqš^è<Û£¯ ˆü/ÉäØ/NYÍäïsgR<™Å‡µ1R‰‰ ¸½§}ª}Z©{ıOıV+ÕÚêrå§—×—µr}éş„ñ›«I–é×bæ÷èfjÖØ±7€Ù½5ê£ÌÁågÑËèyôuô…AQÆPÌöœàOdAæâ»á!6Èk`‹‹d6Ë‘‹ùÍ>Ä¦Ã@è¬ÀlfŒ­Ø: ~ßõ ¤ãSëK±ˆ09à»™`³€úkt@ÙQW5-¸i‚¨éúmÓÿîÏ²‘U0’)µ×Sm#g4cq¢MÙÄØ™XöR±J‘3¡IÂSJ§Y tòÚ¥]“Î)	å®ŒÀ(EÏAŠEÿ=åõÔ³ÑC¤\0Z]nOûb›+íÚ«k¸‹YašC¿¥ìB=“½´ÅÕ•d'<ãDÖQ[­‹L\ñî÷¼ûŞóìxJé.÷üûÛìlÏ³§Mw³×Pe}·²ÖànÍªT‘xZxæJ°/=§şîµñNE>­:İ:v¥ƒ¿t°O2¾tÊi©Œúl6­6WZäZx@|¶5Ü›R¶÷e9åbï°¨Ç™gñæqşÒ°ÃP;VÇ5M’öÂa¨, ´qpÌŞ@ŸÑhûjËÇ†	ÜTBt\{¥ÒËˆ›æ&ê,Á·v½“ßMª+`ÊU4İˆ÷HÛ¥ú\ZF‚Á}³ÕçÛ"‡áìÁYÓc&‹ˆo“æ±îıÊ!)‡¨ôl¹¶ç‚HJ,€¼–fó4ı^àv|ú’÷„ûê¢ g8DãZ(‰Í”‡®oo}×ÂRORôeô3„ICÊ×[ZGI… 5x©¡&¬ÁıÆ°.¬
+Bâ5†QU*'Õ•æ¤Ò®'/·õän ®$[”Xd|bêËÑCp»•ó‹ğ5Ò{ÄZNñÛãîè)„6Ï¢HÙí°o™6y8Ké}›|=¦©¤ìS}ºc¹~8Ë~-Ö¾gÉ¢ÅC©ÿ÷TåÈü9"b[K-Ìƒäe–'Êåâ$A‹ qË9Xó<ú)úàú9ÅÇ‘ùÉîğ›!é{®îóÃŒo5³3+kÃ·ëNkÒìen&™šéÜŒ cBÓ9Ùt	—»	aÏ’Ã+°Lñ‡dÏiò„=úzô$ú–nşfjhê¤P›Œ'¾®i,%”
+EAP+ŞøLNM6=ám{ËnuÒÜb<°Fs2'Ü×”Ÿø¹°²íO¾õIÉÙ'z(öªcä¦+-ÃìÔ¶ÄˆLÍ¥jåõ¶	;{8€+Ş,YséAÙ)/œÜ5[8tı²n™^ÓÅ¾Qîù@M›+BÎHÎc‹ø¡Rbòâû2ú‹5“Œ’ğ%a8”fÓ1Ì–«®i©¯aâ²)½;1NÓøÌ°iÃìØs¥Û¹Î—RÛr½àldI¼­ËY#ÈcIÌ—Ô§˜.¦“¨åsƒ·}r8ƒoåÔ!;Õ?7d„€IL_fM%ÆÖ³–Va)Múl ä8ï%]HÍTì"	0¹3J”‰Óı¹î—«Püê¾ŞìY½Ú¬Lfâşq3QÓrß¬Õ_ÍÉ‹şK5Çèó7âºÄw›ç:†é^0LĞ~Ì¿`W=QJĞv{¬«pŒò×HŠ¿×3-•Cl$ÅbL«núVc˜ÜMÕÑOyâJz;©íºVVdÈÓ$Üb%Iì4ÜÊ5¹Ğ'z'$c—Í——¤&{Íwu¦ÓjÓO·è‘tñ6*Ì›±4eU€†sÉò_Ÿ$µ0yåæşnYÃ’«,-<ş\%õÆIvdäJdÊøÔx=ë_‘õñ'BcÈ|²åt³rf"<|OñšOâèd"mCËC39ZA?Æ™ÎÁoî²· šøIæ• úZ#ßS´y1Ü~A„uÊhóágmbz(§LxÙç¬”ÊA·…KË¨TZ:)®óYº”÷½¹"äÈ{ÀÎ“ONâ_”Mg 6Ğ>ÁzX¾¸µIW†ùŠ©£˜£F?Ï¡Áhm:™GÜO?ÒlÁÙtA’#Ø@J7)g<ëº¦„¡ß©ù¸Ë|´e:Æ2íy™õ-*ËãĞ	Oœ’gaVhš§7o3¦
+´ïä˜¢øœË½Ó“O‡X<¥…ë™Š ~õcúUEĞ„¥´ ÒéNÖ/}$F2êÔKiKÒø@•Zmòe2õÅ„;aizßEô¤x&à¿O$1*,»’nXN	ş$Ï<‘Dÿ&%q<÷õgR xØÈE°íáôyÄ1ò‡	Ûì#íLh–ğ…ÕcX-ÓĞ¹ßÏ>hÇ¶˜¢óñ‚1_ Zÿ  ÿÿ Ïœ[
