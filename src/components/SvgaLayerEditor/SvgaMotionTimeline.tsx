@@ -661,27 +661,61 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
 
                   {/* Track 3: Scale (ScaleX, ScaleY) */}
                   {motionConfig.showScale && (
-                    <div className="h-8 px-3 border-b border-white/5 flex items-center justify-between bg-slate-900/20 text-slate-300">
-                      <span className="font-semibold text-slate-400 flex items-center gap-1.5 pl-4">
-                        <Maximize2 size={11} className="text-emerald-400" />
-                        <span>Scale</span>
-                      </span>
-                      <div className="flex items-center gap-1 text-[10px]">
-                        <span className="text-slate-500">SX:</span>
-                        <input
-                          type="number"
-                          value={Math.round((currentAnimatedTransform?.scaleX || 1) * 100)}
-                          onChange={(e) => handleLivePropChange('scaleX', (parseFloat(e.target.value) || 100) / 100)}
-                          className="w-10 bg-black/40 border border-white/10 rounded px-1 text-center text-white"
-                        />
-                        <span className="text-slate-500">%</span>
-                        <button
-                          onClick={() => handleAddKeyframe('scale')}
-                          className="p-1 hover:text-emerald-300 text-slate-500"
-                          title="إضافة فريم تكبير"
-                        >
-                          <Diamond size={11} />
-                        </button>
+                    <div className="h-[88px] p-3 border-b border-white/5 flex flex-col justify-between bg-slate-900/20 text-slate-300">
+                      <div className="flex items-center justify-between w-full">
+                        <span className="font-semibold text-slate-400 flex items-center gap-1.5 pl-4">
+                          <Maximize2 size={11} className="text-emerald-400" />
+                          <span>Scale</span>
+                        </span>
+                        <div className="flex items-center gap-1 text-[10px]">
+                          <span className="text-slate-500">SX:</span>
+                          <input
+                            type="number"
+                            value={Math.round((currentAnimatedTransform?.scaleX || 1) * 100)}
+                            onChange={(e) => handleLivePropChange('scaleX', (parseFloat(e.target.value) || 100) / 100)}
+                            className="w-10 bg-black/40 border border-white/10 rounded px-1 text-center text-white"
+                          />
+                          <span className="text-slate-500">%</span>
+                          <button
+                            onClick={() => handleAddKeyframe('scale')}
+                            className="p-1 hover:text-emerald-300 text-slate-500"
+                            title="إضافة فريم تكبير"
+                          >
+                            <Diamond size={11} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <input
+                        type="range"
+                        min="10"
+                        max="300"
+                        value={Math.round(Math.abs(currentAnimatedTransform?.scaleX || 1) * 100)}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) / 100;
+                          handleLivePropChange('scaleX', val);
+                          handleLivePropChange('scaleY', val);
+                        }}
+                        className="w-full accent-emerald-500 cursor-pointer h-1.5 mt-1"
+                      />
+
+                      <div className="flex items-center justify-between gap-1 w-full mt-1.5">
+                        {[50, 75, 100, 150, 200].map(p => (
+                          <button
+                            key={p}
+                            onClick={() => {
+                              handleLivePropChange('scaleX', p / 100);
+                              handleLivePropChange('scaleY', p / 100);
+                            }}
+                            className={`flex-1 py-0.5 rounded text-[9px] font-mono transition-colors ${
+                              Math.round(Math.abs(currentAnimatedTransform?.scaleX || 1) * 100) === p
+                                ? 'bg-emerald-600 text-white font-bold'
+                                : 'bg-white/5 hover:bg-white/10 text-slate-400'
+                            }`}
+                          >
+                            {p}%
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}
@@ -866,7 +900,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
                     {/* Track 3: Scale Keyframes */}
                     {motionConfig.showScale && (
                       <div 
-                        className="h-8 border-b border-white/5 relative flex items-center bg-slate-900/10 hover:bg-white/5 transition-colors cursor-crosshair"
+                        className="h-[88px] border-b border-white/5 relative flex items-start pt-[14px] bg-slate-900/10 hover:bg-white/5 transition-colors cursor-crosshair"
                         onDoubleClick={(e) => {
                           handleTimelineRulerClick(e as any);
                           handleAddKeyframe('scale');
@@ -882,7 +916,7 @@ export const SvgaMotionTimeline: React.FC<SvgaMotionTimelineProps> = ({
                               className={`absolute -translate-x-1/2 cursor-pointer z-30 transition-transform ${
                                 isSelected ? 'scale-125 z-40' : 'hover:scale-110'
                               }`}
-                              style={{ left: `${pct}%` }}
+                              style={{ left: `${pct}%`, top: '14px' }}
                               title={`Scale Keyframe: F${kf.frame}`}
                             >
                               <div className={`w-3 h-3 rotate-45 rounded-xs shadow-md border ${
